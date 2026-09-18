@@ -2,6 +2,19 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { accountsApi, businessesApi, departmentsApi, type Account, type Business, type Department } from '../../api/dimensions'
 import { factsApi } from '../../api/facts'
+import {
+  buttonPrimary,
+  buttonSecondary,
+  errorText,
+  fieldset,
+  input,
+  label,
+  legend,
+  link,
+  mutedText,
+  pageHeading,
+  select,
+} from '../../lib/ui'
 import { periodsApi, type Period } from '../../api/periods'
 import { scenarioVersionsApi, type ScenarioType, type ScenarioVersion } from '../../api/scenarios'
 import { useAuth } from '../auth/useAuth'
@@ -109,49 +122,52 @@ export function EntryPage() {
   }
 
   return (
-    <div style={{ maxWidth: 560, margin: '40px auto' }}>
-      <p>
-        <Link to="/">← ダッシュボード</Link>
+    <div className="mx-auto mt-10 max-w-xl px-4">
+      <p className="mb-4">
+        <Link to="/" className={link}>
+          ← ダッシュボード
+        </Link>
       </p>
-      <h1>データ入力（簡易フォーム）</h1>
+      <h1 className={pageHeading}>データ入力（簡易フォーム）</h1>
 
-      <fieldset>
-        <legend>対象バージョン</legend>
-        <label>
-          種別{' '}
-          <select value={scenarioType} onChange={(e) => setScenarioType(e.target.value as ScenarioType)}>
-            <option value="budget">予算</option>
-            <option value="forecast">見込</option>
-            <option value="actual">実績</option>
-          </select>
-        </label>{' '}
-        <label>
-          会計年度{' '}
-          <input
-            type="number"
-            value={fiscalYear}
-            onChange={(e) => setFiscalYear(Number(e.target.value))}
-            style={{ width: 80 }}
-          />
-        </label>
-
-        <div style={{ marginTop: 8 }}>
-          <label>
-            バージョン{' '}
-            <select value={versionId} onChange={(e) => setVersionId(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">選択してください</option>
-              {versions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.version_label} {v.is_current ? '（現行）' : ''}
-                </option>
-              ))}
+      <fieldset className={fieldset}>
+        <legend className={legend}>対象バージョン</legend>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className={label}>
+            種別
+            <select className={select} value={scenarioType} onChange={(e) => setScenarioType(e.target.value as ScenarioType)}>
+              <option value="budget">予算</option>
+              <option value="forecast">見込</option>
+              <option value="actual">実績</option>
             </select>
+          </label>
+          <label className={label}>
+            会計年度
+            <input
+              type="number"
+              className={`${input} w-24`}
+              value={fiscalYear}
+              onChange={(e) => setFiscalYear(Number(e.target.value))}
+            />
           </label>
         </div>
 
+        <label className={label}>
+          バージョン
+          <select className={select} value={versionId} onChange={(e) => setVersionId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">選択してください</option>
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.version_label} {v.is_current ? '（現行）' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {canCreateVersion && (
-          <form onSubmit={handleCreateVersion} style={{ marginTop: 8 }}>
+          <form onSubmit={handleCreateVersion} className="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
             <input
+              className={input}
               placeholder={`新しい${SCENARIO_LABELS[scenarioType]}バージョン名`}
               value={newVersionLabel}
               onChange={(e) => setNewVersionLabel(e.target.value)}
@@ -159,6 +175,7 @@ export function EntryPage() {
             />
             {scenarioType === 'forecast' && (
               <select
+                className={select}
                 value={newVersionAsOfPeriodId}
                 onChange={(e) => setNewVersionAsOfPeriodId(e.target.value ? Number(e.target.value) : '')}
                 required
@@ -171,18 +188,20 @@ export function EntryPage() {
                 ))}
               </select>
             )}
-            <button type="submit">バージョンを作成</button>
+            <button type="submit" className={buttonSecondary}>
+              バージョンを作成
+            </button>
           </form>
         )}
       </fieldset>
 
-      <form onSubmit={handleSubmitEntry} style={{ marginTop: 16 }}>
-        <fieldset>
-          <legend>入力</legend>
+      <form onSubmit={handleSubmitEntry} className="mt-4">
+        <fieldset className={fieldset}>
+          <legend className={legend}>入力</legend>
           <div>
-            <label>
-              事業{' '}
-              <select value={businessId} onChange={(e) => setBusinessId(e.target.value ? Number(e.target.value) : '')}>
+            <label className={label}>
+              事業
+              <select className={select} value={businessId} onChange={(e) => setBusinessId(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">選択してください</option>
                 {businesses.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -193,9 +212,10 @@ export function EntryPage() {
             </label>
           </div>
           <div>
-            <label>
-              部門{' '}
+            <label className={label}>
+              部門
               <select
+                className={select}
                 value={departmentId}
                 onChange={(e) => setDepartmentId(e.target.value ? Number(e.target.value) : '')}
               >
@@ -209,9 +229,9 @@ export function EntryPage() {
             </label>
           </div>
           <div>
-            <label>
-              勘定科目{' '}
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : '')}>
+            <label className={label}>
+              勘定科目
+              <select className={select} value={accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">選択してください</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -222,9 +242,9 @@ export function EntryPage() {
             </label>
           </div>
           <div>
-            <label>
-              期間{' '}
-              <select value={periodId} onChange={(e) => setPeriodId(e.target.value ? Number(e.target.value) : '')}>
+            <label className={label}>
+              期間
+              <select className={select} value={periodId} onChange={(e) => setPeriodId(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">選択してください</option>
                 {periodsInYear.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -235,17 +255,30 @@ export function EntryPage() {
             </label>
           </div>
           <div>
-            <label>
-              金額{' '}
-              <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+            <label className={label}>
+              金額
+              <input
+                type="number"
+                step="0.01"
+                className={`${input} w-40`}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+              />
             </label>
           </div>
-          <button type="submit">保存</button>
+          <button type="submit" className={buttonPrimary}>
+            保存
+          </button>
         </fieldset>
       </form>
 
-      {message && <p>{message}</p>}
-      {error && <p role="alert">{error}</p>}
+      {message && <p className={mutedText}>{message}</p>}
+      {error && (
+        <p role="alert" className={errorText}>
+          {error}
+        </p>
+      )}
     </div>
   )
 }

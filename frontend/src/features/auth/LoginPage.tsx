@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '../../api/client'
+import { buttonPrimary, errorText, input, label, pageHeading } from '../../lib/ui'
 import { useAuth } from './useAuth'
 
 export function LoginPage() {
@@ -26,31 +27,41 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ maxWidth: 320, margin: '80px auto' }}>
-      <h1>ログイン</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="email">メールアドレス</label>
+    <div className="mx-auto mt-24 max-w-xs px-4">
+      <h1 className={pageHeading}>ログイン</h1>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="email" className={label}>
+            メールアドレス
+          </label>
           <input
             id="email"
             type="email"
+            className={input}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
         </div>
-        <div>
-          <label htmlFor="password">パスワード</label>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="password" className={label}>
+            パスワード
+          </label>
           <input
             id="password"
             type="password"
+            className={input}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </div>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={submitting}>
+        {error && (
+          <p role="alert" className={errorText}>
+            {error}
+          </p>
+        )}
+        <button type="submit" className={buttonPrimary} disabled={submitting}>
           {submitting ? 'ログイン中...' : 'ログイン'}
         </button>
       </form>
