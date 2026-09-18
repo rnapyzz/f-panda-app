@@ -13,6 +13,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/assignment"
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
 	"github.com/rnapyzz/f-panda-app/backend/internal/config"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
@@ -62,6 +64,8 @@ func run() error {
 	factSvc := fact.NewService(queries, scenarioSvc)
 	inputSheetSvc := inputsheet.NewService(sqlDB, queries)
 	importerSvc := importer.NewService(sqlDB, queries)
+	assignmentSvc := assignment.NewService(queries)
+	auditSvc := audit.NewService(queries)
 
 	spaHandler, err := web.Handler()
 	if err != nil {
@@ -75,6 +79,8 @@ func run() error {
 		Facts:       factSvc,
 		InputSheets: inputSheetSvc,
 		Importer:    importerSvc,
+		Assignments: assignmentSvc,
+		Audit:       auditSvc,
 		SPAHandler:  spaHandler,
 	})
 

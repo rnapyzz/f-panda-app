@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
+	"github.com/rnapyzz/f-panda-app/backend/internal/httpx"
 )
 
 func (s *Service) UpsertEntryHandler(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +48,21 @@ func (s *Service) UpsertEntryHandler(w http.ResponseWriter, r *http.Request) {
 		slog.Error("upsert fact entry failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// fact_amount has no single-column id here (it's keyed by the
+	// scenario_version/business/department/account/period tuple), so the
+	// audit row carries that tuple in Detail instead of EntityID.
+	if err := audit.Record(r.Context(), s.Queries, audit.Params{
+		UserID: &user.ID, Action: audit.ActionUpdate, EntityType: audit.EntityFactAmount,
+		Detail: map[string]any{
+			"scenario_version_id": req.ScenarioVersionID, "business_id": req.BusinessID,
+			"department_id": req.DepartmentID, "account_id": req.AccountID, "period_id": req.PeriodID,
+			"amount": req.Amount,
+		},
+		IPAddress: httpx.ClientIP(r),
+	}); err != nil {
+		slog.Error("audit log write failed", "error", err, "action", audit.ActionUpdate, "entity_type", audit.EntityFactAmount)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -136,6 +136,12 @@ func (s *Service) clearCookie(w http.ResponseWriter, name string, httpOnly bool)
 	})
 }
 
+// ListUsers is used by the Phase 4 user-assignment admin UI to populate the
+// "assign this field user" picker.
+func (s *Service) ListUsers(ctx context.Context) ([]db.ListUsersRow, error) {
+	return s.Queries.ListUsers(ctx)
+}
+
 // HashPassword is exposed for the user-seeding tool.
 func HashPassword(plain string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 )
 
@@ -141,6 +142,11 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 	}
 
 	factRowsWritten := 0
+	// Deduplicated (business_id, department_id) pairs actually written by
+	// this submission, for submission_scope: when the binding's row/col axis
+	// is business or department, a single submission can cover more than
+	// one scope (a different id is resolved per row/col label).
+	scopeSet := map[[2]uint64]struct{}{}
 	if len(issues) == 0 {
 		for r := binding.StartRow + int32(binding.HeaderRows); r <= binding.EndRow; r++ {
 			rowIdx := r - binding.StartRow - int32(binding.HeaderRows)
@@ -167,6 +173,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 				if key.BusinessID == nil || key.DepartmentID == nil || key.AccountID == nil || key.PeriodID == nil {
 					return SubmitResult{}, fmt.Errorf("binding %d: %w (row %d col %d)", binding.ID, errIncompleteDimensionKey, r, c)
 				}
+				scopeSet[[2]uint64{*key.BusinessID, *key.DepartmentID}] = struct{}{}
 
 				if err := qtx.UpsertFactAmountFromSubmission(ctx, db.UpsertFactAmountFromSubmissionParams{
 					ScenarioVersionID: in.ScenarioVersionID,
@@ -183,6 +190,31 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 				factRowsWritten++
 			}
 		}
+
+		// submission_scope is written under the same "issues == 0" gate as
+		// fact_amount above: a submission that fails the shape check writes
+		// neither.
+		for pair := range scopeSet {
+			if err := qtx.CreateSubmissionScope(ctx, db.CreateSubmissionScopeParams{
+				SubmissionID: uint64(submissionID), BusinessID: pair[0], DepartmentID: pair[1],
+			}); err != nil {
+				return SubmitResult{}, fmt.Errorf("write submission scope: %w", err)
+			}
+		}
+	}
+
+	// Unlike submission_scope, the audit log records the submit action
+	// unconditionally — a failed (validation error) submission is still
+	// something 事務局 should be able to trace, not just successful ones.
+	sid := uint64(submissionID)
+	if err := audit.Record(ctx, qtx, audit.Params{
+		UserID: &in.SubmittedBy, Action: audit.ActionSubmit, EntityType: audit.EntitySubmission, EntityID: &sid,
+		Detail: map[string]any{
+			"binding_id": in.BindingID, "scenario_version_id": in.ScenarioVersionID,
+			"validation_status": string(validationStatus), "fact_rows_written": factRowsWritten, "issues_count": len(issues),
+		},
+	}); err != nil {
+		return SubmitResult{}, fmt.Errorf("write audit log: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
