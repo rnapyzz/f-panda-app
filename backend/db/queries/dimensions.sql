@@ -1,0 +1,32 @@
+-- name: ListBusinesses :many
+SELECT id, code, name, is_active, created_at, updated_at
+FROM dim_business
+ORDER BY code;
+
+-- name: CreateBusiness :execlastid
+INSERT INTO dim_business (code, name) VALUES (?, ?);
+
+-- name: UpdateBusiness :exec
+UPDATE dim_business SET code = ?, name = ?, is_active = ? WHERE id = ?;
+
+-- name: ListDepartments :many
+SELECT id, code, name, is_active, created_at, updated_at
+FROM dim_department
+ORDER BY code;
+
+-- name: CreateDepartment :execlastid
+INSERT INTO dim_department (code, name) VALUES (?, ?);
+
+-- name: UpdateDepartment :exec
+UPDATE dim_department SET code = ?, name = ?, is_active = ? WHERE id = ?;
+
+-- name: ListAccounts :many
+SELECT id, code, name, account_type, is_active, created_at, updated_at
+FROM dim_account
+ORDER BY code;
+
+-- name: CreateAccount :execlastid
+INSERT INTO dim_account (code, name, account_type) VALUES (?, ?, ?);
+
+-- name: UpdateAccount :exec
+UPDATE dim_account SET code = ?, name = ?, account_type = ?, is_active = ? WHERE id = ?;

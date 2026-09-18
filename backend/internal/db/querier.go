@@ -9,14 +9,31 @@ import (
 )
 
 type Querier interface {
+	CreateAccount(ctx context.Context, arg CreateAccountParams) (int64, error)
+	CreateBusiness(ctx context.Context, arg CreateBusinessParams) (int64, error)
+	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (int64, error)
+	CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteSession(ctx context.Context, tokenHash string) error
+	GetCurrentScenarioVersion(ctx context.Context, arg GetCurrentScenarioVersionParams) (ScenarioVersion, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (UserSession, error)
 	GetUserByEmail(ctx context.Context, email string) (AppUser, error)
 	GetUserByID(ctx context.Context, id uint64) (AppUser, error)
+	ListAccounts(ctx context.Context) ([]DimAccount, error)
+	ListBusinesses(ctx context.Context) ([]DimBusiness, error)
+	ListDepartments(ctx context.Context) ([]DimDepartment, error)
+	ListFactAmountsByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListFactAmountsByScenarioVersionRow, error)
+	ListPeriods(ctx context.Context) ([]DimPeriod, error)
+	ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ScenarioVersion, error)
 	TouchSession(ctx context.Context, tokenHash string) error
+	UnsetCurrentScenarioVersions(ctx context.Context, arg UnsetCurrentScenarioVersionsParams) error
+	UpdateAccount(ctx context.Context, arg UpdateAccountParams) error
+	UpdateBusiness(ctx context.Context, arg UpdateBusinessParams) error
+	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) error
+	UpsertFactAmount(ctx context.Context, arg UpsertFactAmountParams) error
+	UpsertPeriod(ctx context.Context, arg UpsertPeriodParams) error
 }
 
 var _ Querier = (*Queries)(nil)

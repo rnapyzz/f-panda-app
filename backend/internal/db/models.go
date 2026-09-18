@@ -53,6 +53,178 @@ func (ns NullAppUserRole) Value() (driver.Value, error) {
 	return string(ns.AppUserRole), nil
 }
 
+type DimAccountAccountType string
+
+const (
+	DimAccountAccountTypeRevenue DimAccountAccountType = "revenue"
+	DimAccountAccountTypeCost    DimAccountAccountType = "cost"
+	DimAccountAccountTypeOther   DimAccountAccountType = "other"
+)
+
+func (e *DimAccountAccountType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DimAccountAccountType(s)
+	case string:
+		*e = DimAccountAccountType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DimAccountAccountType: %T", src)
+	}
+	return nil
+}
+
+type NullDimAccountAccountType struct {
+	DimAccountAccountType DimAccountAccountType `json:"dim_account_account_type"`
+	Valid                 bool                  `json:"valid"` // Valid is true if DimAccountAccountType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDimAccountAccountType) Scan(value interface{}) error {
+	if value == nil {
+		ns.DimAccountAccountType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DimAccountAccountType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDimAccountAccountType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DimAccountAccountType), nil
+}
+
+type FactAmountSourceType string
+
+const (
+	FactAmountSourceTypeManualEntry  FactAmountSourceType = "manual_entry"
+	FactAmountSourceTypeSheetBinding FactAmountSourceType = "sheet_binding"
+	FactAmountSourceTypeCsvImport    FactAmountSourceType = "csv_import"
+)
+
+func (e *FactAmountSourceType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = FactAmountSourceType(s)
+	case string:
+		*e = FactAmountSourceType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for FactAmountSourceType: %T", src)
+	}
+	return nil
+}
+
+type NullFactAmountSourceType struct {
+	FactAmountSourceType FactAmountSourceType `json:"fact_amount_source_type"`
+	Valid                bool                 `json:"valid"` // Valid is true if FactAmountSourceType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullFactAmountSourceType) Scan(value interface{}) error {
+	if value == nil {
+		ns.FactAmountSourceType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.FactAmountSourceType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullFactAmountSourceType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.FactAmountSourceType), nil
+}
+
+type ScenarioVersionScenarioType string
+
+const (
+	ScenarioVersionScenarioTypeBudget   ScenarioVersionScenarioType = "budget"
+	ScenarioVersionScenarioTypeForecast ScenarioVersionScenarioType = "forecast"
+	ScenarioVersionScenarioTypeActual   ScenarioVersionScenarioType = "actual"
+)
+
+func (e *ScenarioVersionScenarioType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScenarioVersionScenarioType(s)
+	case string:
+		*e = ScenarioVersionScenarioType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScenarioVersionScenarioType: %T", src)
+	}
+	return nil
+}
+
+type NullScenarioVersionScenarioType struct {
+	ScenarioVersionScenarioType ScenarioVersionScenarioType `json:"scenario_version_scenario_type"`
+	Valid                       bool                        `json:"valid"` // Valid is true if ScenarioVersionScenarioType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScenarioVersionScenarioType) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScenarioVersionScenarioType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScenarioVersionScenarioType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScenarioVersionScenarioType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScenarioVersionScenarioType), nil
+}
+
+type ScenarioVersionStatus string
+
+const (
+	ScenarioVersionStatusDraft     ScenarioVersionStatus = "draft"
+	ScenarioVersionStatusSubmitted ScenarioVersionStatus = "submitted"
+	ScenarioVersionStatusLocked    ScenarioVersionStatus = "locked"
+)
+
+func (e *ScenarioVersionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScenarioVersionStatus(s)
+	case string:
+		*e = ScenarioVersionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScenarioVersionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullScenarioVersionStatus struct {
+	ScenarioVersionStatus ScenarioVersionStatus `json:"scenario_version_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if ScenarioVersionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScenarioVersionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScenarioVersionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScenarioVersionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScenarioVersionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScenarioVersionStatus), nil
+}
+
 type AppUser struct {
 	ID           uint64      `json:"id"`
 	Email        string      `json:"email"`
@@ -62,6 +234,75 @@ type AppUser struct {
 	IsActive     bool        `json:"is_active"`
 	CreatedAt    time.Time   `json:"created_at"`
 	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
+type DimAccount struct {
+	ID          uint64                `json:"id"`
+	Code        string                `json:"code"`
+	Name        string                `json:"name"`
+	AccountType DimAccountAccountType `json:"account_type"`
+	IsActive    bool                  `json:"is_active"`
+	CreatedAt   time.Time             `json:"created_at"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+}
+
+type DimBusiness struct {
+	ID        uint64    `json:"id"`
+	Code      string    `json:"code"`
+	Name      string    `json:"name"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type DimDepartment struct {
+	ID        uint64    `json:"id"`
+	Code      string    `json:"code"`
+	Name      string    `json:"name"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type DimPeriod struct {
+	ID            uint64    `json:"id"`
+	FiscalYear    int16     `json:"fiscal_year"`
+	FiscalMonth   int8      `json:"fiscal_month"`
+	CalendarYear  int16     `json:"calendar_year"`
+	CalendarMonth int8      `json:"calendar_month"`
+	StartDate     time.Time `json:"start_date"`
+	EndDate       time.Time `json:"end_date"`
+	Label         string    `json:"label"`
+}
+
+type FactAmount struct {
+	ID                uint64               `json:"id"`
+	ScenarioVersionID uint64               `json:"scenario_version_id"`
+	BusinessID        uint64               `json:"business_id"`
+	DepartmentID      uint64               `json:"department_id"`
+	AccountID         uint64               `json:"account_id"`
+	PeriodID          uint64               `json:"period_id"`
+	Amount            string               `json:"amount"`
+	SourceType        FactAmountSourceType `json:"source_type"`
+	SubmissionID      sql.NullInt64        `json:"submission_id"`
+	ImportBatchID     sql.NullInt64        `json:"import_batch_id"`
+	CreatedBy         uint64               `json:"created_by"`
+	CreatedAt         time.Time            `json:"created_at"`
+	UpdatedAt         time.Time            `json:"updated_at"`
+}
+
+type ScenarioVersion struct {
+	ID           uint64                      `json:"id"`
+	ScenarioType ScenarioVersionScenarioType `json:"scenario_type"`
+	FiscalYear   int16                       `json:"fiscal_year"`
+	AsOfPeriodID sql.NullInt64               `json:"as_of_period_id"`
+	VersionLabel string                      `json:"version_label"`
+	Status       ScenarioVersionStatus       `json:"status"`
+	IsCurrent    bool                        `json:"is_current"`
+	CreatedBy    uint64                      `json:"created_by"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	SubmittedAt  sql.NullTime                `json:"submitted_at"`
+	LockedAt     sql.NullTime                `json:"locked_at"`
 }
 
 type UserSession struct {
