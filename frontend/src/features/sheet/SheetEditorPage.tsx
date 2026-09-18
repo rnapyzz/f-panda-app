@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { accountsApi, businessesApi, departmentsApi, type Account, type Business, type Department } from '../../api/dimensions'
+import { ApiError } from '../../api/client'
 import { sheetsApi, submissionsApi, type Binding, type SubmitResult } from '../../api/inputsheet'
 import { periodsApi, type Period } from '../../api/periods'
-import { scenarioVersionsApi, type ScenarioType, type ScenarioVersion } from '../../api/scenarios'
+import type { ScenarioType } from '../../api/scenarios'
+import { useScenarioVersions } from '../../hooks/useScenarioVersions'
 import {
   buttonPrimary,
   buttonSecondary,
@@ -42,8 +44,7 @@ export function SheetEditorPage() {
 
   const [scenarioType, setScenarioType] = useState<ScenarioType>('budget')
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear)
-  const [versions, setVersions] = useState<ScenarioVersion[]>([])
-  const [versionId, setVersionId] = useState<number | ''>('')
+  const { versions, versionId, setVersionId } = useScenarioVersions(scenarioType, fiscalYear)
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,21 +75,6 @@ export function SheetEditorPage() {
     void reloadBindings()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId])
-
-  async function reloadVersions() {
-    try {
-      const list = await scenarioVersionsApi.list(scenarioType, fiscalYear)
-      setVersions(list)
-      const current = list.find((v) => v.is_current)
-      setVersionId(current?.id ?? '')
-    } catch {
-      setError('バージョン一覧の取得に失敗しました')
-    }
-  }
-  useEffect(() => {
-    void reloadVersions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarioType, fiscalYear])
 
   async function handleSave() {
     setError(null)
@@ -126,8 +112,8 @@ export function SheetEditorPage() {
     try {
       const result = await submissionsApi.submit(bindingId, versionId)
       setSubmitResult(result)
-    } catch {
-      setError('提出に失敗しました')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '提出に失敗しました')
     }
   }
 

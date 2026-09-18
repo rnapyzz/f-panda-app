@@ -3,12 +3,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   BarChart3,
   Database,
+  History,
   LayoutDashboard,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  PencilLine,
   Table2,
   Upload,
   X,
@@ -24,12 +24,21 @@ interface NavItem {
   end?: boolean
 }
 
-const baseNavItems: NavItem[] = [
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const businessNavItems: NavItem[] = [
   { to: '/', label: 'ホーム', icon: LayoutDashboard, end: true },
-  { to: '/dimensions', label: 'ディメンションマスタ管理', icon: Database },
-  { to: '/entry', label: 'データ入力', icon: PencilLine },
   { to: '/sheets', label: 'マイシート', icon: Table2 },
   { to: '/variance', label: '予実差異レポート', icon: BarChart3 },
+]
+
+const adminNavItems: NavItem[] = [
+  { to: '/dimensions', label: 'ディメンションマスタ管理', icon: Database },
+  { to: '/versions', label: 'バージョン管理', icon: History },
+  { to: '/import', label: '実績インポート', icon: Upload },
 ]
 
 export function AppShell() {
@@ -37,8 +46,16 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const items: NavItem[] =
-    user?.role === 'office_admin' ? [...baseNavItems, { to: '/import', label: '実績インポート', icon: Upload }] : baseNavItems
+  // ディメンションマスタ管理 stays visible (read-only) for field_user; the
+  // other admin items are fully hidden since they've always been
+  // office_admin-only actions on the backend too.
+  const groups: NavGroup[] = [
+    { label: '業務', items: businessNavItems },
+    {
+      label: '管理者メニュー',
+      items: user?.role === 'office_admin' ? adminNavItems : adminNavItems.filter((item) => item.to === '/dimensions'),
+    },
+  ]
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-900">
@@ -69,19 +86,30 @@ export function AppShell() {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-          {items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => (isActive ? navLinkActive : navLink)}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-            >
-              <item.icon size={18} className="shrink-0" />
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </NavLink>
+        <nav className="flex-1 space-y-4 overflow-y-auto p-2">
+          {groups.map((group) => (
+            <div key={group.label}>
+              {!collapsed && (
+                <p className="px-3 pb-1 text-xs font-semibold tracking-wide text-gray-400 uppercase dark:text-gray-500">
+                  {group.label}
+                </p>
+              )}
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) => (isActive ? navLinkActive : navLink)}
+                    onClick={() => setMobileOpen(false)}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <item.icon size={18} className="shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 

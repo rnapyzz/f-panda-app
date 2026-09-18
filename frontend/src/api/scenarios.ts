@@ -10,6 +10,8 @@ export interface ScenarioVersion {
   version_label: string
   status: 'draft' | 'submitted' | 'locked'
   is_current: boolean
+  submitted_at?: string
+  locked_at?: string
 }
 
 export const scenarioVersionsApi = {
@@ -23,4 +25,6 @@ export const scenarioVersionsApi = {
     as_of_period_id?: number
     version_label: string
   }) => api.post<{ id: number }>('/scenario-versions', input),
+  submit: (id: number) => api.post<void>(`/scenario-versions/${id}/submit`),
+  lock: (id: number) => api.post<void>(`/scenario-versions/${id}/lock`),
 }

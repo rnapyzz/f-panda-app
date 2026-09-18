@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ApiError } from '../../api/client'
 import { importApi, type ColumnMapping, type CommitResult, type ImportBatch, type PreviewResult } from '../../api/import'
-import { scenarioVersionsApi, type ScenarioVersion } from '../../api/scenarios'
+import { useScenarioVersions } from '../../hooks/useScenarioVersions'
 import { useAuth } from '../auth/useAuth'
 import {
   buttonPrimary,
-  buttonSecondary,
   errorText,
   fieldset,
   input,
   label as labelClass,
   legend,
+  link,
   mutedText,
   pageHeading,
   select,
@@ -33,9 +35,7 @@ export function ImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear)
-  const [versions, setVersions] = useState<ScenarioVersion[]>([])
-  const [versionId, setVersionId] = useState<number | ''>('')
-  const [newVersionLabel, setNewVersionLabel] = useState('')
+  const { versions, versionId, setVersionId } = useScenarioVersions('actual', fiscalYear)
 
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<PreviewResult | null>(null)
@@ -45,21 +45,6 @@ export function ImportPage() {
   const [batches, setBatches] = useState<ImportBatch[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  async function reloadVersions() {
-    try {
-      const list = await scenarioVersionsApi.list('actual', fiscalYear)
-      setVersions(list)
-      const current = list.find((v) => v.is_current)
-      setVersionId(current?.id ?? '')
-    } catch {
-      setError('バージョン一覧の取得に失敗しました')
-    }
-  }
-  useEffect(() => {
-    void reloadVersions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fiscalYear])
 
   async function reloadBatches(forVersionId: number | '') {
     if (forVersionId === '') {
@@ -76,23 +61,6 @@ export function ImportPage() {
     void reloadBatches(versionId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versionId])
-
-  async function handleCreateVersion(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    try {
-      const { id } = await scenarioVersionsApi.create({
-        scenario_type: 'actual',
-        fiscal_year: fiscalYear,
-        version_label: newVersionLabel,
-      })
-      setNewVersionLabel('')
-      await reloadVersions()
-      setVersionId(id)
-    } catch {
-      setError('バージョンの作成に失敗しました')
-    }
-  }
 
   async function handleFileChange() {
     setError(null)
@@ -133,8 +101,8 @@ export function ImportPage() {
       const result = await importApi.commit(file, versionId, fullMapping)
       setCommitResult(result)
       await reloadBatches(versionId)
-    } catch {
-      setError('取り込みに失敗しました')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '取り込みに失敗しました')
     } finally {
       setBusy(false)
     }
@@ -167,12 +135,15 @@ export function ImportPage() {
             </select>
           </label>
         </div>
-        <form onSubmit={handleCreateVersion} className="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-          <input className={input} placeholder="新しい実績バージョン名" value={newVersionLabel} onChange={(e) => setNewVersionLabel(e.target.value)} required />
-          <button type="submit" className={buttonSecondary}>
-            バージョンを作成
-          </button>
-        </form>
+        {versions.length === 0 && (
+          <p className={mutedText}>
+            バージョンがありません。
+            <Link to="/versions" className={link}>
+              バージョン管理
+            </Link>
+            で作成してください。
+          </p>
+        )}
       </fieldset>
 
       <fieldset className={fieldset}>
