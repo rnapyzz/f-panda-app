@@ -11,6 +11,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/dimension"
 	"github.com/rnapyzz/f-panda-app/backend/internal/fact"
+	"github.com/rnapyzz/f-panda-app/backend/internal/importer"
 	"github.com/rnapyzz/f-panda-app/backend/internal/inputsheet"
 	"github.com/rnapyzz/f-panda-app/backend/internal/period"
 	"github.com/rnapyzz/f-panda-app/backend/internal/scenario"
@@ -23,6 +24,7 @@ type Deps struct {
 	Scenarios   *scenario.Service
 	Facts       *fact.Service
 	InputSheets *inputsheet.Service
+	Importer    *importer.Service
 	SPAHandler  http.Handler
 }
 
@@ -77,6 +79,12 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("GET /api/sheets/{id}/bindings", deps.authed(http.HandlerFunc(deps.InputSheets.ListBindingsHandler)))
 	mux.Handle("POST /api/sheets/{id}/bindings", deps.authedMutating(http.HandlerFunc(deps.InputSheets.CreateBindingHandler)))
 	mux.Handle("POST /api/submissions", deps.authedMutating(http.HandlerFunc(deps.InputSheets.SubmitHandler)))
+
+	// Actuals import (CSV/XLSX) is office_admin-only: it writes 実績 data
+	// across the whole organization, not just the uploader's own scope.
+	mux.Handle("POST /api/import-batches/preview", deps.adminMutating(http.HandlerFunc(importer.PreviewHandler)))
+	mux.Handle("POST /api/import-batches", deps.adminMutating(http.HandlerFunc(deps.Importer.CommitHandler)))
+	mux.Handle("GET /api/import-batches", deps.authed(http.HandlerFunc(deps.Importer.ListBatchesHandler)))
 
 	if deps.SPAHandler != nil {
 		mux.Handle("/", deps.SPAHandler)

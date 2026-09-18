@@ -19,6 +19,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/backend/internal/dimension"
 	"github.com/rnapyzz/f-panda-app/backend/internal/fact"
 	"github.com/rnapyzz/f-panda-app/backend/internal/httpapi"
+	"github.com/rnapyzz/f-panda-app/backend/internal/importer"
 	"github.com/rnapyzz/f-panda-app/backend/internal/inputsheet"
 	"github.com/rnapyzz/f-panda-app/backend/internal/period"
 	"github.com/rnapyzz/f-panda-app/backend/internal/scenario"
@@ -60,6 +61,7 @@ func run() error {
 	scenarioSvc := scenario.NewService(sqlDB, queries)
 	factSvc := fact.NewService(queries, scenarioSvc)
 	inputSheetSvc := inputsheet.NewService(sqlDB, queries)
+	importerSvc := importer.NewService(sqlDB, queries)
 
 	spaHandler, err := web.Handler()
 	if err != nil {
@@ -72,6 +74,7 @@ func run() error {
 		Scenarios:   scenarioSvc,
 		Facts:       factSvc,
 		InputSheets: inputSheetSvc,
+		Importer:    importerSvc,
 		SPAHandler:  spaHandler,
 	})
 

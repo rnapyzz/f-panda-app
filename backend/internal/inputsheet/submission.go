@@ -108,7 +108,11 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 		validationStatus = db.SubmissionValidationStatusError
 	}
 
-	var validationDetail json.RawMessage
+	// Always write a valid JSON value (never a SQL NULL): database/sql
+	// cannot Scan a NULL column back into *json.RawMessage, so a later
+	// read (e.g. ListSubmissionsBySheet) would fail with "unsupported
+	// Scan ... into *json.RawMessage".
+	validationDetail := json.RawMessage("null")
 	if len(issues) > 0 {
 		validationDetail, err = json.Marshal(issues)
 		if err != nil {
