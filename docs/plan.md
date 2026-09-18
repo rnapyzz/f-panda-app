@@ -370,3 +370,16 @@ Phase 3完了後、ユーザーから「社内ツールとはいえ使いたく�
 **検証**：`tsc -b`型チェック・`oxlint`（新規エラーなし、既存の`set-state-in-effect`警告5件は本刷新と無関係の既存箇所）が通ることを確認。ブラウザでの手動E2Eで、ログイン→全ページへのサイドバー遷移＋アクティブ状態ハイライト、折りたたみトグル、`lg`未満でのオフキャンバスドロワー開閉（ハンバーガー・バックドロップクリック）、ダークモード表示、事務局管理者ロールでの「実績インポート」ナビ項目表示、シート作成→エディタ遷移までの回帰なしを確認した。
 
 **既知の制約**：ブラウザ自動操作ツールの座標クリックが、Univer.jsのcanvas再描画や状態遷移直後のタイミングでスクリーンショットと実DOM状態がズレる既知の事象（Phase 2で確認済み）が今回も再発したが、`getBoundingClientRect`等でのDOM直接検証によりレイアウト自体は正しく機能していることを確認済み。
+
+## 動線整理・サービス/施策ディメンション追加・バージョン管理（検証済み）
+
+サイドバー導入後、ユーザーから「管理者向けメニューと現場向けメニューが混ざっていて動線がわかりにくい」「手動金額入力フォームは二重入力・転記ミスの元になるので廃止したい」「空いたデータ入力ページをバージョン管理ページにしたい」「事業＞サービス＞施策の階層をディメンションに追加したい（施策には主部門を1つ）」との要望があり、対話で以下の方針を確定して実装した：サービス/施策は当面マスタ管理のみ（`fact_amount`の軸には組み込まない）、手動入力APIはフロント・バックエンドとも完全削除、バージョン管理ページはステータス遷移（draft→submitted→locked）も新規実装、サイドバーは「業務」「管理者メニュー」のセクション見出しで常時分離。
+
+**実施内容**：
+- `dim_service`（`business_id`参照）・`dim_initiative`（`service_id`・`primary_department_id`参照）を新規マイグレーション（`00007_dim_service_initiative.sql`）で追加。既存の`dim_business`等と同一のCRUDパターン（`backend/internal/dimension/`、`frontend/src/features/dimensions/ServiceSection.tsx`・`InitiativeSection.tsx`）で実装。このリポジトリで初めての「ディメンション同士のFK」。
+- 手動入力（`POST /api/fact-entries`、`fact.Service.UpsertEntry`、`EntryPage.tsx`、`factsApi.upsertEntry`）を完全削除。`variance_integration_test.go`のフィクスチャ投入は`UpsertFactAmountFromSubmission`直呼びに書き換え（`submission_id`はNULL）、既存の検証内容は変更なし。
+- `scenario_version.status`の実遷移（`SubmitScenarioVersion`/`LockScenarioVersion`、いずれも`:execrows`で不正な順序遷移を0件検出）を実装し、`POST /api/scenario-versions/{id}/submit`・`/lock`を追加。ロック済みバージョンへの書き込みは`inputsheet.Service.Submit`・`importer.Service.Commit`の両方で実際に拒否（409）するようにし、ステータスが単なる飾りにならないようにした。
+- 新規`frontend/src/features/versions/VersionManagementPage.tsx`（`/versions`、事務局管理者限定）：会計年度でフィルタし予算/見込/実績を1つの表に統合表示、新規作成・提出・確定を1箇所に集約。`ImportPage.tsx`・`SheetEditorPage.tsx`に重複していたバージョン取得ロジックは`frontend/src/hooks/useScenarioVersions.ts`に共通化。`ImportPage.tsx`の旧・インライン作成フォームは削除し、バージョン管理への案内リンクに置き換え。
+- `AppShell.tsx`のナビを「業務」（ホーム/マイシート/予実差異レポート）と「管理者メニュー」（ディメンションマスタ管理/バージョン管理/実績インポート）のセクション見出しつき2グループに再構成。`DashboardPage.tsx`のクイックアクセスカードも同じ並びに更新。
+
+**検証**：`go build`・`go vet`・`go test`（`APP_DB_DSN`設定、`fact`/`importer`/`inputsheet`の既存結合テストがフィクスチャ書き換え後も通ることを確認）、フロントは`tsc -b`・`oxlint`・`vite build`（`EntryPage`のコード分割チャンクが消えていることを確認）。ブラウザ手動E2Eで、事業→サービス→施策の階層作成と名称解決表示、バージョン管理での作成→提出→確定の遷移、確定後にマイシートからの提出（UI操作で確認）とCSVインポート（API直接呼び出しで確認）の両方が409で拒否されることを実データで確認、admin/field_userそれぞれでのサイドバー・ダッシュボードの表示差異、ダークモード表示、`/entry`への直接アクセスがクラッシュせず404になることを確認した。
