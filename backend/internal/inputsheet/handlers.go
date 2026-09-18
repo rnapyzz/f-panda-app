@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
+	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/httpx"
 )
 
@@ -63,6 +65,7 @@ func (s *Service) CreateSheetHandler(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionCreate, audit.EntityInputSheet, uint64(id), user.ID)
 	httpx.WriteJSON(w, http.StatusCreated, map[string]uint64{"id": uint64(id)})
 }
 
@@ -112,6 +115,7 @@ func (s *Service) UpdateSheetHandler(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionUpdate, audit.EntityInputSheet, id, user.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -260,6 +264,7 @@ func (s *Service) CreateBindingHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionCreate, audit.EntityInputBinding, uint64(id), user.ID)
 	httpx.WriteJSON(w, http.StatusCreated, map[string]uint64{"id": uint64(id)})
 }
 
@@ -339,4 +344,60 @@ func (s *Service) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 func writeInternalError(w http.ResponseWriter, err error) {
 	slog.Error("inputsheet handler error", "error", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
+}
+
+// recordAudit is a best-effort audit log write for the sheet/binding
+// mutations above: a failure here is logged but never fails the request.
+func recordAudit(r *http.Request, q *db.Queries, action, entityType string, id, userID uint64) {
+	if err := audit.Record(r.Context(), q, audit.Params{
+		UserID: &userID, Action: action, EntityType: entityType, EntityID: &id,
+		IPAddress: httpx.ClientIP(r),
+	}); err != nil {
+		slog.Error("audit log write failed", "error", err, "action", action, "entity_type", entityType)
+	}
+}
+
+// --- cross-organization review (office_admin only) ---
+
+type reviewSubmissionDTO struct {
+	ID               uint64          `json:"id"`
+	SheetName        string          `json:"sheet_name"`
+	OwnerName        string          `json:"owner_name"`
+	BindingName      string          `json:"binding_name"`
+	ScenarioType     string          `json:"scenario_type"`
+	FiscalYear       int16           `json:"fiscal_year"`
+	VersionLabel     string          `json:"version_label"`
+	SubmittedByName  string          `json:"submitted_by_name"`
+	SubmittedAt      string          `json:"submitted_at"`
+	Status           string          `json:"status"`
+	ValidationStatus string          `json:"validation_status"`
+	ValidationDetail json.RawMessage `json:"validation_detail"`
+}
+
+func toReviewSubmissionDTO(row db.ListSubmissionsForReviewRow) reviewSubmissionDTO {
+	return reviewSubmissionDTO{
+		ID: row.ID, SheetName: row.SheetName, OwnerName: row.OwnerName, BindingName: row.BindingName,
+		ScenarioType: string(row.ScenarioType), FiscalYear: row.FiscalYear, VersionLabel: row.VersionLabel,
+		SubmittedByName:  row.SubmittedByName,
+		SubmittedAt:      row.SubmittedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Status:           string(row.Status),
+		ValidationStatus: string(row.ValidationStatus),
+		ValidationDetail: row.ValidationDetail,
+	}
+}
+
+// ListForReviewHandler lists submissions across the whole organization (not
+// scoped to one sheet, unlike ListSubmissionsBySheet), for the office-admin
+// binding-validation review screen.
+func (s *Service) ListForReviewHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Queries.ListSubmissionsForReview(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	out := make([]reviewSubmissionDTO, len(rows))
+	for i, row := range rows {
+		out[i] = toReviewSubmissionDTO(row)
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }

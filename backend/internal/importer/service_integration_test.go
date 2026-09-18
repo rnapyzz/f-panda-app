@@ -3,6 +3,7 @@ package importer_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/fact"
 	"github.com/rnapyzz/f-panda-app/backend/internal/importer"
@@ -204,5 +206,32 @@ func TestCommitWritesActualsAndReflectsInVarianceReport(t *testing.T) {
 	}
 	if len(batches) != 2 {
 		t.Fatalf("expected 2 import batches recorded, got %d", len(batches))
+	}
+
+	// --- Phase 4: a committed batch must be audited, with row/error counts ---
+	auditSvc := audit.NewService(queries)
+	logs, err := auditSvc.List(ctx, audit.ListFilter{EntityType: audit.EntityImportBatch, Limit: 100})
+	if err != nil {
+		t.Fatalf("list audit logs: %v", err)
+	}
+	var found bool
+	for _, l := range logs {
+		if !l.EntityID.Valid || uint64(l.EntityID.Int64) != uint64(result.ImportBatchID) {
+			continue
+		}
+		found = true
+		var detail struct {
+			RowCount   int `json:"row_count"`
+			ErrorCount int `json:"error_count"`
+		}
+		if err := json.Unmarshal(l.Detail, &detail); err != nil {
+			t.Fatalf("unmarshal audit detail: %v", err)
+		}
+		if detail.RowCount != 1 || detail.ErrorCount != 1 {
+			t.Fatalf("audit detail row/error counts = %+v, want row_count=1 error_count=1", detail)
+		}
+	}
+	if !found {
+		t.Fatalf("expected an audit_log row for import_batch %d, found none in %+v", result.ImportBatchID, logs)
 	}
 }

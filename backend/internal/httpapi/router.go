@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/assignment"
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/dimension"
@@ -25,6 +27,8 @@ type Deps struct {
 	Facts       *fact.Service
 	InputSheets *inputsheet.Service
 	Importer    *importer.Service
+	Assignments *assignment.Service
+	Audit       *audit.Service
 	SPAHandler  http.Handler
 }
 
@@ -40,6 +44,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/auth/login", deps.Auth.LoginHandler)
 	mux.Handle("POST /api/auth/logout", deps.authedMutating(http.HandlerFunc(deps.Auth.LogoutHandler)))
 	mux.Handle("GET /api/auth/me", deps.authed(http.HandlerFunc(deps.Auth.MeHandler)))
+	mux.Handle("GET /api/users", deps.adminOnly(http.HandlerFunc(deps.Auth.ListUsersHandler)))
 
 	// Dimension masters: 事務局 (office_admin) owns the fixed schema, so
 	// writes are admin-only; reads are open to any authenticated user
@@ -98,6 +103,15 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /api/import-batches", deps.adminMutating(http.HandlerFunc(deps.Importer.CommitHandler)))
 	mux.Handle("GET /api/import-batches", deps.authed(http.HandlerFunc(deps.Importer.ListBatchesHandler)))
 
+	// Phase 4 operations screens: dashboards and the audit trail are
+	// office_admin-only, read-only views over organization-wide data.
+	mux.Handle("GET /api/user-assignments", deps.adminOnly(http.HandlerFunc(deps.Assignments.ListAssignmentsHandler)))
+	mux.Handle("POST /api/user-assignments", deps.adminMutating(http.HandlerFunc(deps.Assignments.CreateAssignmentHandler)))
+	mux.Handle("DELETE /api/user-assignments/{id}", deps.adminMutating(http.HandlerFunc(deps.Assignments.DeactivateAssignmentHandler)))
+	mux.Handle("GET /api/submission-status", deps.adminOnly(http.HandlerFunc(deps.Assignments.SubmissionStatusHandler)))
+	mux.Handle("GET /api/submissions", deps.adminOnly(http.HandlerFunc(deps.InputSheets.ListForReviewHandler)))
+	mux.Handle("GET /api/audit-logs", deps.adminOnly(http.HandlerFunc(deps.Audit.ListHandler)))
+
 	if deps.SPAHandler != nil {
 		mux.Handle("/", deps.SPAHandler)
 	}
@@ -120,6 +134,13 @@ func (deps Deps) authedMutating(h http.Handler) http.Handler {
 // requests that change the shared schema/master data.
 func (deps Deps) adminMutating(h http.Handler) http.Handler {
 	return deps.Auth.RequireAuth(auth.RequireCSRF(auth.RequireRole(db.AppUserRoleOfficeAdmin, h)))
+}
+
+// adminOnly requires the office_admin role but, unlike adminMutating, skips
+// the CSRF check — for read-only endpoints (dashboards, the audit trail)
+// that expose organization-wide data to 事務局 only.
+func (deps Deps) adminOnly(h http.Handler) http.Handler {
+	return deps.Auth.RequireAuth(auth.RequireRole(db.AppUserRoleOfficeAdmin, h))
 }
 
 func withMiddleware(h http.Handler) http.Handler {

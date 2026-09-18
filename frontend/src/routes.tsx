@@ -2,6 +2,10 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AuditLogPage } from './features/admin/AuditLogPage'
+import { SubmissionDashboardPage } from './features/admin/SubmissionDashboardPage'
+import { UserAssignmentsPage } from './features/admin/UserAssignmentsPage'
+import { ValidationReviewPage } from './features/admin/ValidationReviewPage'
 import { LoginPage } from './features/auth/LoginPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { DimensionsPage } from './features/dimensions/DimensionsPage'
@@ -41,6 +45,10 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'import', element: <ImportPage /> },
+      { path: 'admin/assignments', element: <UserAssignmentsPage /> },
+      { path: 'admin/submission-status', element: <SubmissionDashboardPage /> },
+      { path: 'admin/validation', element: <ValidationReviewPage /> },
+      { path: 'admin/audit-log', element: <AuditLogPage /> },
     ],
   },
 ])

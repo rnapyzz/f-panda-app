@@ -2,15 +2,19 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   BarChart3,
+  ClipboardCheck,
   Database,
   History,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
   Table2,
   Upload,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -39,6 +43,10 @@ const adminNavItems: NavItem[] = [
   { to: '/dimensions', label: 'ディメンションマスタ管理', icon: Database },
   { to: '/versions', label: 'バージョン管理', icon: History },
   { to: '/import', label: '実績インポート', icon: Upload },
+  { to: '/admin/assignments', label: '担当割当て管理', icon: Users },
+  { to: '/admin/submission-status', label: '提出状況ダッシュボード', icon: ClipboardCheck },
+  { to: '/admin/validation', label: 'バインディング検証結果', icon: ListChecks },
+  { to: '/admin/audit-log', label: '監査ログ', icon: ScrollText },
 ]
 
 export function AppShell() {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 )
 
@@ -159,6 +160,17 @@ func (s *Service) Commit(ctx context.Context, in CommitInput) (CommitResult, err
 		ID:          uint64(batchID),
 	}); err != nil {
 		return CommitResult{}, fmt.Errorf("complete import batch: %w", err)
+	}
+
+	bid := uint64(batchID)
+	if err := audit.Record(ctx, qtx, audit.Params{
+		UserID: &in.UploadedBy, Action: audit.ActionImport, EntityType: audit.EntityImportBatch, EntityID: &bid,
+		Detail: map[string]any{
+			"original_filename": in.OriginalFilename, "scenario_version_id": in.ScenarioVersionID,
+			"status": string(status), "row_count": len(resolved.Amounts), "error_count": resolved.TotalErrors,
+		},
+	}); err != nil {
+		return CommitResult{}, fmt.Errorf("write audit log: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

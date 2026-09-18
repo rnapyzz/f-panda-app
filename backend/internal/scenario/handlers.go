@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
 	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/httpx"
@@ -129,6 +130,15 @@ func (s *Service) CreateHandler(w http.ResponseWriter, r *http.Request) {
 		slog.Error("create scenario version failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	eid := uint64(id)
+	if err := audit.Record(r.Context(), s.Queries, audit.Params{
+		UserID: &user.ID, Action: audit.ActionCreate, EntityType: audit.EntityScenarioVersion, EntityID: &eid,
+		Detail:    map[string]any{"scenario_type": req.ScenarioType, "fiscal_year": req.FiscalYear, "version_label": req.VersionLabel},
+		IPAddress: httpx.ClientIP(r),
+	}); err != nil {
+		slog.Error("audit log write failed", "error", err, "action", audit.ActionCreate, "entity_type", audit.EntityScenarioVersion)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": uint64(id)})

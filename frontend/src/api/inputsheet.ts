@@ -80,3 +80,22 @@ export const submissionsApi = {
   submit: (bindingId: number, scenarioVersionId: number) =>
     api.post<SubmitResult>('/submissions', { binding_id: bindingId, scenario_version_id: scenarioVersionId }),
 }
+
+export interface ReviewSubmission {
+  id: number
+  sheet_name: string
+  owner_name: string
+  binding_name: string
+  scenario_type: string
+  fiscal_year: number
+  version_label: string
+  submitted_by_name: string
+  submitted_at: string
+  status: 'draft' | 'submitted' | 'superseded'
+  validation_status: 'ok' | 'warning' | 'error'
+  validation_detail: Array<{ axis: 'row' | 'col'; axis_index: number; expected: string; actual: string }> | null
+}
+
+export const submissionReviewApi = {
+  list: () => api.get<ReviewSubmission[]>('/submissions'),
+}

@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rnapyzz/f-panda-app/backend/internal/audit"
+	"github.com/rnapyzz/f-panda-app/backend/internal/auth"
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
+	"github.com/rnapyzz/f-panda-app/backend/internal/httpx"
 )
 
 type businessDTO struct {
@@ -103,6 +106,7 @@ func (s *Service) CreateBusinessHandler(w http.ResponseWriter, r *http.Request) 
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionCreate, audit.EntityBusiness, uint64(id))
 	writeJSON(w, http.StatusCreated, businessDTO{ID: uint64(id), Code: req.Code, Name: req.Name, IsActive: true})
 }
 
@@ -127,6 +131,7 @@ func (s *Service) UpdateBusinessHandler(w http.ResponseWriter, r *http.Request) 
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionUpdate, audit.EntityBusiness, id)
 	writeJSON(w, http.StatusOK, businessDTO{ID: id, Code: req.Code, Name: req.Name, IsActive: req.IsActive})
 }
 
@@ -162,6 +167,7 @@ func (s *Service) CreateDepartmentHandler(w http.ResponseWriter, r *http.Request
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionCreate, audit.EntityDepartment, uint64(id))
 	writeJSON(w, http.StatusCreated, departmentDTO{ID: uint64(id), Code: req.Code, Name: req.Name, IsActive: true})
 }
 
@@ -186,6 +192,7 @@ func (s *Service) UpdateDepartmentHandler(w http.ResponseWriter, r *http.Request
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionUpdate, audit.EntityDepartment, id)
 	writeJSON(w, http.StatusOK, departmentDTO{ID: id, Code: req.Code, Name: req.Name, IsActive: req.IsActive})
 }
 
@@ -229,6 +236,7 @@ func (s *Service) CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionCreate, audit.EntityAccount, uint64(id))
 	writeJSON(w, http.StatusCreated, accountDTO{ID: uint64(id), Code: req.Code, Name: req.Name, AccountType: req.AccountType, IsActive: true})
 }
 
@@ -255,6 +263,7 @@ func (s *Service) UpdateAccountHandler(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
+	recordAudit(r, s.Queries, audit.ActionUpdate, audit.EntityAccount, id)
 	writeJSON(w, http.StatusOK, accountDTO{ID: id, Code: req.Code, Name: req.Name, AccountType: req.AccountType, IsActive: req.IsActive})
 }
 
@@ -416,4 +425,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeInternalError(w http.ResponseWriter, err error) {
 	slog.Error("dimension handler error", "error", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
+}
+
+// recordAudit is a best-effort audit log write: a failure here is logged
+// but never fails the request — a transient audit_log write error shouldn't
+// block routine master-data maintenance.
+func recordAudit(r *http.Request, q *db.Queries, action, entityType string, id uint64) {
+	var userID *uint64
+	if actor, ok := auth.UserFromContext(r.Context()); ok {
+		userID = &actor.ID
+	}
+	if err := audit.Record(r.Context(), q, audit.Params{
+		UserID: userID, Action: action, EntityType: entityType, EntityID: &id,
+		IPAddress: httpx.ClientIP(r),
+	}); err != nil {
+		slog.Error("audit log write failed", "error", err, "action", action, "entity_type", entityType)
+	}
 }
