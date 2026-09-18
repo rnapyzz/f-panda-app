@@ -2,15 +2,19 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   BarChart3,
+  ClipboardCheck,
   Database,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   PencilLine,
+  ScrollText,
   Table2,
   Upload,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -38,7 +42,16 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const items: NavItem[] =
-    user?.role === 'office_admin' ? [...baseNavItems, { to: '/import', label: '実績インポート', icon: Upload }] : baseNavItems
+    user?.role === 'office_admin'
+      ? [
+          ...baseNavItems,
+          { to: '/import', label: '実績インポート', icon: Upload },
+          { to: '/admin/assignments', label: '担当割当て管理', icon: Users },
+          { to: '/admin/submission-status', label: '提出状況ダッシュボード', icon: ClipboardCheck },
+          { to: '/admin/validation', label: 'バインディング検証結果', icon: ListChecks },
+          { to: '/admin/audit-log', label: '監査ログ', icon: ScrollText },
+        ]
+      : baseNavItems
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-900">
