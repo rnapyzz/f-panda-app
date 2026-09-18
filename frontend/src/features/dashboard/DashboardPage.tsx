@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 
 export function DashboardPage() {
@@ -12,9 +13,17 @@ export function DashboardPage() {
       <button type="button" onClick={() => void logout()}>
         ログアウト
       </button>
-      <p style={{ marginTop: 32, color: '#666' }}>
-        ディメンションマスタ管理・予実差異レポートは Phase 1 で実装予定です。
-      </p>
+      <ul style={{ marginTop: 32 }}>
+        <li>
+          <Link to="/dimensions">ディメンションマスタ管理</Link>
+        </li>
+        <li>
+          <Link to="/entry">データ入力（簡易フォーム）</Link>
+        </li>
+        <li>
+          <Link to="/variance">予実差異レポート</Link>
+        </li>
+      </ul>
     </div>
   )
 }
