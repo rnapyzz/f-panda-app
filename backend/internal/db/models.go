@@ -542,6 +542,17 @@ type AppUser struct {
 	UpdatedAt    time.Time   `json:"updated_at"`
 }
 
+type AuditLog struct {
+	ID         uint64          `json:"id"`
+	UserID     sql.NullInt64   `json:"user_id"`
+	Action     string          `json:"action"`
+	EntityType string          `json:"entity_type"`
+	EntityID   sql.NullInt64   `json:"entity_id"`
+	Detail     json.RawMessage `json:"detail"`
+	IpAddress  sql.NullString  `json:"ip_address"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
 type DimAccount struct {
 	ID          uint64                `json:"id"`
 	Code        string                `json:"code"`
@@ -674,6 +685,20 @@ type Submission struct {
 	Status            SubmissionStatus           `json:"status"`
 	ValidationStatus  SubmissionValidationStatus `json:"validation_status"`
 	ValidationDetail  json.RawMessage            `json:"validation_detail"`
+}
+
+type SubmissionScope struct {
+	SubmissionID uint64 `json:"submission_id"`
+	BusinessID   uint64 `json:"business_id"`
+	DepartmentID uint64 `json:"department_id"`
+}
+
+type UserAssignment struct {
+	ID           uint64 `json:"id"`
+	UserID       uint64 `json:"user_id"`
+	BusinessID   uint64 `json:"business_id"`
+	DepartmentID uint64 `json:"department_id"`
+	IsActive     bool   `json:"is_active"`
 }
 
 type UserSession struct {

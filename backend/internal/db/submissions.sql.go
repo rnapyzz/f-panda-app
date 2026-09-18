@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const createSubmission = `-- name: CreateSubmission :execlastid
@@ -44,6 +45,71 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 	return result.LastInsertId()
 }
 
+const createSubmissionScope = `-- name: CreateSubmissionScope :exec
+INSERT INTO submission_scope (submission_id, business_id, department_id)
+VALUES (?, ?, ?)
+`
+
+type CreateSubmissionScopeParams struct {
+	SubmissionID uint64 `json:"submission_id"`
+	BusinessID   uint64 `json:"business_id"`
+	DepartmentID uint64 `json:"department_id"`
+}
+
+func (q *Queries) CreateSubmissionScope(ctx context.Context, arg CreateSubmissionScopeParams) error {
+	_, err := q.db.ExecContext(ctx, createSubmissionScope, arg.SubmissionID, arg.BusinessID, arg.DepartmentID)
+	return err
+}
+
+const listSubmissionScopesByScenarioVersion = `-- name: ListSubmissionScopesByScenarioVersion :many
+SELECT ss.business_id, ss.department_id, s.id AS submission_id,
+       s.validation_status, s.submitted_at
+FROM submission_scope ss
+JOIN submission s ON s.id = ss.submission_id
+WHERE s.scenario_version_id = ? AND s.status <> 'superseded'
+ORDER BY s.submitted_at DESC
+`
+
+type ListSubmissionScopesByScenarioVersionRow struct {
+	BusinessID       uint64                     `json:"business_id"`
+	DepartmentID     uint64                     `json:"department_id"`
+	SubmissionID     uint64                     `json:"submission_id"`
+	ValidationStatus SubmissionValidationStatus `json:"validation_status"`
+	SubmittedAt      time.Time                  `json:"submitted_at"`
+}
+
+// Ordered submitted_at DESC so callers can dedupe by (business_id,
+// department_id) and keep the first row seen — that's the latest
+// non-superseded submission covering that scope.
+func (q *Queries) ListSubmissionScopesByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListSubmissionScopesByScenarioVersionRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSubmissionScopesByScenarioVersion, scenarioVersionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubmissionScopesByScenarioVersionRow
+	for rows.Next() {
+		var i ListSubmissionScopesByScenarioVersionRow
+		if err := rows.Scan(
+			&i.BusinessID,
+			&i.DepartmentID,
+			&i.SubmissionID,
+			&i.ValidationStatus,
+			&i.SubmittedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSubmissionsBySheet = `-- name: ListSubmissionsBySheet :many
 SELECT id, input_sheet_id, binding_id, scenario_version_id, submitted_by,
        submitted_at, status, validation_status, validation_detail
@@ -67,6 +133,83 @@ func (q *Queries) ListSubmissionsBySheet(ctx context.Context, inputSheetID uint6
 			&i.BindingID,
 			&i.ScenarioVersionID,
 			&i.SubmittedBy,
+			&i.SubmittedAt,
+			&i.Status,
+			&i.ValidationStatus,
+			&i.ValidationDetail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSubmissionsForReview = `-- name: ListSubmissionsForReview :many
+SELECT s.id, s.input_sheet_id, sh.name AS sheet_name, sh.owner_user_id, owner.name AS owner_name,
+       s.binding_id, ib.name AS binding_name,
+       s.scenario_version_id, sv.scenario_type, sv.fiscal_year, sv.version_label,
+       s.submitted_by, submitter.name AS submitted_by_name,
+       s.submitted_at, s.status, s.validation_status, s.validation_detail
+FROM submission s
+JOIN input_sheet sh ON sh.id = s.input_sheet_id
+JOIN app_user owner ON owner.id = sh.owner_user_id
+JOIN input_binding ib ON ib.id = s.binding_id
+JOIN scenario_version sv ON sv.id = s.scenario_version_id
+JOIN app_user submitter ON submitter.id = s.submitted_by
+ORDER BY s.submitted_at DESC
+LIMIT 500
+`
+
+type ListSubmissionsForReviewRow struct {
+	ID                uint64                      `json:"id"`
+	InputSheetID      uint64                      `json:"input_sheet_id"`
+	SheetName         string                      `json:"sheet_name"`
+	OwnerUserID       uint64                      `json:"owner_user_id"`
+	OwnerName         string                      `json:"owner_name"`
+	BindingID         uint64                      `json:"binding_id"`
+	BindingName       string                      `json:"binding_name"`
+	ScenarioVersionID uint64                      `json:"scenario_version_id"`
+	ScenarioType      ScenarioVersionScenarioType `json:"scenario_type"`
+	FiscalYear        int16                       `json:"fiscal_year"`
+	VersionLabel      string                      `json:"version_label"`
+	SubmittedBy       uint64                      `json:"submitted_by"`
+	SubmittedByName   string                      `json:"submitted_by_name"`
+	SubmittedAt       time.Time                   `json:"submitted_at"`
+	Status            SubmissionStatus            `json:"status"`
+	ValidationStatus  SubmissionValidationStatus  `json:"validation_status"`
+	ValidationDetail  json.RawMessage             `json:"validation_detail"`
+}
+
+func (q *Queries) ListSubmissionsForReview(ctx context.Context) ([]ListSubmissionsForReviewRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSubmissionsForReview)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubmissionsForReviewRow
+	for rows.Next() {
+		var i ListSubmissionsForReviewRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.InputSheetID,
+			&i.SheetName,
+			&i.OwnerUserID,
+			&i.OwnerName,
+			&i.BindingID,
+			&i.BindingName,
+			&i.ScenarioVersionID,
+			&i.ScenarioType,
+			&i.FiscalYear,
+			&i.VersionLabel,
+			&i.SubmittedBy,
+			&i.SubmittedByName,
 			&i.SubmittedAt,
 			&i.Status,
 			&i.ValidationStatus,

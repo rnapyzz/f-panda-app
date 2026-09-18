@@ -11,3 +11,8 @@ WHERE id = ? AND is_active = TRUE;
 -- name: CreateUser :execlastid
 INSERT INTO app_user (email, name, role, password_hash)
 VALUES (?, ?, ?, ?);
+
+-- name: ListUsers :many
+SELECT id, email, name, role, is_active, created_at, updated_at
+FROM app_user
+ORDER BY name;

@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	CompleteImportBatch(ctx context.Context, arg CompleteImportBatchParams) error
 	CreateAccount(ctx context.Context, arg CreateAccountParams) (int64, error)
+	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
 	CreateBusiness(ctx context.Context, arg CreateBusinessParams) (int64, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (int64, error)
 	CreateImportBatch(ctx context.Context, arg CreateImportBatchParams) (int64, error)
@@ -20,7 +21,15 @@ type Querier interface {
 	CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSubmission(ctx context.Context, arg CreateSubmissionParams) (int64, error)
+	CreateSubmissionScope(ctx context.Context, arg CreateSubmissionScopeParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
+	// ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id) lets a previously
+	// deactivated assignment be reactivated by the same (user, business,
+	// department) triple: a plain "SET is_active = TRUE" without the
+	// LAST_INSERT_ID(id) trick would make execlastid report 0 instead of the
+	// existing row's id.
+	CreateUserAssignment(ctx context.Context, arg CreateUserAssignmentParams) (int64, error)
+	DeactivateUserAssignment(ctx context.Context, id uint64) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteSession(ctx context.Context, tokenHash string) error
 	GetCurrentScenarioVersion(ctx context.Context, arg GetCurrentScenarioVersionParams) (ScenarioVersion, error)
@@ -31,6 +40,8 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (AppUser, error)
 	GetUserByID(ctx context.Context, id uint64) (AppUser, error)
 	ListAccounts(ctx context.Context) ([]DimAccount, error)
+	ListActiveUserAssignments(ctx context.Context) ([]ListActiveUserAssignmentsRow, error)
+	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]ListAuditLogsRow, error)
 	ListAxisLabelsByBinding(ctx context.Context, bindingID uint64) ([]InputBindingAxisLabel, error)
 	ListBusinesses(ctx context.Context) ([]DimBusiness, error)
 	ListDepartments(ctx context.Context) ([]DimDepartment, error)
@@ -40,7 +51,13 @@ type Querier interface {
 	ListInputSheetsByOwner(ctx context.Context, ownerUserID uint64) ([]ListInputSheetsByOwnerRow, error)
 	ListPeriods(ctx context.Context) ([]DimPeriod, error)
 	ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ScenarioVersion, error)
+	// Ordered submitted_at DESC so callers can dedupe by (business_id,
+	// department_id) and keep the first row seen — that's the latest
+	// non-superseded submission covering that scope.
+	ListSubmissionScopesByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListSubmissionScopesByScenarioVersionRow, error)
 	ListSubmissionsBySheet(ctx context.Context, inputSheetID uint64) ([]Submission, error)
+	ListSubmissionsForReview(ctx context.Context) ([]ListSubmissionsForReviewRow, error)
+	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	TouchSession(ctx context.Context, tokenHash string) error
 	UnsetCurrentScenarioVersions(ctx context.Context, arg UnsetCurrentScenarioVersionsParams) error
 	UpdateAccount(ctx context.Context, arg UpdateAccountParams) error
