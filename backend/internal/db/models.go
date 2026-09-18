@@ -7,6 +7,7 @@ package db
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -139,6 +140,182 @@ func (ns NullFactAmountSourceType) Value() (driver.Value, error) {
 	return string(ns.FactAmountSourceType), nil
 }
 
+type InputBindingAxisLabelAxis string
+
+const (
+	InputBindingAxisLabelAxisRow InputBindingAxisLabelAxis = "row"
+	InputBindingAxisLabelAxisCol InputBindingAxisLabelAxis = "col"
+)
+
+func (e *InputBindingAxisLabelAxis) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InputBindingAxisLabelAxis(s)
+	case string:
+		*e = InputBindingAxisLabelAxis(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InputBindingAxisLabelAxis: %T", src)
+	}
+	return nil
+}
+
+type NullInputBindingAxisLabelAxis struct {
+	InputBindingAxisLabelAxis InputBindingAxisLabelAxis `json:"input_binding_axis_label_axis"`
+	Valid                     bool                      `json:"valid"` // Valid is true if InputBindingAxisLabelAxis is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInputBindingAxisLabelAxis) Scan(value interface{}) error {
+	if value == nil {
+		ns.InputBindingAxisLabelAxis, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InputBindingAxisLabelAxis.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInputBindingAxisLabelAxis) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InputBindingAxisLabelAxis), nil
+}
+
+type InputBindingAxisLabelResolvedDimensionType string
+
+const (
+	InputBindingAxisLabelResolvedDimensionTypeAccount    InputBindingAxisLabelResolvedDimensionType = "account"
+	InputBindingAxisLabelResolvedDimensionTypePeriod     InputBindingAxisLabelResolvedDimensionType = "period"
+	InputBindingAxisLabelResolvedDimensionTypeBusiness   InputBindingAxisLabelResolvedDimensionType = "business"
+	InputBindingAxisLabelResolvedDimensionTypeDepartment InputBindingAxisLabelResolvedDimensionType = "department"
+)
+
+func (e *InputBindingAxisLabelResolvedDimensionType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InputBindingAxisLabelResolvedDimensionType(s)
+	case string:
+		*e = InputBindingAxisLabelResolvedDimensionType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InputBindingAxisLabelResolvedDimensionType: %T", src)
+	}
+	return nil
+}
+
+type NullInputBindingAxisLabelResolvedDimensionType struct {
+	InputBindingAxisLabelResolvedDimensionType InputBindingAxisLabelResolvedDimensionType `json:"input_binding_axis_label_resolved_dimension_type"`
+	Valid                                      bool                                       `json:"valid"` // Valid is true if InputBindingAxisLabelResolvedDimensionType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInputBindingAxisLabelResolvedDimensionType) Scan(value interface{}) error {
+	if value == nil {
+		ns.InputBindingAxisLabelResolvedDimensionType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InputBindingAxisLabelResolvedDimensionType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInputBindingAxisLabelResolvedDimensionType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InputBindingAxisLabelResolvedDimensionType), nil
+}
+
+type InputBindingColAxisDimension string
+
+const (
+	InputBindingColAxisDimensionAccount    InputBindingColAxisDimension = "account"
+	InputBindingColAxisDimensionPeriod     InputBindingColAxisDimension = "period"
+	InputBindingColAxisDimensionBusiness   InputBindingColAxisDimension = "business"
+	InputBindingColAxisDimensionDepartment InputBindingColAxisDimension = "department"
+	InputBindingColAxisDimensionNone       InputBindingColAxisDimension = "none"
+)
+
+func (e *InputBindingColAxisDimension) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InputBindingColAxisDimension(s)
+	case string:
+		*e = InputBindingColAxisDimension(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InputBindingColAxisDimension: %T", src)
+	}
+	return nil
+}
+
+type NullInputBindingColAxisDimension struct {
+	InputBindingColAxisDimension InputBindingColAxisDimension `json:"input_binding_col_axis_dimension"`
+	Valid                        bool                         `json:"valid"` // Valid is true if InputBindingColAxisDimension is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInputBindingColAxisDimension) Scan(value interface{}) error {
+	if value == nil {
+		ns.InputBindingColAxisDimension, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InputBindingColAxisDimension.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInputBindingColAxisDimension) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InputBindingColAxisDimension), nil
+}
+
+type InputBindingRowAxisDimension string
+
+const (
+	InputBindingRowAxisDimensionAccount    InputBindingRowAxisDimension = "account"
+	InputBindingRowAxisDimensionPeriod     InputBindingRowAxisDimension = "period"
+	InputBindingRowAxisDimensionBusiness   InputBindingRowAxisDimension = "business"
+	InputBindingRowAxisDimensionDepartment InputBindingRowAxisDimension = "department"
+	InputBindingRowAxisDimensionNone       InputBindingRowAxisDimension = "none"
+)
+
+func (e *InputBindingRowAxisDimension) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InputBindingRowAxisDimension(s)
+	case string:
+		*e = InputBindingRowAxisDimension(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InputBindingRowAxisDimension: %T", src)
+	}
+	return nil
+}
+
+type NullInputBindingRowAxisDimension struct {
+	InputBindingRowAxisDimension InputBindingRowAxisDimension `json:"input_binding_row_axis_dimension"`
+	Valid                        bool                         `json:"valid"` // Valid is true if InputBindingRowAxisDimension is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInputBindingRowAxisDimension) Scan(value interface{}) error {
+	if value == nil {
+		ns.InputBindingRowAxisDimension, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InputBindingRowAxisDimension.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInputBindingRowAxisDimension) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InputBindingRowAxisDimension), nil
+}
+
 type ScenarioVersionScenarioType string
 
 const (
@@ -225,6 +402,92 @@ func (ns NullScenarioVersionStatus) Value() (driver.Value, error) {
 	return string(ns.ScenarioVersionStatus), nil
 }
 
+type SubmissionStatus string
+
+const (
+	SubmissionStatusDraft      SubmissionStatus = "draft"
+	SubmissionStatusSubmitted  SubmissionStatus = "submitted"
+	SubmissionStatusSuperseded SubmissionStatus = "superseded"
+)
+
+func (e *SubmissionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SubmissionStatus(s)
+	case string:
+		*e = SubmissionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SubmissionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSubmissionStatus struct {
+	SubmissionStatus SubmissionStatus `json:"submission_status"`
+	Valid            bool             `json:"valid"` // Valid is true if SubmissionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSubmissionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SubmissionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SubmissionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSubmissionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SubmissionStatus), nil
+}
+
+type SubmissionValidationStatus string
+
+const (
+	SubmissionValidationStatusOk      SubmissionValidationStatus = "ok"
+	SubmissionValidationStatusWarning SubmissionValidationStatus = "warning"
+	SubmissionValidationStatusError   SubmissionValidationStatus = "error"
+)
+
+func (e *SubmissionValidationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SubmissionValidationStatus(s)
+	case string:
+		*e = SubmissionValidationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SubmissionValidationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSubmissionValidationStatus struct {
+	SubmissionValidationStatus SubmissionValidationStatus `json:"submission_validation_status"`
+	Valid                      bool                       `json:"valid"` // Valid is true if SubmissionValidationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSubmissionValidationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SubmissionValidationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SubmissionValidationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSubmissionValidationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SubmissionValidationStatus), nil
+}
+
 type AppUser struct {
 	ID           uint64      `json:"id"`
 	Email        string      `json:"email"`
@@ -291,6 +554,45 @@ type FactAmount struct {
 	UpdatedAt         time.Time            `json:"updated_at"`
 }
 
+type InputBinding struct {
+	ID               uint64                       `json:"id"`
+	InputSheetID     uint64                       `json:"input_sheet_id"`
+	Name             string                       `json:"name"`
+	RangeSheetName   string                       `json:"range_sheet_name"`
+	StartRow         int32                        `json:"start_row"`
+	EndRow           int32                        `json:"end_row"`
+	StartCol         int32                        `json:"start_col"`
+	EndCol           int32                        `json:"end_col"`
+	HeaderRows       int8                         `json:"header_rows"`
+	HeaderCols       int8                         `json:"header_cols"`
+	RowAxisDimension InputBindingRowAxisDimension `json:"row_axis_dimension"`
+	ColAxisDimension InputBindingColAxisDimension `json:"col_axis_dimension"`
+	FixedDimensions  json.RawMessage              `json:"fixed_dimensions"`
+	IsActive         bool                         `json:"is_active"`
+	CreatedBy        uint64                       `json:"created_by"`
+	CreatedAt        time.Time                    `json:"created_at"`
+	UpdatedAt        time.Time                    `json:"updated_at"`
+}
+
+type InputBindingAxisLabel struct {
+	ID                    uint64                                     `json:"id"`
+	BindingID             uint64                                     `json:"binding_id"`
+	Axis                  InputBindingAxisLabelAxis                  `json:"axis"`
+	AxisIndex             int32                                      `json:"axis_index"`
+	RawLabelText          string                                     `json:"raw_label_text"`
+	ResolvedDimensionType InputBindingAxisLabelResolvedDimensionType `json:"resolved_dimension_type"`
+	ResolvedDimensionID   uint64                                     `json:"resolved_dimension_id"`
+}
+
+type InputSheet struct {
+	ID            uint64    `json:"id"`
+	OwnerUserID   uint64    `json:"owner_user_id"`
+	Name          string    `json:"name"`
+	SheetSnapshot string    `json:"sheet_snapshot"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type ScenarioVersion struct {
 	ID           uint64                      `json:"id"`
 	ScenarioType ScenarioVersionScenarioType `json:"scenario_type"`
@@ -303,6 +605,18 @@ type ScenarioVersion struct {
 	CreatedAt    time.Time                   `json:"created_at"`
 	SubmittedAt  sql.NullTime                `json:"submitted_at"`
 	LockedAt     sql.NullTime                `json:"locked_at"`
+}
+
+type Submission struct {
+	ID                uint64                     `json:"id"`
+	InputSheetID      uint64                     `json:"input_sheet_id"`
+	BindingID         uint64                     `json:"binding_id"`
+	ScenarioVersionID uint64                     `json:"scenario_version_id"`
+	SubmittedBy       uint64                     `json:"submitted_by"`
+	SubmittedAt       time.Time                  `json:"submitted_at"`
+	Status            SubmissionStatus           `json:"status"`
+	ValidationStatus  SubmissionValidationStatus `json:"validation_status"`
+	ValidationDetail  json.RawMessage            `json:"validation_detail"`
 }
 
 type UserSession struct {

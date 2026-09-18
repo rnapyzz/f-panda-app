@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const listFactAmountsByScenarioVersion = `-- name: ListFactAmountsByScenarioVersion :many
@@ -79,6 +80,42 @@ func (q *Queries) UpsertFactAmount(ctx context.Context, arg UpsertFactAmountPara
 		arg.AccountID,
 		arg.PeriodID,
 		arg.Amount,
+		arg.CreatedBy,
+	)
+	return err
+}
+
+const upsertFactAmountFromSubmission = `-- name: UpsertFactAmountFromSubmission :exec
+INSERT INTO fact_amount (scenario_version_id, business_id, department_id, account_id, period_id, amount, source_type, submission_id, created_by)
+VALUES (?, ?, ?, ?, ?, ?, 'sheet_binding', ?, ?)
+ON DUPLICATE KEY UPDATE
+  amount = VALUES(amount),
+  source_type = VALUES(source_type),
+  submission_id = VALUES(submission_id),
+  created_by = VALUES(created_by),
+  updated_at = CURRENT_TIMESTAMP
+`
+
+type UpsertFactAmountFromSubmissionParams struct {
+	ScenarioVersionID uint64        `json:"scenario_version_id"`
+	BusinessID        uint64        `json:"business_id"`
+	DepartmentID      uint64        `json:"department_id"`
+	AccountID         uint64        `json:"account_id"`
+	PeriodID          uint64        `json:"period_id"`
+	Amount            string        `json:"amount"`
+	SubmissionID      sql.NullInt64 `json:"submission_id"`
+	CreatedBy         uint64        `json:"created_by"`
+}
+
+func (q *Queries) UpsertFactAmountFromSubmission(ctx context.Context, arg UpsertFactAmountFromSubmissionParams) error {
+	_, err := q.db.ExecContext(ctx, upsertFactAmountFromSubmission,
+		arg.ScenarioVersionID,
+		arg.BusinessID,
+		arg.DepartmentID,
+		arg.AccountID,
+		arg.PeriodID,
+		arg.Amount,
+		arg.SubmissionID,
 		arg.CreatedBy,
 	)
 	return err
