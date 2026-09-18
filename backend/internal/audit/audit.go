@@ -32,7 +32,6 @@ const (
 	EntityDepartment      = "dim_department"
 	EntityAccount         = "dim_account"
 	EntityScenarioVersion = "scenario_version"
-	EntityFactAmount      = "fact_amount"
 	EntityInputSheet      = "input_sheet"
 	EntityInputBinding    = "input_binding"
 	EntitySubmission      = "submission"

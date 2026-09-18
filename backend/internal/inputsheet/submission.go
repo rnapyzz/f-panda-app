@@ -13,6 +13,7 @@ import (
 )
 
 var errIncompleteDimensionKey = errors.New("inputsheet: incomplete dimension key — check fixed_dimensions")
+var ErrScenarioVersionLocked = errors.New("inputsheet: scenario version is locked")
 
 type SubmitInput struct {
 	BindingID         uint64
@@ -58,6 +59,14 @@ func setDim(fd *FixedDimensions, dimType string, id uint64) {
 // shape still matches — writes one fact_amount row per non-blank data cell
 // in the bound range.
 func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, error) {
+	version, err := s.Queries.GetScenarioVersionByID(ctx, in.ScenarioVersionID)
+	if err != nil {
+		return SubmitResult{}, fmt.Errorf("load scenario version: %w", err)
+	}
+	if version.Status == db.ScenarioVersionStatusLocked {
+		return SubmitResult{}, ErrScenarioVersionLocked
+	}
+
 	detail, err := s.GetBindingDetail(ctx, in.BindingID)
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("load binding: %w", err)

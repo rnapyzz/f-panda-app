@@ -20,15 +20,6 @@ export interface VarianceRow {
 }
 
 export const factsApi = {
-  upsertEntry: (input: {
-    scenario_version_id: number
-    business_id: number
-    department_id: number
-    account_id: number
-    period_id: number
-    amount: number
-  }) => api.post<void>('/fact-entries', input),
-
   varianceReport: (fiscalYear: number, filter?: { businessId?: number; departmentId?: number; accountId?: number }) => {
     const params = new URLSearchParams({ fiscal_year: String(fiscalYear) })
     if (filter?.businessId) params.set('business_id', String(filter.businessId))

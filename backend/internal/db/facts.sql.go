@@ -53,41 +53,6 @@ func (q *Queries) ListFactAmountsByScenarioVersion(ctx context.Context, scenario
 	return items, nil
 }
 
-const upsertFactAmount = `-- name: UpsertFactAmount :exec
-INSERT INTO fact_amount (scenario_version_id, business_id, department_id, account_id, period_id, amount, source_type, created_by)
-VALUES (?, ?, ?, ?, ?, ?, 'manual_entry', ?)
-ON DUPLICATE KEY UPDATE
-  amount = VALUES(amount),
-  source_type = VALUES(source_type),
-  submission_id = NULL,
-  import_batch_id = NULL,
-  created_by = VALUES(created_by),
-  updated_at = CURRENT_TIMESTAMP
-`
-
-type UpsertFactAmountParams struct {
-	ScenarioVersionID uint64 `json:"scenario_version_id"`
-	BusinessID        uint64 `json:"business_id"`
-	DepartmentID      uint64 `json:"department_id"`
-	AccountID         uint64 `json:"account_id"`
-	PeriodID          uint64 `json:"period_id"`
-	Amount            string `json:"amount"`
-	CreatedBy         uint64 `json:"created_by"`
-}
-
-func (q *Queries) UpsertFactAmount(ctx context.Context, arg UpsertFactAmountParams) error {
-	_, err := q.db.ExecContext(ctx, upsertFactAmount,
-		arg.ScenarioVersionID,
-		arg.BusinessID,
-		arg.DepartmentID,
-		arg.AccountID,
-		arg.PeriodID,
-		arg.Amount,
-		arg.CreatedBy,
-	)
-	return err
-}
-
 const upsertFactAmountFromImport = `-- name: UpsertFactAmountFromImport :exec
 INSERT INTO fact_amount (scenario_version_id, business_id, department_id, account_id, period_id, amount, source_type, import_batch_id, created_by)
 VALUES (?, ?, ?, ?, ?, ?, 'csv_import', ?, ?)

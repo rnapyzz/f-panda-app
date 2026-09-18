@@ -250,12 +250,6 @@ func TestPhase1Through3ActionsAreAllAuditTraceable(t *testing.T) {
 		ID uint64 `json:"id"`
 	}](t, actualResp).ID
 
-	// --- fact entry (Phase 1 manual entry form) ---
-	requireStatus(t, c.do(http.MethodPost, "/api/fact-entries", map[string]any{
-		"scenario_version_id": budgetVersionID, "business_id": businessID, "department_id": departmentID,
-		"account_id": accountID, "period_id": periodID, "amount": 12345,
-	}), http.StatusNoContent)
-
 	// --- sheet + binding + submission (Phase 2 input layer) ---
 	grid := [][]string{{"", "4月"}, {"Phase4 Account Updated", ""}}
 	numeric := map[[2]int]float64{{1, 1}: 500}
@@ -344,7 +338,6 @@ func TestPhase1Through3ActionsAreAllAuditTraceable(t *testing.T) {
 		audit.ActionCreate + "|" + audit.EntityAccount,
 		audit.ActionUpdate + "|" + audit.EntityAccount,
 		audit.ActionCreate + "|" + audit.EntityScenarioVersion,
-		audit.ActionUpdate + "|" + audit.EntityFactAmount,
 		audit.ActionCreate + "|" + audit.EntityInputSheet,
 		audit.ActionUpdate + "|" + audit.EntityInputSheet,
 		audit.ActionCreate + "|" + audit.EntityInputBinding,

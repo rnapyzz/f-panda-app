@@ -140,6 +140,34 @@ func (q *Queries) ListScenarioVersions(ctx context.Context, arg ListScenarioVers
 	return items, nil
 }
 
+const lockScenarioVersion = `-- name: LockScenarioVersion :execrows
+UPDATE scenario_version
+SET status = 'locked', locked_at = NOW()
+WHERE id = ? AND status = 'submitted'
+`
+
+func (q *Queries) LockScenarioVersion(ctx context.Context, id uint64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, lockScenarioVersion, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const submitScenarioVersion = `-- name: SubmitScenarioVersion :execrows
+UPDATE scenario_version
+SET status = 'submitted', submitted_at = NOW()
+WHERE id = ? AND status = 'draft'
+`
+
+func (q *Queries) SubmitScenarioVersion(ctx context.Context, id uint64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, submitScenarioVersion, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const unsetCurrentScenarioVersions = `-- name: UnsetCurrentScenarioVersions :exec
 UPDATE scenario_version
 SET is_current = FALSE

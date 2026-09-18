@@ -21,6 +21,8 @@ type versionDTO struct {
 	VersionLabel string  `json:"version_label"`
 	Status       string  `json:"status"`
 	IsCurrent    bool    `json:"is_current"`
+	SubmittedAt  *string `json:"submitted_at,omitempty"`
+	LockedAt     *string `json:"locked_at,omitempty"`
 }
 
 func toVersionDTO(v db.ScenarioVersion) versionDTO {
@@ -35,6 +37,14 @@ func toVersionDTO(v db.ScenarioVersion) versionDTO {
 	if v.AsOfPeriodID.Valid {
 		id := uint64(v.AsOfPeriodID.Int64)
 		dto.AsOfPeriodID = &id
+	}
+	if v.SubmittedAt.Valid {
+		s := v.SubmittedAt.Time.Format("2006-01-02T15:04:05Z07:00")
+		dto.SubmittedAt = &s
+	}
+	if v.LockedAt.Valid {
+		s := v.LockedAt.Time.Format("2006-01-02T15:04:05Z07:00")
+		dto.LockedAt = &s
 	}
 	return dto
 }
@@ -132,6 +142,40 @@ func (s *Service) CreateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": uint64(id)})
+}
+
+func (s *Service) SubmitHandler(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpx.PathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.Submit(r.Context(), id); err != nil {
+		if errors.Is(err, ErrInvalidStatusTransition) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		slog.Error("submit scenario version failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) LockHandler(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpx.PathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.Lock(r.Context(), id); err != nil {
+		if errors.Is(err, ErrInvalidStatusTransition) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		slog.Error("lock scenario version failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func parseFiscalYear(w http.ResponseWriter, s string) (int16, bool) {

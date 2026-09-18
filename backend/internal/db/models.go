@@ -581,6 +581,17 @@ type DimDepartment struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type DimInitiative struct {
+	ID                  uint64    `json:"id"`
+	Code                string    `json:"code"`
+	Name                string    `json:"name"`
+	ServiceID           uint64    `json:"service_id"`
+	PrimaryDepartmentID uint64    `json:"primary_department_id"`
+	IsActive            bool      `json:"is_active"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
 type DimPeriod struct {
 	ID            uint64    `json:"id"`
 	FiscalYear    int16     `json:"fiscal_year"`
@@ -590,6 +601,16 @@ type DimPeriod struct {
 	StartDate     time.Time `json:"start_date"`
 	EndDate       time.Time `json:"end_date"`
 	Label         string    `json:"label"`
+}
+
+type DimService struct {
+	ID         uint64    `json:"id"`
+	Code       string    `json:"code"`
+	Name       string    `json:"name"`
+	BusinessID uint64    `json:"business_id"`
+	IsActive   bool      `json:"is_active"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type FactAmount struct {

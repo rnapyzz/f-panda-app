@@ -46,6 +46,34 @@ func toAccountDTO(a db.DimAccount) accountDTO {
 	return accountDTO{ID: a.ID, Code: a.Code, Name: a.Name, AccountType: string(a.AccountType), IsActive: a.IsActive}
 }
 
+type serviceDTO struct {
+	ID         uint64 `json:"id"`
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	BusinessID uint64 `json:"business_id"`
+	IsActive   bool   `json:"is_active"`
+}
+
+type initiativeDTO struct {
+	ID                  uint64 `json:"id"`
+	Code                string `json:"code"`
+	Name                string `json:"name"`
+	ServiceID           uint64 `json:"service_id"`
+	PrimaryDepartmentID uint64 `json:"primary_department_id"`
+	IsActive            bool   `json:"is_active"`
+}
+
+func toServiceDTO(s db.DimService) serviceDTO {
+	return serviceDTO{ID: s.ID, Code: s.Code, Name: s.Name, BusinessID: s.BusinessID, IsActive: s.IsActive}
+}
+
+func toInitiativeDTO(i db.DimInitiative) initiativeDTO {
+	return initiativeDTO{
+		ID: i.ID, Code: i.Code, Name: i.Name,
+		ServiceID: i.ServiceID, PrimaryDepartmentID: i.PrimaryDepartmentID, IsActive: i.IsActive,
+	}
+}
+
 // --- businesses ---
 
 func (s *Service) ListBusinessesHandler(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +265,136 @@ func (s *Service) UpdateAccountHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	recordAudit(r, s.Queries, audit.ActionUpdate, audit.EntityAccount, id)
 	writeJSON(w, http.StatusOK, accountDTO{ID: id, Code: req.Code, Name: req.Name, AccountType: req.AccountType, IsActive: req.IsActive})
+}
+
+// --- services ---
+
+func (s *Service) ListServicesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.ListServices(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	out := make([]serviceDTO, len(rows))
+	for i, row := range rows {
+		out[i] = toServiceDTO(row)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Service) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code       string `json:"code"`
+		Name       string `json:"name"`
+		BusinessID uint64 `json:"business_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Code == "" || req.Name == "" || req.BusinessID == 0 {
+		http.Error(w, "code, name and business_id are required", http.StatusBadRequest)
+		return
+	}
+	id, err := s.CreateService(r.Context(), req.Code, req.Name, req.BusinessID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, serviceDTO{ID: uint64(id), Code: req.Code, Name: req.Name, BusinessID: req.BusinessID, IsActive: true})
+}
+
+func (s *Service) UpdateServiceHandler(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Code       string `json:"code"`
+		Name       string `json:"name"`
+		BusinessID uint64 `json:"business_id"`
+		IsActive   bool   `json:"is_active"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Code == "" || req.Name == "" || req.BusinessID == 0 {
+		http.Error(w, "code, name and business_id are required", http.StatusBadRequest)
+		return
+	}
+	if err := s.UpdateService(r.Context(), id, req.Code, req.Name, req.BusinessID, req.IsActive); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, serviceDTO{ID: id, Code: req.Code, Name: req.Name, BusinessID: req.BusinessID, IsActive: req.IsActive})
+}
+
+// --- initiatives ---
+
+func (s *Service) ListInitiativesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.ListInitiatives(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	out := make([]initiativeDTO, len(rows))
+	for i, row := range rows {
+		out[i] = toInitiativeDTO(row)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Service) CreateInitiativeHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code                string `json:"code"`
+		Name                string `json:"name"`
+		ServiceID           uint64 `json:"service_id"`
+		PrimaryDepartmentID uint64 `json:"primary_department_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Code == "" || req.Name == "" || req.ServiceID == 0 || req.PrimaryDepartmentID == 0 {
+		http.Error(w, "code, name, service_id and primary_department_id are required", http.StatusBadRequest)
+		return
+	}
+	id, err := s.CreateInitiative(r.Context(), req.Code, req.Name, req.ServiceID, req.PrimaryDepartmentID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, initiativeDTO{
+		ID: uint64(id), Code: req.Code, Name: req.Name,
+		ServiceID: req.ServiceID, PrimaryDepartmentID: req.PrimaryDepartmentID, IsActive: true,
+	})
+}
+
+func (s *Service) UpdateInitiativeHandler(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Code                string `json:"code"`
+		Name                string `json:"name"`
+		ServiceID           uint64 `json:"service_id"`
+		PrimaryDepartmentID uint64 `json:"primary_department_id"`
+		IsActive            bool   `json:"is_active"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Code == "" || req.Name == "" || req.ServiceID == 0 || req.PrimaryDepartmentID == 0 {
+		http.Error(w, "code, name, service_id and primary_department_id are required", http.StatusBadRequest)
+		return
+	}
+	if err := s.UpdateInitiative(r.Context(), id, req.Code, req.Name, req.ServiceID, req.PrimaryDepartmentID, req.IsActive); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, initiativeDTO{
+		ID: id, Code: req.Code, Name: req.Name,
+		ServiceID: req.ServiceID, PrimaryDepartmentID: req.PrimaryDepartmentID, IsActive: req.IsActive,
+	})
 }
 
 // --- shared helpers ---
