@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: fpanda
+          MYSQL_USER: fpanda
+          MYSQL_PASSWORD: fpanda
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ufpanda -pfpanda"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: backend/go.sum
+
+      - name: Install goose
+        run: go install github.com/pressly/goose/v3/cmd/goose@latest
+
+      - name: Run migrations
+        working-directory: backend/db/migrations
+        run: goose mysql "fpanda:fpanda@tcp(127.0.0.1:3306)/fpanda?parseTime=true" up
+
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Test
+        working-directory: backend
+        env:
+          APP_DB_DSN: "fpanda:fpanda@tcp(127.0.0.1:3306)/fpanda?parseTime=true"
+        run: go test ./... -v
+
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Typecheck & build
+        working-directory: frontend
+        run: npm run build
