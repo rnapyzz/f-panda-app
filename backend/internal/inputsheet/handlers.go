@@ -316,6 +316,10 @@ func (s *Service) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, ErrScenarioVersionLocked) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		writeInternalError(w, err)
 		return
 	}

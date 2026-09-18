@@ -23,3 +23,13 @@ LIMIT 1;
 SELECT id, scenario_type, fiscal_year, as_of_period_id, version_label, status, is_current, created_by, created_at, submitted_at, locked_at
 FROM scenario_version
 WHERE id = ?;
+
+-- name: SubmitScenarioVersion :execrows
+UPDATE scenario_version
+SET status = 'submitted', submitted_at = NOW()
+WHERE id = ? AND status = 'draft';
+
+-- name: LockScenarioVersion :execrows
+UPDATE scenario_version
+SET status = 'locked', locked_at = NOW()
+WHERE id = ? AND status = 'submitted';

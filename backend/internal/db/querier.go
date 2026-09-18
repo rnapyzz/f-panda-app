@@ -14,10 +14,12 @@ type Querier interface {
 	CreateBusiness(ctx context.Context, arg CreateBusinessParams) (int64, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (int64, error)
 	CreateImportBatch(ctx context.Context, arg CreateImportBatchParams) (int64, error)
+	CreateInitiative(ctx context.Context, arg CreateInitiativeParams) (int64, error)
 	CreateInputBinding(ctx context.Context, arg CreateInputBindingParams) (int64, error)
 	CreateInputBindingAxisLabel(ctx context.Context, arg CreateInputBindingAxisLabelParams) error
 	CreateInputSheet(ctx context.Context, arg CreateInputSheetParams) (int64, error)
 	CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (int64, error)
+	CreateService(ctx context.Context, arg CreateServiceParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSubmission(ctx context.Context, arg CreateSubmissionParams) (int64, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
@@ -36,18 +38,23 @@ type Querier interface {
 	ListDepartments(ctx context.Context) ([]DimDepartment, error)
 	ListFactAmountsByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListFactAmountsByScenarioVersionRow, error)
 	ListImportBatchesByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ImportBatch, error)
+	ListInitiatives(ctx context.Context) ([]DimInitiative, error)
 	ListInputBindingsBySheet(ctx context.Context, inputSheetID uint64) ([]InputBinding, error)
 	ListInputSheetsByOwner(ctx context.Context, ownerUserID uint64) ([]ListInputSheetsByOwnerRow, error)
 	ListPeriods(ctx context.Context) ([]DimPeriod, error)
 	ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ScenarioVersion, error)
+	ListServices(ctx context.Context) ([]DimService, error)
 	ListSubmissionsBySheet(ctx context.Context, inputSheetID uint64) ([]Submission, error)
+	LockScenarioVersion(ctx context.Context, id uint64) (int64, error)
+	SubmitScenarioVersion(ctx context.Context, id uint64) (int64, error)
 	TouchSession(ctx context.Context, tokenHash string) error
 	UnsetCurrentScenarioVersions(ctx context.Context, arg UnsetCurrentScenarioVersionsParams) error
 	UpdateAccount(ctx context.Context, arg UpdateAccountParams) error
 	UpdateBusiness(ctx context.Context, arg UpdateBusinessParams) error
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) error
+	UpdateInitiative(ctx context.Context, arg UpdateInitiativeParams) error
 	UpdateInputSheetSnapshot(ctx context.Context, arg UpdateInputSheetSnapshotParams) error
-	UpsertFactAmount(ctx context.Context, arg UpsertFactAmountParams) error
+	UpdateService(ctx context.Context, arg UpdateServiceParams) error
 	UpsertFactAmountFromImport(ctx context.Context, arg UpsertFactAmountFromImportParams) error
 	UpsertFactAmountFromSubmission(ctx context.Context, arg UpsertFactAmountFromSubmissionParams) error
 	UpsertPeriod(ctx context.Context, arg UpsertPeriodParams) error

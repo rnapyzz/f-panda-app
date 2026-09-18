@@ -30,3 +30,25 @@ INSERT INTO dim_account (code, name, account_type) VALUES (?, ?, ?);
 
 -- name: UpdateAccount :exec
 UPDATE dim_account SET code = ?, name = ?, account_type = ?, is_active = ? WHERE id = ?;
+
+-- name: ListServices :many
+SELECT id, code, name, business_id, is_active, created_at, updated_at
+FROM dim_service
+ORDER BY code;
+
+-- name: CreateService :execlastid
+INSERT INTO dim_service (code, name, business_id) VALUES (?, ?, ?);
+
+-- name: UpdateService :exec
+UPDATE dim_service SET code = ?, name = ?, business_id = ?, is_active = ? WHERE id = ?;
+
+-- name: ListInitiatives :many
+SELECT id, code, name, service_id, primary_department_id, is_active, created_at, updated_at
+FROM dim_initiative
+ORDER BY code;
+
+-- name: CreateInitiative :execlastid
+INSERT INTO dim_initiative (code, name, service_id, primary_department_id) VALUES (?, ?, ?, ?);
+
+-- name: UpdateInitiative :exec
+UPDATE dim_initiative SET code = ?, name = ?, service_id = ?, primary_department_id = ?, is_active = ? WHERE id = ?;

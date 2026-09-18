@@ -15,6 +15,7 @@ import (
 
 var ErrForecastRequiresAsOfPeriod = errors.New("scenario: forecast versions require as_of_period_id")
 var ErrAsOfPeriodOnlyForForecast = errors.New("scenario: as_of_period_id is only valid for forecast versions")
+var ErrInvalidStatusTransition = errors.New("scenario: invalid status transition")
 
 type Service struct {
 	DB      *sql.DB
@@ -104,4 +105,33 @@ func (s *Service) Current(ctx context.Context, scenarioType db.ScenarioVersionSc
 		return nil, fmt.Errorf("get current scenario version: %w", err)
 	}
 	return &v, nil
+}
+
+// Submit moves a version from draft to submitted. The underlying query's
+// WHERE ... AND status = 'draft' clause makes an out-of-order call (already
+// submitted/locked, or a nonexistent id) affect 0 rows rather than silently
+// no-op-succeeding.
+func (s *Service) Submit(ctx context.Context, id uint64) error {
+	n, err := s.Queries.SubmitScenarioVersion(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidStatusTransition
+	}
+	return nil
+}
+
+// Lock moves a version from submitted to locked. Once locked, the sheet
+// submission and CSV import write paths refuse further writes against it
+// (see inputsheet.Service.Submit / importer.Service.Commit).
+func (s *Service) Lock(ctx context.Context, id uint64) error {
+	n, err := s.Queries.LockScenarioVersion(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidStatusTransition
+	}
+	return nil
 }

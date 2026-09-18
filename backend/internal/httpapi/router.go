@@ -56,17 +56,29 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /api/accounts", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateAccountHandler)))
 	mux.Handle("PUT /api/accounts/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateAccountHandler)))
 
+	// Service/Initiative form a 事業>サービス>施策 hierarchy on top of the
+	// existing masters (Initiative additionally references its 主部門), but
+	// are master data only — not yet wired into fact_amount as a dimension.
+	mux.Handle("GET /api/services", deps.authed(http.HandlerFunc(deps.Dimensions.ListServicesHandler)))
+	mux.Handle("POST /api/services", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateServiceHandler)))
+	mux.Handle("PUT /api/services/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateServiceHandler)))
+
+	mux.Handle("GET /api/initiatives", deps.authed(http.HandlerFunc(deps.Dimensions.ListInitiativesHandler)))
+	mux.Handle("POST /api/initiatives", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateInitiativeHandler)))
+	mux.Handle("PUT /api/initiatives/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateInitiativeHandler)))
+
 	mux.Handle("GET /api/periods", deps.authed(http.HandlerFunc(deps.Periods.ListPeriodsHandler)))
 
-	// Scenario versions: starting a new budget/forecast/actual cycle is an
-	// office_admin action; anyone authenticated can see what versions exist
+	// Scenario versions: starting a new budget/forecast/actual cycle, and
+	// transitioning its status (draft -> submitted -> locked), are
+	// office_admin actions; anyone authenticated can see what versions exist
 	// so they know which scenario_version_id to enter data against.
 	mux.Handle("GET /api/scenario-versions", deps.authed(http.HandlerFunc(deps.Scenarios.ListHandler)))
 	mux.Handle("POST /api/scenario-versions", deps.adminMutating(http.HandlerFunc(deps.Scenarios.CreateHandler)))
+	mux.Handle("POST /api/scenario-versions/{id}/submit", deps.adminMutating(http.HandlerFunc(deps.Scenarios.SubmitHandler)))
+	mux.Handle("POST /api/scenario-versions/{id}/lock", deps.adminMutating(http.HandlerFunc(deps.Scenarios.LockHandler)))
 
-	// Fact entry (the Phase 1 stand-in for the spreadsheet input layer) and
-	// the variance report are open to any authenticated user.
-	mux.Handle("POST /api/fact-entries", deps.authedMutating(http.HandlerFunc(deps.Facts.UpsertEntryHandler)))
+	// The variance report is open to any authenticated user.
 	mux.Handle("GET /api/variance-report", deps.authed(http.HandlerFunc(deps.Facts.VarianceReportHandler)))
 
 	// Input sheets are a field user's own workspace (ownership is checked

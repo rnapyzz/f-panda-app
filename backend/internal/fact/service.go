@@ -1,7 +1,7 @@
-// Package fact implements manual entry into fact_amount and the budget vs
-// forecast vs actual variance report — the part of Phase 1 that proves the
-// canonical dimensional schema is actually useful before any investment
-// goes into the free-form spreadsheet input layer.
+// Package fact implements the budget vs forecast vs actual variance report
+// — reading fact_amount rows written by the spreadsheet-binding and CSV
+// import paths (internal/inputsheet, internal/importer) and comparing them
+// per (business, department, account, period).
 package fact
 
 import (
@@ -21,28 +21,6 @@ type Service struct {
 
 func NewService(q *db.Queries, scenarios *scenario.Service) *Service {
 	return &Service{Queries: q, Scenarios: scenarios}
-}
-
-type UpsertEntryInput struct {
-	ScenarioVersionID uint64
-	BusinessID        uint64
-	DepartmentID      uint64
-	AccountID         uint64
-	PeriodID          uint64
-	Amount            float64
-	CreatedBy         uint64
-}
-
-func (s *Service) UpsertEntry(ctx context.Context, in UpsertEntryInput) error {
-	return s.Queries.UpsertFactAmount(ctx, db.UpsertFactAmountParams{
-		ScenarioVersionID: in.ScenarioVersionID,
-		BusinessID:        in.BusinessID,
-		DepartmentID:      in.DepartmentID,
-		AccountID:         in.AccountID,
-		PeriodID:          in.PeriodID,
-		Amount:            strconv.FormatFloat(in.Amount, 'f', 2, 64),
-		CreatedBy:         in.CreatedBy,
-	})
 }
 
 type Filter struct {

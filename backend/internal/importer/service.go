@@ -20,6 +20,7 @@ func NewService(sqlDB *sql.DB, q *db.Queries) *Service {
 }
 
 var ErrScenarioNotActual = errors.New("importer: scenario_version must be of type 'actual'")
+var ErrScenarioVersionLocked = errors.New("importer: scenario_version is locked")
 
 const previewSampleRows = 10
 
@@ -72,6 +73,9 @@ func (s *Service) Commit(ctx context.Context, in CommitInput) (CommitResult, err
 	}
 	if version.ScenarioType != db.ScenarioVersionScenarioTypeActual {
 		return CommitResult{}, ErrScenarioNotActual
+	}
+	if version.Status == db.ScenarioVersionStatusLocked {
+		return CommitResult{}, ErrScenarioVersionLocked
 	}
 
 	table, err := DetectAndParse(in.OriginalFilename, in.Content)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -156,26 +157,33 @@ func TestVarianceReportMatchesHandComputedExpectations(t *testing.T) {
 			for aIdx, accountID := range accountIDs {
 				for pIdx, periodID := range periodIDs {
 					amount := budgetOf(bIdx+1, dIdx+1, aIdx+1, pIdx+1)
-					if err := facts.UpsertEntry(ctx, fact.UpsertEntryInput{
+					// Fact rows are seeded directly via the sheet-binding
+					// upsert query (with no submission_id) rather than
+					// through a manual-entry API, since that API no longer
+					// exists — only sheet-binding and CSV-import write
+					// fact_amount now.
+					if err := queries.UpsertFactAmountFromSubmission(ctx, db.UpsertFactAmountFromSubmissionParams{
 						ScenarioVersionID: uint64(budgetVersionID),
 						BusinessID:        businessID,
 						DepartmentID:      departmentID,
 						AccountID:         accountID,
 						PeriodID:          periodID,
-						Amount:            amount,
+						Amount:            strconv.FormatFloat(amount, 'f', 2, 64),
+						SubmissionID:      sql.NullInt64{Valid: false},
 						CreatedBy:         uint64(adminID),
 					}); err != nil {
 						t.Fatalf("upsert budget entry: %v", err)
 					}
 
 					if bIdx == 0 { // only the first business has actuals entered
-						if err := facts.UpsertEntry(ctx, fact.UpsertEntryInput{
+						if err := queries.UpsertFactAmountFromSubmission(ctx, db.UpsertFactAmountFromSubmissionParams{
 							ScenarioVersionID: uint64(actualVersionID),
 							BusinessID:        businessID,
 							DepartmentID:      departmentID,
 							AccountID:         accountID,
 							PeriodID:          periodID,
-							Amount:            amount + actualDelta,
+							Amount:            strconv.FormatFloat(amount+actualDelta, 'f', 2, 64),
+							SubmissionID:      sql.NullInt64{Valid: false},
 							CreatedBy:         uint64(adminID),
 						}); err != nil {
 							t.Fatalf("upsert actual entry: %v", err)

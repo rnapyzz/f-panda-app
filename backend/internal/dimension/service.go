@@ -58,3 +58,33 @@ func (s *Service) UpdateAccount(ctx context.Context, id uint64, code, name strin
 		ID: id, Code: code, Name: name, AccountType: accountType, IsActive: isActive,
 	})
 }
+
+func (s *Service) ListServices(ctx context.Context) ([]db.DimService, error) {
+	return s.Queries.ListServices(ctx)
+}
+
+func (s *Service) CreateService(ctx context.Context, code, name string, businessID uint64) (int64, error) {
+	return s.Queries.CreateService(ctx, db.CreateServiceParams{Code: code, Name: name, BusinessID: businessID})
+}
+
+func (s *Service) UpdateService(ctx context.Context, id uint64, code, name string, businessID uint64, isActive bool) error {
+	return s.Queries.UpdateService(ctx, db.UpdateServiceParams{
+		ID: id, Code: code, Name: name, BusinessID: businessID, IsActive: isActive,
+	})
+}
+
+func (s *Service) ListInitiatives(ctx context.Context) ([]db.DimInitiative, error) {
+	return s.Queries.ListInitiatives(ctx)
+}
+
+func (s *Service) CreateInitiative(ctx context.Context, code, name string, serviceID, primaryDepartmentID uint64) (int64, error) {
+	return s.Queries.CreateInitiative(ctx, db.CreateInitiativeParams{
+		Code: code, Name: name, ServiceID: serviceID, PrimaryDepartmentID: primaryDepartmentID,
+	})
+}
+
+func (s *Service) UpdateInitiative(ctx context.Context, id uint64, code, name string, serviceID, primaryDepartmentID uint64, isActive bool) error {
+	return s.Queries.UpdateInitiative(ctx, db.UpdateInitiativeParams{
+		ID: id, Code: code, Name: name, ServiceID: serviceID, PrimaryDepartmentID: primaryDepartmentID, IsActive: isActive,
+	})
+}
