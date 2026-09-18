@@ -24,7 +24,7 @@
 
 **技術スタック**
 - バックエンド：Go、標準ライブラリ志向（`net/http`のGo 1.22+強化ルーティング、`database/sql`+`sqlc`、ORM不使用）
-- フロントエンド：React + Vite（SPA、TypeScript）。Next.jsは不採用（SSR不要、スプレッドシートエンジンがクライアント専用、本番のNode.jsランタイムを増やさずGoバイナリのみで完結させ攻撃面を減らす）
+- フロントエンド：React + Vite（SPA、TypeScript）。Next.jsは不採用（SSR不要、スプレッドシートエンジンがクライアント専用、本番のNode.jsランタイムを増やさずGoバイナリのみで完結させ攻撃面を減らす）。スタイリングはTailwind CSS v4（`@tailwindcss/vite`）
 - DB：MySQL（将来のTiDB移行を意識した設計）
 - 認証：サーバーサイドセッション（HttpOnly/Secure/SameSite Cookie）＋CSRF対策
 - ホスティング：AWS東京リージョン想定（未確定、インフラ前提は軽めに）
