@@ -55,3 +55,23 @@ func UserFromContext(ctx context.Context) (db.AppUser, bool) {
 	user, ok := ctx.Value(userContextKey).(db.AppUser)
 	return user, ok
 }
+
+// RequireRole rejects the request with 403 unless the authenticated user
+// (attached earlier by RequireAuth, which must run first in the chain) has
+// the given role. Used for office-admin-only actions such as master data
+// management, where the business rule ("事務局が固定スキーマを所有する") is
+// enforced by the server rather than left to the UI.
+func RequireRole(role db.AppUserRole, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if user.Role != role {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
