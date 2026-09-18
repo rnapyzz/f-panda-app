@@ -64,10 +64,14 @@ export function EntryPage() {
   }, [])
 
   async function reloadVersions() {
-    const list = await scenarioVersionsApi.list(scenarioType, fiscalYear)
-    setVersions(list)
-    const current = list.find((v) => v.is_current)
-    setVersionId(current?.id ?? '')
+    try {
+      const list = await scenarioVersionsApi.list(scenarioType, fiscalYear)
+      setVersions(list)
+      const current = list.find((v) => v.is_current)
+      setVersionId(current?.id ?? '')
+    } catch {
+      setError('バージョン一覧の取得に失敗しました')
+    }
   }
 
   useEffect(() => {

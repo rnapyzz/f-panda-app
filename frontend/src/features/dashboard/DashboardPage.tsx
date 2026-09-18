@@ -26,6 +26,11 @@ export function DashboardPage() {
           </Link>
         </li>
         <li>
+          <Link to="/sheets" className={link}>
+            マイシート（自由入力・バインディング）
+          </Link>
+        </li>
+        <li>
           <Link to="/variance" className={link}>
             予実差異レポート
           </Link>
