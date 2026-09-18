@@ -68,6 +68,31 @@ func (q *Queries) GetCurrentScenarioVersion(ctx context.Context, arg GetCurrentS
 	return i, err
 }
 
+const getScenarioVersionByID = `-- name: GetScenarioVersionByID :one
+SELECT id, scenario_type, fiscal_year, as_of_period_id, version_label, status, is_current, created_by, created_at, submitted_at, locked_at
+FROM scenario_version
+WHERE id = ?
+`
+
+func (q *Queries) GetScenarioVersionByID(ctx context.Context, id uint64) (ScenarioVersion, error) {
+	row := q.db.QueryRowContext(ctx, getScenarioVersionByID, id)
+	var i ScenarioVersion
+	err := row.Scan(
+		&i.ID,
+		&i.ScenarioType,
+		&i.FiscalYear,
+		&i.AsOfPeriodID,
+		&i.VersionLabel,
+		&i.Status,
+		&i.IsCurrent,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.SubmittedAt,
+		&i.LockedAt,
+	)
+	return i, err
+}
+
 const listScenarioVersions = `-- name: ListScenarioVersions :many
 SELECT id, scenario_type, fiscal_year, as_of_period_id, version_label, status, is_current, created_by, created_at, submitted_at, locked_at
 FROM scenario_version

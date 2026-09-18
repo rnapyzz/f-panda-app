@@ -140,6 +140,49 @@ func (ns NullFactAmountSourceType) Value() (driver.Value, error) {
 	return string(ns.FactAmountSourceType), nil
 }
 
+type ImportBatchStatus string
+
+const (
+	ImportBatchStatusProcessing ImportBatchStatus = "processing"
+	ImportBatchStatusCompleted  ImportBatchStatus = "completed"
+	ImportBatchStatusFailed     ImportBatchStatus = "failed"
+)
+
+func (e *ImportBatchStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ImportBatchStatus(s)
+	case string:
+		*e = ImportBatchStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ImportBatchStatus: %T", src)
+	}
+	return nil
+}
+
+type NullImportBatchStatus struct {
+	ImportBatchStatus ImportBatchStatus `json:"import_batch_status"`
+	Valid             bool              `json:"valid"` // Valid is true if ImportBatchStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullImportBatchStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ImportBatchStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ImportBatchStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullImportBatchStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ImportBatchStatus), nil
+}
+
 type InputBindingAxisLabelAxis string
 
 const (
@@ -552,6 +595,20 @@ type FactAmount struct {
 	CreatedBy         uint64               `json:"created_by"`
 	CreatedAt         time.Time            `json:"created_at"`
 	UpdatedAt         time.Time            `json:"updated_at"`
+}
+
+type ImportBatch struct {
+	ID                uint64            `json:"id"`
+	UploadedBy        uint64            `json:"uploaded_by"`
+	OriginalFilename  string            `json:"original_filename"`
+	FileSizeBytes     int32             `json:"file_size_bytes"`
+	ScenarioVersionID uint64            `json:"scenario_version_id"`
+	Status            ImportBatchStatus `json:"status"`
+	RowCount          int32             `json:"row_count"`
+	ErrorCount        int32             `json:"error_count"`
+	ErrorDetail       json.RawMessage   `json:"error_detail"`
+	CreatedAt         time.Time         `json:"created_at"`
+	CompletedAt       sql.NullTime      `json:"completed_at"`
 }
 
 type InputBinding struct {

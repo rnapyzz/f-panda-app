@@ -18,3 +18,8 @@ SELECT id, scenario_type, fiscal_year, as_of_period_id, version_label, status, i
 FROM scenario_version
 WHERE scenario_type = ? AND fiscal_year = ? AND is_current = TRUE
 LIMIT 1;
+
+-- name: GetScenarioVersionByID :one
+SELECT id, scenario_type, fiscal_year, as_of_period_id, version_label, status, is_current, created_by, created_at, submitted_at, locked_at
+FROM scenario_version
+WHERE id = ?;

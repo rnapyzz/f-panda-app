@@ -58,6 +58,9 @@ INSERT INTO fact_amount (scenario_version_id, business_id, department_id, accoun
 VALUES (?, ?, ?, ?, ?, ?, 'manual_entry', ?)
 ON DUPLICATE KEY UPDATE
   amount = VALUES(amount),
+  source_type = VALUES(source_type),
+  submission_id = NULL,
+  import_batch_id = NULL,
   created_by = VALUES(created_by),
   updated_at = CURRENT_TIMESTAMP
 `
@@ -85,6 +88,43 @@ func (q *Queries) UpsertFactAmount(ctx context.Context, arg UpsertFactAmountPara
 	return err
 }
 
+const upsertFactAmountFromImport = `-- name: UpsertFactAmountFromImport :exec
+INSERT INTO fact_amount (scenario_version_id, business_id, department_id, account_id, period_id, amount, source_type, import_batch_id, created_by)
+VALUES (?, ?, ?, ?, ?, ?, 'csv_import', ?, ?)
+ON DUPLICATE KEY UPDATE
+  amount = VALUES(amount),
+  source_type = VALUES(source_type),
+  import_batch_id = VALUES(import_batch_id),
+  submission_id = NULL,
+  created_by = VALUES(created_by),
+  updated_at = CURRENT_TIMESTAMP
+`
+
+type UpsertFactAmountFromImportParams struct {
+	ScenarioVersionID uint64        `json:"scenario_version_id"`
+	BusinessID        uint64        `json:"business_id"`
+	DepartmentID      uint64        `json:"department_id"`
+	AccountID         uint64        `json:"account_id"`
+	PeriodID          uint64        `json:"period_id"`
+	Amount            string        `json:"amount"`
+	ImportBatchID     sql.NullInt64 `json:"import_batch_id"`
+	CreatedBy         uint64        `json:"created_by"`
+}
+
+func (q *Queries) UpsertFactAmountFromImport(ctx context.Context, arg UpsertFactAmountFromImportParams) error {
+	_, err := q.db.ExecContext(ctx, upsertFactAmountFromImport,
+		arg.ScenarioVersionID,
+		arg.BusinessID,
+		arg.DepartmentID,
+		arg.AccountID,
+		arg.PeriodID,
+		arg.Amount,
+		arg.ImportBatchID,
+		arg.CreatedBy,
+	)
+	return err
+}
+
 const upsertFactAmountFromSubmission = `-- name: UpsertFactAmountFromSubmission :exec
 INSERT INTO fact_amount (scenario_version_id, business_id, department_id, account_id, period_id, amount, source_type, submission_id, created_by)
 VALUES (?, ?, ?, ?, ?, ?, 'sheet_binding', ?, ?)
@@ -92,6 +132,7 @@ ON DUPLICATE KEY UPDATE
   amount = VALUES(amount),
   source_type = VALUES(source_type),
   submission_id = VALUES(submission_id),
+  import_batch_id = NULL,
   created_by = VALUES(created_by),
   updated_at = CURRENT_TIMESTAMP
 `

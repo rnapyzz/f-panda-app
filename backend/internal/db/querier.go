@@ -9,9 +9,11 @@ import (
 )
 
 type Querier interface {
+	CompleteImportBatch(ctx context.Context, arg CompleteImportBatchParams) error
 	CreateAccount(ctx context.Context, arg CreateAccountParams) (int64, error)
 	CreateBusiness(ctx context.Context, arg CreateBusinessParams) (int64, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (int64, error)
+	CreateImportBatch(ctx context.Context, arg CreateImportBatchParams) (int64, error)
 	CreateInputBinding(ctx context.Context, arg CreateInputBindingParams) (int64, error)
 	CreateInputBindingAxisLabel(ctx context.Context, arg CreateInputBindingAxisLabelParams) error
 	CreateInputSheet(ctx context.Context, arg CreateInputSheetParams) (int64, error)
@@ -24,6 +26,7 @@ type Querier interface {
 	GetCurrentScenarioVersion(ctx context.Context, arg GetCurrentScenarioVersionParams) (ScenarioVersion, error)
 	GetInputBinding(ctx context.Context, id uint64) (InputBinding, error)
 	GetInputSheet(ctx context.Context, id uint64) (InputSheet, error)
+	GetScenarioVersionByID(ctx context.Context, id uint64) (ScenarioVersion, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (UserSession, error)
 	GetUserByEmail(ctx context.Context, email string) (AppUser, error)
 	GetUserByID(ctx context.Context, id uint64) (AppUser, error)
@@ -32,6 +35,7 @@ type Querier interface {
 	ListBusinesses(ctx context.Context) ([]DimBusiness, error)
 	ListDepartments(ctx context.Context) ([]DimDepartment, error)
 	ListFactAmountsByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListFactAmountsByScenarioVersionRow, error)
+	ListImportBatchesByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ImportBatch, error)
 	ListInputBindingsBySheet(ctx context.Context, inputSheetID uint64) ([]InputBinding, error)
 	ListInputSheetsByOwner(ctx context.Context, ownerUserID uint64) ([]ListInputSheetsByOwnerRow, error)
 	ListPeriods(ctx context.Context) ([]DimPeriod, error)
@@ -44,6 +48,7 @@ type Querier interface {
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) error
 	UpdateInputSheetSnapshot(ctx context.Context, arg UpdateInputSheetSnapshotParams) error
 	UpsertFactAmount(ctx context.Context, arg UpsertFactAmountParams) error
+	UpsertFactAmountFromImport(ctx context.Context, arg UpsertFactAmountFromImportParams) error
 	UpsertFactAmountFromSubmission(ctx context.Context, arg UpsertFactAmountFromSubmissionParams) error
 	UpsertPeriod(ctx context.Context, arg UpsertPeriodParams) error
 }
