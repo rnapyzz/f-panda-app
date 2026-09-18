@@ -1,4 +1,4 @@
-.PHONY: dev down migrate migrate-down seed sqlc-generate build test lint
+.PHONY: dev down migrate migrate-down seed seed-periods sqlc-generate build test lint
 
 ## Start MySQL + backend (hot reload) + frontend (vite dev server) in containers.
 dev:
@@ -19,6 +19,12 @@ migrate-down:
 ##   make seed EMAIL=admin@example.com NAME="Admin" PASSWORD=changeme
 seed:
 	docker compose run --rm backend go run ./cmd/seed -email "$(EMAIL)" -name "$(NAME)" -password "$(PASSWORD)"
+
+## (Idempotently) populate dim_period with a rolling fiscal-year window.
+## Re-run periodically (e.g. yearly) to extend the window; see cmd/seedperiods
+## flags to override the default range or fiscal-year start month.
+seed-periods:
+	docker compose run --rm backend go run ./cmd/seedperiods
 
 ## Regenerate sqlc-generated Go code from backend/db/queries + migrations.
 sqlc-generate:

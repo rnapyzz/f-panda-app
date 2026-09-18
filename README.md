@@ -61,6 +61,16 @@ make seed EMAIL=admin@example.com NAME="管理者" PASSWORD=changeme
 
 作成後、http://localhost:5183 からログインできます。
 
+### 会計期間の投入
+
+予算・見込・実績のデータ入力/予実差異レポートで使う期間（`dim_period`）は、マイグレーションではなく冪等な専用CLIで投入します（年が経つごとに窓をずらして再実行する運用タスクのため）。
+
+```bash
+make seed-periods
+```
+
+デフォルトで現在の会計年度（4月始まり）を中心に前後合わせて約6年分（例: FY2024〜FY2029）を投入します。会計年度の開始月や投入範囲を変えたい場合は `cmd/seedperiods` のフラグ（`-fiscal-start-month` / `-from-fy` / `-to-fy`）を参照してください。
+
 ## 個別コマンド
 
 sqlc生成コードの再生成（`backend/db/queries/*.sql`や`backend/db/migrations/*.sql`を変更したとき）:
@@ -99,7 +109,7 @@ docker build --target prod -t f-panda-app-backend ./backend
 
 ```
 f-panda-app/
-  backend/    Go API（cmd/server, cmd/seed, internal/, db/migrations, db/queries）
+  backend/    Go API（cmd/server, cmd/seed, cmd/seedperiods, internal/, db/migrations, db/queries）
   frontend/   React + Vite SPA
   docs/       実装計画（plan.md）
   docker-compose.yml
