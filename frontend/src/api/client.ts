@@ -19,7 +19,10 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  if (init.body) {
+  // FormData bodies (file uploads) must NOT get an explicit Content-Type:
+  // the browser sets `multipart/form-data; boundary=...` itself, and
+  // overriding it here would break multipart parsing on the server.
+  if (init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -55,4 +58,5 @@ export const api = {
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+  postForm: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', body: form }),
 }

@@ -35,6 +35,13 @@ export function DashboardPage() {
             予実差異レポート
           </Link>
         </li>
+        {user?.role === 'office_admin' && (
+          <li>
+            <Link to="/import" className={link}>
+              実績インポート（CSV/XLSX）
+            </Link>
+          </li>
+        )}
       </ul>
     </div>
   )
