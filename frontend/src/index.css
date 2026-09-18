@@ -1,12 +1,16 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-accent: #6a2bb8;
+  --color-accent: #4f46e5;
+  --color-sidebar: #f8fafc;
+  --color-sidebar-border: #e2e8f0;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-accent: #c084fc;
+    --color-accent: #818cf8;
+    --color-sidebar: #0f172a;
+    --color-sidebar-border: #1e293b;
   }
 }
 

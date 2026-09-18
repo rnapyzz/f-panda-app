@@ -134,7 +134,7 @@ export function SheetEditorPage() {
   if (!loaded) return <p className={`${mutedText} m-8`}>読み込み中...</p>
 
   return (
-    <div className="mx-auto mt-6 max-w-5xl px-4">
+    <div>
       <p className="mb-2">
         <Link to="/sheets" className={link}>
           ← マイシート一覧

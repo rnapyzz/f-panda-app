@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { accountsApi, businessesApi, departmentsApi, type Account, type Business, type Department } from '../../api/dimensions'
 import { factsApi } from '../../api/facts'
 import {
@@ -10,7 +9,6 @@ import {
   input,
   label,
   legend,
-  link,
   mutedText,
   pageHeading,
   select,
@@ -126,12 +124,7 @@ export function EntryPage() {
   }
 
   return (
-    <div className="mx-auto mt-10 max-w-xl px-4">
-      <p className="mb-4">
-        <Link to="/" className={link}>
-          ← ダッシュボード
-        </Link>
-      </p>
+    <div className="max-w-xl">
       <h1 className={pageHeading}>データ入力（簡易フォーム）</h1>
 
       <fieldset className={fieldset}>

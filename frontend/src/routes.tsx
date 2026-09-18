@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
+import { AppShell } from './components/AppShell'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './features/auth/LoginPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
@@ -20,61 +21,26 @@ export const router = createBrowserRouter([
     element: <LoginPage />,
   },
   {
-    path: '/',
     element: (
       <ProtectedRoute>
-        <DashboardPage />
+        <AppShell />
       </ProtectedRoute>
     ),
-  },
-  {
-    path: '/dimensions',
-    element: (
-      <ProtectedRoute>
-        <DimensionsPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/entry',
-    element: (
-      <ProtectedRoute>
-        <EntryPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/variance',
-    element: (
-      <ProtectedRoute>
-        <VariancePage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/sheets',
-    element: (
-      <ProtectedRoute>
-        <SheetsListPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/sheets/:id',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<p className={`${mutedText} m-8`}>読み込み中...</p>}>
-          <SheetEditorPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/import',
-    element: (
-      <ProtectedRoute>
-        <ImportPage />
-      </ProtectedRoute>
-    ),
+    children: [
+      { index: true, element: <DashboardPage /> },
+      { path: 'dimensions', element: <DimensionsPage /> },
+      { path: 'entry', element: <EntryPage /> },
+      { path: 'variance', element: <VariancePage /> },
+      { path: 'sheets', element: <SheetsListPage /> },
+      {
+        path: 'sheets/:id',
+        element: (
+          <Suspense fallback={<p className={`${mutedText} m-8`}>読み込み中...</p>}>
+            <SheetEditorPage />
+          </Suspense>
+        ),
+      },
+      { path: 'import', element: <ImportPage /> },
+    ],
   },
 ])

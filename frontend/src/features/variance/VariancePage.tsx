@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { accountsApi, businessesApi, departmentsApi, type Account, type Business, type Department } from '../../api/dimensions'
 import { factsApi, type VarianceRow } from '../../api/facts'
-import { errorText, input, label, link, mutedText, pageHeading, select, table, td, tdRight, th } from '../../lib/ui'
+import { errorText, input, label, mutedText, pageHeading, select, table, td, tdRight, th } from '../../lib/ui'
 import { groupVarianceRowsByDimension } from './groupVarianceRows'
 
 const currentFiscalYear = new Date().getMonth() + 1 >= 4 ? new Date().getFullYear() : new Date().getFullYear() - 1
@@ -69,12 +68,7 @@ export function VariancePage() {
   }
 
   return (
-    <div className="mx-auto mt-10 max-w-5xl px-4">
-      <p className="mb-4">
-        <Link to="/" className={link}>
-          ← ダッシュボード
-        </Link>
-      </p>
+    <div>
       <h1 className={pageHeading}>予実差異レポート</h1>
 
       <div className="mb-4 flex flex-wrap items-center gap-4">

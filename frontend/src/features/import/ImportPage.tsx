@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { importApi, type ColumnMapping, type CommitResult, type ImportBatch, type PreviewResult } from '../../api/import'
 import { scenarioVersionsApi, type ScenarioVersion } from '../../api/scenarios'
 import { useAuth } from '../auth/useAuth'
@@ -11,7 +10,6 @@ import {
   input,
   label as labelClass,
   legend,
-  link,
   mutedText,
   pageHeading,
   select,
@@ -143,25 +141,11 @@ export function ImportPage() {
   }
 
   if (user?.role !== 'office_admin') {
-    return (
-      <div className="mx-auto mt-10 max-w-4xl px-4">
-        <p className="mb-4">
-          <Link to="/" className={link}>
-            ← ダッシュボード
-          </Link>
-        </p>
-        <p className={mutedText}>実績インポートは事務局管理者のみ利用できます。</p>
-      </div>
-    )
+    return <p className={mutedText}>実績インポートは事務局管理者のみ利用できます。</p>
   }
 
   return (
-    <div className="mx-auto mt-10 max-w-4xl px-4">
-      <p className="mb-4">
-        <Link to="/" className={link}>
-          ← ダッシュボード
-        </Link>
-      </p>
+    <div>
       <h1 className={pageHeading}>実績インポート（CSV/XLSX）</h1>
 
       <fieldset className={fieldset}>

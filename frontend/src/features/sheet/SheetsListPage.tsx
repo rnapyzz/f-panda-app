@@ -33,12 +33,7 @@ export function SheetsListPage() {
   }
 
   return (
-    <div className="mx-auto mt-10 max-w-xl px-4">
-      <p className="mb-4">
-        <Link to="/" className={link}>
-          ← ダッシュボード
-        </Link>
-      </p>
+    <div className="max-w-xl">
       <h1 className={pageHeading}>マイシート</h1>
       <p className={`${mutedText} mb-4`}>
         自分の使いやすいレイアウトで自由に作成し、必要な範囲だけを予算・見込・実績の項目に対応付けて提出できます。
