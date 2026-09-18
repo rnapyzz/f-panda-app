@@ -19,6 +19,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/backend/internal/dimension"
 	"github.com/rnapyzz/f-panda-app/backend/internal/fact"
 	"github.com/rnapyzz/f-panda-app/backend/internal/httpapi"
+	"github.com/rnapyzz/f-panda-app/backend/internal/inputsheet"
 	"github.com/rnapyzz/f-panda-app/backend/internal/period"
 	"github.com/rnapyzz/f-panda-app/backend/internal/scenario"
 	"github.com/rnapyzz/f-panda-app/backend/web"
@@ -58,18 +59,20 @@ func run() error {
 	periodSvc := period.NewService(queries)
 	scenarioSvc := scenario.NewService(sqlDB, queries)
 	factSvc := fact.NewService(queries, scenarioSvc)
+	inputSheetSvc := inputsheet.NewService(sqlDB, queries)
 
 	spaHandler, err := web.Handler()
 	if err != nil {
 		return err
 	}
 	router := httpapi.NewRouter(httpapi.Deps{
-		Auth:       authSvc,
-		Dimensions: dimensionSvc,
-		Periods:    periodSvc,
-		Scenarios:  scenarioSvc,
-		Facts:      factSvc,
-		SPAHandler: spaHandler,
+		Auth:        authSvc,
+		Dimensions:  dimensionSvc,
+		Periods:     periodSvc,
+		Scenarios:   scenarioSvc,
+		Facts:       factSvc,
+		InputSheets: inputSheetSvc,
+		SPAHandler:  spaHandler,
 	})
 
 	srv := &http.Server{

@@ -11,17 +11,19 @@ import (
 	"github.com/rnapyzz/f-panda-app/backend/internal/db"
 	"github.com/rnapyzz/f-panda-app/backend/internal/dimension"
 	"github.com/rnapyzz/f-panda-app/backend/internal/fact"
+	"github.com/rnapyzz/f-panda-app/backend/internal/inputsheet"
 	"github.com/rnapyzz/f-panda-app/backend/internal/period"
 	"github.com/rnapyzz/f-panda-app/backend/internal/scenario"
 )
 
 type Deps struct {
-	Auth       *auth.Service
-	Dimensions *dimension.Service
-	Periods    *period.Service
-	Scenarios  *scenario.Service
-	Facts      *fact.Service
-	SPAHandler http.Handler
+	Auth        *auth.Service
+	Dimensions  *dimension.Service
+	Periods     *period.Service
+	Scenarios   *scenario.Service
+	Facts       *fact.Service
+	InputSheets *inputsheet.Service
+	SPAHandler  http.Handler
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -64,6 +66,17 @@ func NewRouter(deps Deps) http.Handler {
 	// the variance report are open to any authenticated user.
 	mux.Handle("POST /api/fact-entries", deps.authedMutating(http.HandlerFunc(deps.Facts.UpsertEntryHandler)))
 	mux.Handle("GET /api/variance-report", deps.authed(http.HandlerFunc(deps.Facts.VarianceReportHandler)))
+
+	// Input sheets are a field user's own workspace (ownership is checked
+	// inside each handler, not just by session — a sheet belongs to
+	// whoever created it, not to office_admin generally).
+	mux.Handle("GET /api/sheets", deps.authed(http.HandlerFunc(deps.InputSheets.ListSheetsHandler)))
+	mux.Handle("POST /api/sheets", deps.authedMutating(http.HandlerFunc(deps.InputSheets.CreateSheetHandler)))
+	mux.Handle("GET /api/sheets/{id}", deps.authed(http.HandlerFunc(deps.InputSheets.GetSheetHandler)))
+	mux.Handle("PUT /api/sheets/{id}", deps.authedMutating(http.HandlerFunc(deps.InputSheets.UpdateSheetHandler)))
+	mux.Handle("GET /api/sheets/{id}/bindings", deps.authed(http.HandlerFunc(deps.InputSheets.ListBindingsHandler)))
+	mux.Handle("POST /api/sheets/{id}/bindings", deps.authedMutating(http.HandlerFunc(deps.InputSheets.CreateBindingHandler)))
+	mux.Handle("POST /api/submissions", deps.authedMutating(http.HandlerFunc(deps.InputSheets.SubmitHandler)))
 
 	if deps.SPAHandler != nil {
 		mux.Handle("/", deps.SPAHandler)
