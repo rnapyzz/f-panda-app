@@ -385,3 +385,21 @@ Phase 3完了後、ユーザーから「社内ツールとはいえ使いたく�
 - `AppShell.tsx`のナビを「業務」（ホーム/マイシート/予実差異レポート）と「管理者メニュー」（ディメンションマスタ管理/バージョン管理/実績インポート）のセクション見出しつき2グループに再構成。`DashboardPage.tsx`のクイックアクセスカードも同じ並びに更新。
 
 **検証**：`go build`・`go vet`・`go test`（`APP_DB_DSN`設定、`fact`/`importer`/`inputsheet`の既存結合テストがフィクスチャ書き換え後も通ることを確認）、フロントは`tsc -b`・`oxlint`・`vite build`（`EntryPage`のコード分割チャンクが消えていることを確認）。ブラウザ手動E2Eで、事業→サービス→施策の階層作成と名称解決表示、バージョン管理での作成→提出→確定の遷移、確定後にマイシートからの提出（UI操作で確認）とCSVインポート（API直接呼び出しで確認）の両方が409で拒否されることを実データで確認、admin/field_userそれぞれでのサイドバー・ダッシュボードの表示差異、ダークモード表示、`/entry`への直接アクセスがクラッシュせず404になることを確認した。
+
+## ロール・業務フロー再設計と作業パッケージA：所属部門＋プロジェクト層の追加（検証済み）
+
+Phase 4（担当割当て管理・提出状況ダッシュボード・バインディング検証結果・監査ログ）まで実装した時点で、ユーザーから「機能を追加しすぎて実用に適ったものか分からない」「ロールと業務フローを意識して作り直したい」との申し出があり、`docs/business-workflow.md`に現状の実装から独立した「あるべき姿」（ロール・4階層ディメンションモデル・年間業務サイクル・トップダウン目標とボトムアップ積み上げの二層構造など）を対話でヒアリングして整理した。そのうえで現行実装とのギャップを調査し、改修ロードマップ（作業パッケージA〜E）を確定。今回はそのうち**パッケージA（所属部門＋プロジェクト層の追加）**を実装した。
+
+調査で判明した重大なギャップ：**field_userアカウントを作る手段がアプリ内に一切存在しなかった**（`cmd/seed`はoffice_admin固定、管理画面に作成UIなし）。所属部門をユーザーに持たせる以上、作成手段が必須のため、今回のパッケージにユーザー管理機能も含めて追加した。
+
+**実施内容**：
+- `app_user`に`department_id`（NULL許容FK）を追加。新規`dim_project`（`dim_service`を親に持ち、`primary_department_id`を持つ）を追加し、`dim_initiative.service_id`を`project_id`にリネームしてFKを`dim_project`に retarget（事業＞サービス＞プロジェクト＞施策の4階層に）。
+- ユーザー管理（新規）：`POST/PUT /api/users`・`POST /api/users/{id}/reset-password`を追加し、事務局管理者がメール/氏名/ロール/所属部門/初期パスワードを指定してアカウントを作成・編集できるようにした（パスワードは管理者が直接設定し本人へ別途連絡する運用。メール招待やSSOは将来拡張として見送り）。フロントは新規`frontend/src/features/admin/UsersPage.tsx`。
+- Project/Initiativeの新規作成フォームでは、主部門の初期値としてログインユーザー自身の所属部門をプリセットする（代理登録もあるため必須の一致制約にはしない）。
+- 監査ログの記録漏れを解消：`dim_service`/`dim_initiative`/新設`dim_project`のCRUD、およびユーザー管理のCreate/Update/ResetPasswordを新たに記録するようにした（`scenario_version`のSubmit/Lockなど、他の記録漏れは今後の作業パッケージで対応）。
+
+**sqlcの落とし穴**：`ALTER TABLE ... CHANGE COLUMN`でリネームした列（`service_id`→`project_id`）は、sqlcのスキーマシミュレータ上でテーブル定義の末尾に追加し直される（列の元位置を保持しない）。そのため`SELECT`文の列順とモデル型のフィールド順が一致しなくなり、`ListInitiatives`はsqlcが`db.DimInitiative`ではなく専用の`ListInitiativesRow`型を生成する結果になった。同様に`GetUserByEmail`/`GetUserByID`も`department_id`列を追加した影響で`db.AppUser`ではなく専用のRow型になったため、`db.AppUser`を返す既存の`Login`/`CurrentUser`関数では手動で変換している。
+
+**検証**：`go build`・`go vet`・`go test`（既存結合テストは無改修で通過）、フロントは`tsc -b`・`oxlint`・`vite build`。ブラウザ手動E2Eで、ユーザー管理から所属部門付きのfield_userアカウントを作成しログインできること、事業→サービス→プロジェクト→施策の4階層を作成し一覧で名称が正しく解決表示されること、Project/Initiative作成フォームの主部門が自分の所属部門でプリセットされること、監査ログに`dim_service`/`dim_project`/`dim_initiative`/`app_user`のCreate/Updateが記録されることを確認した。
+
+**既知の制約**：フォーム入力の一部（React管理下の`<input>`/`<select>`へのブラウザ自動操作ツールからの値設定）が反映されない事象が再発したため、該当箇所はAPI直接呼び出しで動作を検証した（UIのイベントハンドラ自体はコードレビュー上ReactSection群と同一パターンで実装されており、手動操作では問題なく動作する想定）。

@@ -156,7 +156,7 @@
 
 ### 改修ロードマップ（作業パッケージ、推奨順）
 
-1. **所属部門＋プロジェクト層の追加**：`app_user.department_id`追加、`dim_project`新設、`dim_initiative`のFK retarget、Project/Service/Initiativeフォームで主部門の初期値を登録者の所属部門からプリセット（代理登録もあるため必須制約にはしない）、監査ログの記録漏れ解消。
+1. **所属部門＋プロジェクト層の追加**（実装・検証済み）：`app_user.department_id`追加、`dim_project`新設、`dim_initiative`のFK retarget、Project/Initiativeフォームで主部門の初期値を登録者の所属部門からプリセット（代理登録もあるため必須制約にはしない）、監査ログの記録漏れ解消。あわせて、field_userアカウントを作る手段が皆無だった重大なギャップに対応するため、事務局管理者向けのユーザー管理機能（作成・編集・パスワードリセット）も追加した。詳細は`docs/plan.md`参照。
 2. **差し戻しワークフロー**：`submission`に`returned`ステータス・関連カラムを追加、事務局向け差し戻しUI、field_user向けの差し戻し通知。
 3. **担当割当て・提出状況ダッシュボードの再設計**：所属部門＋施策/プロジェクトの主部門から担当を導出する方式へ。
 4. **fact_amountの施策接続**：`initiative_id`列追加（`business_id`/`department_id`は維持・同期）、バインディング軸への`initiative`追加、CSVインポートへの紐付けキー列追加。
