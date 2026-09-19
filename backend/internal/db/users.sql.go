@@ -7,19 +7,21 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
 const createUser = `-- name: CreateUser :execlastid
-INSERT INTO app_user (email, name, role, password_hash)
-VALUES (?, ?, ?, ?)
+INSERT INTO app_user (email, name, role, department_id, password_hash)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateUserParams struct {
-	Email        string      `json:"email"`
-	Name         string      `json:"name"`
-	Role         AppUserRole `json:"role"`
-	PasswordHash string      `json:"password_hash"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
+	PasswordHash string        `json:"password_hash"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
@@ -27,6 +29,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 		arg.Email,
 		arg.Name,
 		arg.Role,
+		arg.DepartmentID,
 		arg.PasswordHash,
 	)
 	if err != nil {
@@ -36,19 +39,32 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, role, password_hash, is_active, created_at, updated_at
+SELECT id, email, name, role, department_id, password_hash, is_active, created_at, updated_at
 FROM app_user
 WHERE email = ? AND is_active = TRUE
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AppUser, error) {
+type GetUserByEmailRow struct {
+	ID           uint64        `json:"id"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
+	PasswordHash string        `json:"password_hash"`
+	IsActive     bool          `json:"is_active"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
-	var i AppUser
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.Name,
 		&i.Role,
+		&i.DepartmentID,
 		&i.PasswordHash,
 		&i.IsActive,
 		&i.CreatedAt,
@@ -58,19 +74,32 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AppUser, er
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, name, role, password_hash, is_active, created_at, updated_at
+SELECT id, email, name, role, department_id, password_hash, is_active, created_at, updated_at
 FROM app_user
 WHERE id = ? AND is_active = TRUE
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id uint64) (AppUser, error) {
+type GetUserByIDRow struct {
+	ID           uint64        `json:"id"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
+	PasswordHash string        `json:"password_hash"`
+	IsActive     bool          `json:"is_active"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uint64) (GetUserByIDRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByID, id)
-	var i AppUser
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.Name,
 		&i.Role,
+		&i.DepartmentID,
 		&i.PasswordHash,
 		&i.IsActive,
 		&i.CreatedAt,
@@ -80,19 +109,20 @@ func (q *Queries) GetUserByID(ctx context.Context, id uint64) (AppUser, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, role, is_active, created_at, updated_at
+SELECT id, email, name, role, department_id, is_active, created_at, updated_at
 FROM app_user
 ORDER BY name
 `
 
 type ListUsersRow struct {
-	ID        uint64      `json:"id"`
-	Email     string      `json:"email"`
-	Name      string      `json:"name"`
-	Role      AppUserRole `json:"role"`
-	IsActive  bool        `json:"is_active"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID           uint64        `json:"id"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
+	IsActive     bool          `json:"is_active"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 }
 
 func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
@@ -109,6 +139,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 			&i.Email,
 			&i.Name,
 			&i.Role,
+			&i.DepartmentID,
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -124,4 +155,41 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateUser = `-- name: UpdateUser :exec
+UPDATE app_user SET name = ?, role = ?, department_id = ?, is_active = ? WHERE id = ?
+`
+
+type UpdateUserParams struct {
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
+	IsActive     bool          `json:"is_active"`
+	ID           uint64        `json:"id"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
+	_, err := q.db.ExecContext(ctx, updateUser,
+		arg.Name,
+		arg.Role,
+		arg.DepartmentID,
+		arg.IsActive,
+		arg.ID,
+	)
+	return err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE app_user SET password_hash = ? WHERE id = ?
+`
+
+type UpdateUserPasswordParams struct {
+	PasswordHash string `json:"password_hash"`
+	ID           uint64 `json:"id"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.PasswordHash, arg.ID)
+	return err
 }

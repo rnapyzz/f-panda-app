@@ -35,13 +35,14 @@ func NewService(q *db.Queries, cookieSecure bool) *Service {
 // Login verifies credentials, opens a session, and sets the session + CSRF
 // cookies on the response.
 func (s *Service) Login(ctx context.Context, w http.ResponseWriter, r *http.Request, email, password string) (db.AppUser, error) {
-	user, err := s.Queries.GetUserByEmail(ctx, email)
+	row, err := s.Queries.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return db.AppUser{}, ErrInvalidCredentials
 		}
 		return db.AppUser{}, err
 	}
+	user := appUserFromGetByEmailRow(row)
 
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
 		return db.AppUser{}, ErrInvalidCredentials
@@ -99,14 +100,32 @@ func (s *Service) CurrentUser(ctx context.Context, r *http.Request) (db.AppUser,
 		return db.AppUser{}, errNoSession
 	}
 
-	user, err := s.Queries.GetUserByID(ctx, session.UserID)
+	row, err := s.Queries.GetUserByID(ctx, session.UserID)
 	if err != nil {
 		return db.AppUser{}, errNoSession
 	}
 
 	_ = s.Queries.TouchSession(ctx, session.TokenHash)
 
-	return user, nil
+	return appUserFromGetByIDRow(row), nil
+}
+
+// GetUserByEmail/GetUserByID now select department_id in addition to
+// app_user's other columns, so sqlc generates row-specific structs instead
+// of aliasing to the AppUser model — convert back since db.AppUser is the
+// currency type for "the authenticated user" across every other package.
+func appUserFromGetByEmailRow(r db.GetUserByEmailRow) db.AppUser {
+	return db.AppUser{
+		ID: r.ID, Email: r.Email, Name: r.Name, Role: r.Role, DepartmentID: r.DepartmentID,
+		PasswordHash: r.PasswordHash, IsActive: r.IsActive, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func appUserFromGetByIDRow(r db.GetUserByIDRow) db.AppUser {
+	return db.AppUser{
+		ID: r.ID, Email: r.Email, Name: r.Name, Role: r.Role, DepartmentID: r.DepartmentID,
+		PasswordHash: r.PasswordHash, IsActive: r.IsActive, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
 }
 
 var errNoSession = errors.New("auth: no valid session")
@@ -140,6 +159,40 @@ func (s *Service) clearCookie(w http.ResponseWriter, name string, httpOnly bool)
 // "assign this field user" picker.
 func (s *Service) ListUsers(ctx context.Context) ([]db.ListUsersRow, error) {
 	return s.Queries.ListUsers(ctx)
+}
+
+func departmentIDParam(departmentID *uint64) sql.NullInt64 {
+	if departmentID == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*departmentID), Valid: true}
+}
+
+// CreateUser creates a login account directly with an admin-chosen initial
+// password — there's no email/invite infrastructure yet, so this mirrors how
+// cmd/seed already bootstraps the first office_admin account.
+func (s *Service) CreateUser(ctx context.Context, email, name string, role db.AppUserRole, departmentID *uint64, password string) (int64, error) {
+	hash, err := HashPassword(password)
+	if err != nil {
+		return 0, err
+	}
+	return s.Queries.CreateUser(ctx, db.CreateUserParams{
+		Email: email, Name: name, Role: role, DepartmentID: departmentIDParam(departmentID), PasswordHash: hash,
+	})
+}
+
+func (s *Service) UpdateUser(ctx context.Context, id uint64, name string, role db.AppUserRole, departmentID *uint64, isActive bool) error {
+	return s.Queries.UpdateUser(ctx, db.UpdateUserParams{
+		ID: id, Name: name, Role: role, DepartmentID: departmentIDParam(departmentID), IsActive: isActive,
+	})
+}
+
+func (s *Service) ResetPassword(ctx context.Context, id uint64, password string) error {
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	return s.Queries.UpdateUserPassword(ctx, db.UpdateUserPasswordParams{ID: id, PasswordHash: hash})
 }
 
 // HashPassword is exposed for the user-seeding tool.

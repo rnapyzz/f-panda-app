@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 )
 
 const createAccount = `-- name: CreateAccount :execlastid
@@ -62,18 +63,42 @@ func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentPara
 }
 
 const createInitiative = `-- name: CreateInitiative :execlastid
-INSERT INTO dim_initiative (code, name, service_id, primary_department_id) VALUES (?, ?, ?, ?)
+INSERT INTO dim_initiative (code, name, project_id, primary_department_id) VALUES (?, ?, ?, ?)
 `
 
 type CreateInitiativeParams struct {
+	Code                string `json:"code"`
+	Name                string `json:"name"`
+	ProjectID           uint64 `json:"project_id"`
+	PrimaryDepartmentID uint64 `json:"primary_department_id"`
+}
+
+func (q *Queries) CreateInitiative(ctx context.Context, arg CreateInitiativeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createInitiative,
+		arg.Code,
+		arg.Name,
+		arg.ProjectID,
+		arg.PrimaryDepartmentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const createProject = `-- name: CreateProject :execlastid
+INSERT INTO dim_project (code, name, service_id, primary_department_id) VALUES (?, ?, ?, ?)
+`
+
+type CreateProjectParams struct {
 	Code                string `json:"code"`
 	Name                string `json:"name"`
 	ServiceID           uint64 `json:"service_id"`
 	PrimaryDepartmentID uint64 `json:"primary_department_id"`
 }
 
-func (q *Queries) CreateInitiative(ctx context.Context, arg CreateInitiativeParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, createInitiative,
+func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createProject,
 		arg.Code,
 		arg.Name,
 		arg.ServiceID,
@@ -213,20 +238,69 @@ func (q *Queries) ListDepartments(ctx context.Context) ([]DimDepartment, error) 
 }
 
 const listInitiatives = `-- name: ListInitiatives :many
-SELECT id, code, name, service_id, primary_department_id, is_active, created_at, updated_at
+SELECT id, code, name, project_id, primary_department_id, is_active, created_at, updated_at
 FROM dim_initiative
 ORDER BY code
 `
 
-func (q *Queries) ListInitiatives(ctx context.Context) ([]DimInitiative, error) {
+type ListInitiativesRow struct {
+	ID                  uint64    `json:"id"`
+	Code                string    `json:"code"`
+	Name                string    `json:"name"`
+	ProjectID           uint64    `json:"project_id"`
+	PrimaryDepartmentID uint64    `json:"primary_department_id"`
+	IsActive            bool      `json:"is_active"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListInitiatives(ctx context.Context) ([]ListInitiativesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listInitiatives)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DimInitiative
+	var items []ListInitiativesRow
 	for rows.Next() {
-		var i DimInitiative
+		var i ListInitiativesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.Name,
+			&i.ProjectID,
+			&i.PrimaryDepartmentID,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjects = `-- name: ListProjects :many
+SELECT id, code, name, service_id, primary_department_id, is_active, created_at, updated_at
+FROM dim_project
+ORDER BY code
+`
+
+func (q *Queries) ListProjects(ctx context.Context) ([]DimProject, error) {
+	rows, err := q.db.QueryContext(ctx, listProjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DimProject
+	for rows.Next() {
+		var i DimProject
 		if err := rows.Scan(
 			&i.ID,
 			&i.Code,
@@ -353,10 +427,35 @@ func (q *Queries) UpdateDepartment(ctx context.Context, arg UpdateDepartmentPara
 }
 
 const updateInitiative = `-- name: UpdateInitiative :exec
-UPDATE dim_initiative SET code = ?, name = ?, service_id = ?, primary_department_id = ?, is_active = ? WHERE id = ?
+UPDATE dim_initiative SET code = ?, name = ?, project_id = ?, primary_department_id = ?, is_active = ? WHERE id = ?
 `
 
 type UpdateInitiativeParams struct {
+	Code                string `json:"code"`
+	Name                string `json:"name"`
+	ProjectID           uint64 `json:"project_id"`
+	PrimaryDepartmentID uint64 `json:"primary_department_id"`
+	IsActive            bool   `json:"is_active"`
+	ID                  uint64 `json:"id"`
+}
+
+func (q *Queries) UpdateInitiative(ctx context.Context, arg UpdateInitiativeParams) error {
+	_, err := q.db.ExecContext(ctx, updateInitiative,
+		arg.Code,
+		arg.Name,
+		arg.ProjectID,
+		arg.PrimaryDepartmentID,
+		arg.IsActive,
+		arg.ID,
+	)
+	return err
+}
+
+const updateProject = `-- name: UpdateProject :exec
+UPDATE dim_project SET code = ?, name = ?, service_id = ?, primary_department_id = ?, is_active = ? WHERE id = ?
+`
+
+type UpdateProjectParams struct {
 	Code                string `json:"code"`
 	Name                string `json:"name"`
 	ServiceID           uint64 `json:"service_id"`
@@ -365,8 +464,8 @@ type UpdateInitiativeParams struct {
 	ID                  uint64 `json:"id"`
 }
 
-func (q *Queries) UpdateInitiative(ctx context.Context, arg UpdateInitiativeParams) error {
-	_, err := q.db.ExecContext(ctx, updateInitiative,
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) error {
+	_, err := q.db.ExecContext(ctx, updateProject,
 		arg.Code,
 		arg.Name,
 		arg.ServiceID,

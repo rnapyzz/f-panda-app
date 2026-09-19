@@ -45,6 +45,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /api/auth/logout", deps.authedMutating(http.HandlerFunc(deps.Auth.LogoutHandler)))
 	mux.Handle("GET /api/auth/me", deps.authed(http.HandlerFunc(deps.Auth.MeHandler)))
 	mux.Handle("GET /api/users", deps.adminOnly(http.HandlerFunc(deps.Auth.ListUsersHandler)))
+	mux.Handle("POST /api/users", deps.adminMutating(http.HandlerFunc(deps.Auth.CreateUserHandler)))
+	mux.Handle("PUT /api/users/{id}", deps.adminMutating(http.HandlerFunc(deps.Auth.UpdateUserHandler)))
+	mux.Handle("POST /api/users/{id}/reset-password", deps.adminMutating(http.HandlerFunc(deps.Auth.ResetPasswordHandler)))
 
 	// Dimension masters: 事務局 (office_admin) owns the fixed schema, so
 	// writes are admin-only; reads are open to any authenticated user
@@ -61,12 +64,17 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /api/accounts", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateAccountHandler)))
 	mux.Handle("PUT /api/accounts/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateAccountHandler)))
 
-	// Service/Initiative form a 事業>サービス>施策 hierarchy on top of the
-	// existing masters (Initiative additionally references its 主部門), but
-	// are master data only — not yet wired into fact_amount as a dimension.
+	// Service/Project/Initiative form a 事業>サービス>プロジェクト>施策
+	// hierarchy on top of the existing masters (Project and Initiative each
+	// additionally reference their own 主部門), but are master data only —
+	// not yet wired into fact_amount as a dimension.
 	mux.Handle("GET /api/services", deps.authed(http.HandlerFunc(deps.Dimensions.ListServicesHandler)))
 	mux.Handle("POST /api/services", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateServiceHandler)))
 	mux.Handle("PUT /api/services/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateServiceHandler)))
+
+	mux.Handle("GET /api/projects", deps.authed(http.HandlerFunc(deps.Dimensions.ListProjectsHandler)))
+	mux.Handle("POST /api/projects", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateProjectHandler)))
+	mux.Handle("PUT /api/projects/{id}", deps.adminMutating(http.HandlerFunc(deps.Dimensions.UpdateProjectHandler)))
 
 	mux.Handle("GET /api/initiatives", deps.authed(http.HandlerFunc(deps.Dimensions.ListInitiativesHandler)))
 	mux.Handle("POST /api/initiatives", deps.adminMutating(http.HandlerFunc(deps.Dimensions.CreateInitiativeHandler)))

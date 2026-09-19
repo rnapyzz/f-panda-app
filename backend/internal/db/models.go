@@ -532,14 +532,15 @@ func (ns NullSubmissionValidationStatus) Value() (driver.Value, error) {
 }
 
 type AppUser struct {
-	ID           uint64      `json:"id"`
-	Email        string      `json:"email"`
-	Name         string      `json:"name"`
-	Role         AppUserRole `json:"role"`
-	PasswordHash string      `json:"password_hash"`
-	IsActive     bool        `json:"is_active"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
+	ID           uint64        `json:"id"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         AppUserRole   `json:"role"`
+	PasswordHash string        `json:"password_hash"`
+	IsActive     bool          `json:"is_active"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	DepartmentID sql.NullInt64 `json:"department_id"`
 }
 
 type AuditLog struct {
@@ -585,11 +586,11 @@ type DimInitiative struct {
 	ID                  uint64    `json:"id"`
 	Code                string    `json:"code"`
 	Name                string    `json:"name"`
-	ServiceID           uint64    `json:"service_id"`
 	PrimaryDepartmentID uint64    `json:"primary_department_id"`
 	IsActive            bool      `json:"is_active"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
+	ProjectID           uint64    `json:"project_id"`
 }
 
 type DimPeriod struct {
@@ -601,6 +602,17 @@ type DimPeriod struct {
 	StartDate     time.Time `json:"start_date"`
 	EndDate       time.Time `json:"end_date"`
 	Label         string    `json:"label"`
+}
+
+type DimProject struct {
+	ID                  uint64    `json:"id"`
+	Code                string    `json:"code"`
+	Name                string    `json:"name"`
+	ServiceID           uint64    `json:"service_id"`
+	PrimaryDepartmentID uint64    `json:"primary_department_id"`
+	IsActive            bool      `json:"is_active"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type DimService struct {

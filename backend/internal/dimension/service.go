@@ -73,18 +73,40 @@ func (s *Service) UpdateService(ctx context.Context, id uint64, code, name strin
 	})
 }
 
-func (s *Service) ListInitiatives(ctx context.Context) ([]db.DimInitiative, error) {
-	return s.Queries.ListInitiatives(ctx)
+func (s *Service) ListProjects(ctx context.Context) ([]db.DimProject, error) {
+	return s.Queries.ListProjects(ctx)
 }
 
-func (s *Service) CreateInitiative(ctx context.Context, code, name string, serviceID, primaryDepartmentID uint64) (int64, error) {
-	return s.Queries.CreateInitiative(ctx, db.CreateInitiativeParams{
+func (s *Service) CreateProject(ctx context.Context, code, name string, serviceID, primaryDepartmentID uint64) (int64, error) {
+	return s.Queries.CreateProject(ctx, db.CreateProjectParams{
 		Code: code, Name: name, ServiceID: serviceID, PrimaryDepartmentID: primaryDepartmentID,
 	})
 }
 
-func (s *Service) UpdateInitiative(ctx context.Context, id uint64, code, name string, serviceID, primaryDepartmentID uint64, isActive bool) error {
-	return s.Queries.UpdateInitiative(ctx, db.UpdateInitiativeParams{
+func (s *Service) UpdateProject(ctx context.Context, id uint64, code, name string, serviceID, primaryDepartmentID uint64, isActive bool) error {
+	return s.Queries.UpdateProject(ctx, db.UpdateProjectParams{
 		ID: id, Code: code, Name: name, ServiceID: serviceID, PrimaryDepartmentID: primaryDepartmentID, IsActive: isActive,
+	})
+}
+
+// ListInitiatives returns ListInitiativesRow (not the DimInitiative model
+// type): the sqlc schema simulator appends a renamed column (service_id ->
+// project_id, via migration 00009's ALTER TABLE ... CHANGE COLUMN) to the
+// end of its virtual table definition rather than preserving its original
+// position, so a SELECT listing project_id in its natural column order no
+// longer matches DimInitiative's field order closely enough to alias to it.
+func (s *Service) ListInitiatives(ctx context.Context) ([]db.ListInitiativesRow, error) {
+	return s.Queries.ListInitiatives(ctx)
+}
+
+func (s *Service) CreateInitiative(ctx context.Context, code, name string, projectID, primaryDepartmentID uint64) (int64, error) {
+	return s.Queries.CreateInitiative(ctx, db.CreateInitiativeParams{
+		Code: code, Name: name, ProjectID: projectID, PrimaryDepartmentID: primaryDepartmentID,
+	})
+}
+
+func (s *Service) UpdateInitiative(ctx context.Context, id uint64, code, name string, projectID, primaryDepartmentID uint64, isActive bool) error {
+	return s.Queries.UpdateInitiative(ctx, db.UpdateInitiativeParams{
+		ID: id, Code: code, Name: name, ProjectID: projectID, PrimaryDepartmentID: primaryDepartmentID, IsActive: isActive,
 	})
 }

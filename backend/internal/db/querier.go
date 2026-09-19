@@ -19,6 +19,7 @@ type Querier interface {
 	CreateInputBinding(ctx context.Context, arg CreateInputBindingParams) (int64, error)
 	CreateInputBindingAxisLabel(ctx context.Context, arg CreateInputBindingAxisLabelParams) error
 	CreateInputSheet(ctx context.Context, arg CreateInputSheetParams) (int64, error)
+	CreateProject(ctx context.Context, arg CreateProjectParams) (int64, error)
 	CreateScenarioVersion(ctx context.Context, arg CreateScenarioVersionParams) (int64, error)
 	CreateService(ctx context.Context, arg CreateServiceParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
@@ -39,8 +40,8 @@ type Querier interface {
 	GetInputSheet(ctx context.Context, id uint64) (InputSheet, error)
 	GetScenarioVersionByID(ctx context.Context, id uint64) (ScenarioVersion, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (UserSession, error)
-	GetUserByEmail(ctx context.Context, email string) (AppUser, error)
-	GetUserByID(ctx context.Context, id uint64) (AppUser, error)
+	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
+	GetUserByID(ctx context.Context, id uint64) (GetUserByIDRow, error)
 	ListAccounts(ctx context.Context) ([]DimAccount, error)
 	ListActiveUserAssignments(ctx context.Context) ([]ListActiveUserAssignmentsRow, error)
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]ListAuditLogsRow, error)
@@ -49,10 +50,11 @@ type Querier interface {
 	ListDepartments(ctx context.Context) ([]DimDepartment, error)
 	ListFactAmountsByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ListFactAmountsByScenarioVersionRow, error)
 	ListImportBatchesByScenarioVersion(ctx context.Context, scenarioVersionID uint64) ([]ImportBatch, error)
-	ListInitiatives(ctx context.Context) ([]DimInitiative, error)
+	ListInitiatives(ctx context.Context) ([]ListInitiativesRow, error)
 	ListInputBindingsBySheet(ctx context.Context, inputSheetID uint64) ([]InputBinding, error)
 	ListInputSheetsByOwner(ctx context.Context, ownerUserID uint64) ([]ListInputSheetsByOwnerRow, error)
 	ListPeriods(ctx context.Context) ([]DimPeriod, error)
+	ListProjects(ctx context.Context) ([]DimProject, error)
 	ListScenarioVersions(ctx context.Context, arg ListScenarioVersionsParams) ([]ScenarioVersion, error)
 	ListServices(ctx context.Context) ([]DimService, error)
 	// Ordered submitted_at DESC so callers can dedupe by (business_id,
@@ -71,7 +73,10 @@ type Querier interface {
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) error
 	UpdateInitiative(ctx context.Context, arg UpdateInitiativeParams) error
 	UpdateInputSheetSnapshot(ctx context.Context, arg UpdateInputSheetSnapshotParams) error
+	UpdateProject(ctx context.Context, arg UpdateProjectParams) error
 	UpdateService(ctx context.Context, arg UpdateServiceParams) error
+	UpdateUser(ctx context.Context, arg UpdateUserParams) error
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertFactAmountFromImport(ctx context.Context, arg UpsertFactAmountFromImportParams) error
 	UpsertFactAmountFromSubmission(ctx context.Context, arg UpsertFactAmountFromSubmissionParams) error
 	UpsertPeriod(ctx context.Context, arg UpsertPeriodParams) error
