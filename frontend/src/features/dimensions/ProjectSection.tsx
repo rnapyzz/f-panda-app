@@ -1,37 +1,37 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { departmentsApi, initiativesApi, projectsApi, type Department, type Initiative, type Project } from '../../api/dimensions'
+import { departmentsApi, projectsApi, servicesApi, type Department, type Project, type Service } from '../../api/dimensions'
 import { buttonSecondary, errorText, input, mutedText, select, sectionHeading, table, td, th } from '../../lib/ui'
 import { useAuth } from '../auth/useAuth'
 
-export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
+export function ProjectSection({ canEdit }: { canEdit: boolean }) {
   const { user } = useAuth()
-  const [items, setItems] = useState<Initiative[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
+  const [items, setItems] = useState<Project[]>([])
+  const [services, setServices] = useState<Service[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newCode, setNewCode] = useState('')
   const [newName, setNewName] = useState('')
-  const [newProjectId, setNewProjectId] = useState<number | ''>('')
+  const [newServiceId, setNewServiceId] = useState<number | ''>('')
   // Pre-filled with the logged-in user's own department as a starting point
-  // only — someone else often registers an initiative on a department's
-  // behalf, so this is never enforced as a required match.
+  // only — someone else often registers a project on a department's behalf,
+  // so this is never enforced as a required match.
   const [newDepartmentId, setNewDepartmentId] = useState<number | ''>(user?.department_id ?? '')
 
   async function reload() {
     setLoading(true)
     try {
-      const [initiatives, projectList, departmentList] = await Promise.all([
-        initiativesApi.list(),
+      const [projects, serviceList, departmentList] = await Promise.all([
         projectsApi.list(),
+        servicesApi.list(),
         departmentsApi.list(),
       ])
-      setItems(initiatives)
-      setProjects(projectList)
+      setItems(projects)
+      setServices(serviceList)
       setDepartments(departmentList)
       setError(null)
     } catch {
-      setError('施策一覧の取得に失敗しました')
+      setError('プロジェクト一覧の取得に失敗しました')
     } finally {
       setLoading(false)
     }
@@ -41,39 +41,39 @@ export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
     void reload()
   }, [])
 
-  const projectName = (id: number) => projects.find((p) => p.id === id)?.name ?? `(#${id})`
+  const serviceName = (id: number) => services.find((s) => s.id === id)?.name ?? `(#${id})`
   const departmentName = (id: number) => departments.find((d) => d.id === id)?.name ?? `(#${id})`
-  const activeProjects = projects.filter((p) => p.is_active)
+  const activeServices = services.filter((s) => s.is_active)
   const activeDepartments = departments.filter((d) => d.is_active)
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
-    if (newProjectId === '' || newDepartmentId === '') {
-      setError('プロジェクトと主部門を選択してください')
+    if (newServiceId === '' || newDepartmentId === '') {
+      setError('サービスと主部門を選択してください')
       return
     }
     try {
-      await initiativesApi.create({ code: newCode, name: newName, project_id: newProjectId, primary_department_id: newDepartmentId })
+      await projectsApi.create({ code: newCode, name: newName, service_id: newServiceId, primary_department_id: newDepartmentId })
       setNewCode('')
       setNewName('')
       await reload()
     } catch {
-      setError('施策の作成に失敗しました')
+      setError('プロジェクトの作成に失敗しました')
     }
   }
 
-  async function toggleActive(i: Initiative) {
+  async function toggleActive(p: Project) {
     try {
-      await initiativesApi.update(i.id, {
-        code: i.code,
-        name: i.name,
-        project_id: i.project_id,
-        primary_department_id: i.primary_department_id,
-        is_active: !i.is_active,
+      await projectsApi.update(p.id, {
+        code: p.code,
+        name: p.name,
+        service_id: p.service_id,
+        primary_department_id: p.primary_department_id,
+        is_active: !p.is_active,
       })
       await reload()
     } catch {
-      setError('施策の更新に失敗しました')
+      setError('プロジェクトの更新に失敗しました')
     }
   }
 
@@ -81,7 +81,7 @@ export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div>
-      <h3 className={sectionHeading}>施策</h3>
+      <h3 className={sectionHeading}>プロジェクト</h3>
       {error && (
         <p role="alert" className={errorText}>
           {error}
@@ -93,24 +93,24 @@ export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
             <tr>
               <th className={th}>コード</th>
               <th className={th}>名称</th>
-              <th className={th}>プロジェクト</th>
+              <th className={th}>サービス</th>
               <th className={th}>主部門</th>
               <th className={th}>有効</th>
               {canEdit && <th className={th} />}
             </tr>
           </thead>
           <tbody>
-            {items.map((i) => (
-              <tr key={i.id}>
-                <td className={td}>{i.code}</td>
-                <td className={td}>{i.name}</td>
-                <td className={td}>{projectName(i.project_id)}</td>
-                <td className={td}>{departmentName(i.primary_department_id)}</td>
-                <td className={td}>{i.is_active ? '有効' : '無効'}</td>
+            {items.map((p) => (
+              <tr key={p.id}>
+                <td className={td}>{p.code}</td>
+                <td className={td}>{p.name}</td>
+                <td className={td}>{serviceName(p.service_id)}</td>
+                <td className={td}>{departmentName(p.primary_department_id)}</td>
+                <td className={td}>{p.is_active ? '有効' : '無効'}</td>
                 {canEdit && (
                   <td className={td}>
-                    <button type="button" className={buttonSecondary} onClick={() => void toggleActive(i)}>
-                      {i.is_active ? '無効化' : '有効化'}
+                    <button type="button" className={buttonSecondary} onClick={() => void toggleActive(p)}>
+                      {p.is_active ? '無効化' : '有効化'}
                     </button>
                   </td>
                 )}
@@ -125,14 +125,14 @@ export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
           <input className={input} placeholder="名称" value={newName} onChange={(e) => setNewName(e.target.value)} required />
           <select
             className={select}
-            value={newProjectId}
-            onChange={(e) => setNewProjectId(e.target.value ? Number(e.target.value) : '')}
+            value={newServiceId}
+            onChange={(e) => setNewServiceId(e.target.value ? Number(e.target.value) : '')}
             required
           >
-            <option value="">プロジェクトを選択</option>
-            {activeProjects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+            <option value="">サービスを選択</option>
+            {activeServices.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </select>
@@ -150,7 +150,7 @@ export function InitiativeSection({ canEdit }: { canEdit: boolean }) {
             ))}
           </select>
           <button type="submit" className={buttonSecondary}>
-            施策を追加
+            プロジェクトを追加
           </button>
         </form>
       )}

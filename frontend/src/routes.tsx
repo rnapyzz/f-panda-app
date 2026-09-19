@@ -5,6 +5,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { AuditLogPage } from './features/admin/AuditLogPage'
 import { SubmissionDashboardPage } from './features/admin/SubmissionDashboardPage'
 import { UserAssignmentsPage } from './features/admin/UserAssignmentsPage'
+import { UsersPage } from './features/admin/UsersPage'
 import { ValidationReviewPage } from './features/admin/ValidationReviewPage'
 import { LoginPage } from './features/auth/LoginPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'import', element: <ImportPage /> },
+      { path: 'admin/users', element: <UsersPage /> },
       { path: 'admin/assignments', element: <UserAssignmentsPage /> },
       { path: 'admin/submission-status', element: <SubmissionDashboardPage /> },
       { path: 'admin/validation', element: <ValidationReviewPage /> },

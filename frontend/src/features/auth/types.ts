@@ -5,4 +5,5 @@ export interface CurrentUser {
   email: string
   name: string
   role: UserRole
+  department_id?: number
 }

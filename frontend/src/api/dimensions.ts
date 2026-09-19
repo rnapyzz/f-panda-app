@@ -54,11 +54,20 @@ export interface Service {
   is_active: boolean
 }
 
-export interface Initiative {
+export interface Project {
   id: number
   code: string
   name: string
   service_id: number
+  primary_department_id: number
+  is_active: boolean
+}
+
+export interface Initiative {
+  id: number
+  code: string
+  name: string
+  project_id: number
   primary_department_id: number
   is_active: boolean
 }
@@ -70,12 +79,22 @@ export const servicesApi = {
     api.put<Service>(`/services/${id}`, input),
 }
 
-export const initiativesApi = {
-  list: () => api.get<Initiative[]>('/initiatives'),
+export const projectsApi = {
+  list: () => api.get<Project[]>('/projects'),
   create: (input: { code: string; name: string; service_id: number; primary_department_id: number }) =>
-    api.post<Initiative>('/initiatives', input),
+    api.post<Project>('/projects', input),
   update: (
     id: number,
     input: { code: string; name: string; service_id: number; primary_department_id: number; is_active: boolean },
+  ) => api.put<Project>(`/projects/${id}`, input),
+}
+
+export const initiativesApi = {
+  list: () => api.get<Initiative[]>('/initiatives'),
+  create: (input: { code: string; name: string; project_id: number; primary_department_id: number }) =>
+    api.post<Initiative>('/initiatives', input),
+  update: (
+    id: number,
+    input: { code: string; name: string; project_id: number; primary_department_id: number; is_active: boolean },
   ) => api.put<Initiative>(`/initiatives/${id}`, input),
 }

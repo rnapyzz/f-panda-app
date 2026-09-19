@@ -4,6 +4,7 @@ import { AccountSection } from './AccountSection'
 import { BusinessSection } from './BusinessSection'
 import { DepartmentSection } from './DepartmentSection'
 import { InitiativeSection } from './InitiativeSection'
+import { ProjectSection } from './ProjectSection'
 import { ServiceSection } from './ServiceSection'
 
 export function DimensionsPage() {
@@ -16,6 +17,7 @@ export function DimensionsPage() {
       {!canEdit && <p className={mutedText}>閲覧のみ（編集は事務局管理者のみ可能です）</p>}
       <BusinessSection canEdit={canEdit} />
       <ServiceSection canEdit={canEdit} />
+      <ProjectSection canEdit={canEdit} />
       <InitiativeSection canEdit={canEdit} />
       <DepartmentSection canEdit={canEdit} />
       <AccountSection canEdit={canEdit} />
