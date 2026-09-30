@@ -61,6 +61,29 @@
 | `POST /api/auth/logout`  | ログアウト               |
 | `GET /api/auth/me`       | ログイン中のユーザー     |
 
+## マスタ管理 API
+
+組織・セグメント・機能・勘定科目・ユーザーの CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
+
+| リソース                       | API                                                                 |
+| ------------------------------ | ------------------------------------------------------------------- |
+| 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
+| 機能                           | `GET/POST /api/functions`、`GET/PUT/DELETE /api/functions/{id}`     |
+| 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
+| ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
+
+- 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
+- 更新は `PUT`（全項目を送る）。更新系のボディには任意の `reason`（変更理由）を含められる。`DELETE` も JSON ボディで `reason` を送れる
+- すべての更新は1トランザクションで変更セット（`change_sets`）と監査ログ（`audit_logs`）に記録する。ユーザーのパスワードハッシュは記録しない
+- 階層（組織・セグメント）
+  - `level` はサーバーが親から計算する。親を変更（移動）すると配下の `level` も更新する
+  - 自分自身や配下のノードを親にはできない
+  - 機能が所属しているノードの下には子を作れない。機能は子を持たない末端ノードにのみ所属できる
+  - 子ノードや機能が残っているノードは削除できない（409）
+- 勘定科目: コードは一意。親科目は同じ区分（収益/費用）のみ。子科目がある科目は削除・区分変更できない
+- ユーザー: 削除はせず `is_active` で無効化する（無効化するとセッションも削除）。自分自身のロール変更・無効化はできない。パスワード再設定で対象ユーザーのセッションを削除する
+- エラー: 入力エラーは 422（`details` にフィールドごとのメッセージ）、存在しない場合は 404、参照中などの矛盾は 409
+
 ## フロントエンド（React）
 
 - React + TypeScript + TailwindCSS v4、ビルドは Vite
