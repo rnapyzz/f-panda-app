@@ -67,6 +67,9 @@ export function ActualsImportDialog({ scenario, onClose }: { scenario: Scenario;
               <p>
                 形式: UTF-8 の CSV。1行目はヘッダー <code className="font-mono">target_month,activity_code,subject_code,amount</code>
               </p>
+              <p className="mt-1">
+                <code className="font-mono">activity_code</code> には、施策コードまたは施策に登録した外部コード（案件番号など）を書けます。同じ施策の行は合算します。
+              </p>
               <p className="mt-1">CSV に含まれる月の実績は、CSV の内容で置き換えます。1行でもエラーがあれば取り込みません。</p>
             </div>
             <Field label="CSV ファイル" required>

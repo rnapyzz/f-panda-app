@@ -75,6 +75,8 @@ func (l *labeler) label(log Log) string {
 			return "施策 " + name
 		}
 		return "施策 " + rec.str("name")
+	case "activity_external_codes":
+		return activity() + " / 外部コード「" + rec.str("code") + "」"
 	case "activity_milestones":
 		return activity() + " / マイルストーン「" + rec.str("name") + "」"
 	case "activity_drivers":

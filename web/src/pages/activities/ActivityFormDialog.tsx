@@ -102,8 +102,13 @@ export function ActivityFormDialog({
         <Field label="施策名" required error={fieldError(error, 'name')} className="col-span-2">
           {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
-        <Field label="施策コード" required error={fieldError(error, 'code')} hint="実績 CSV の取込で使います（英数字・-・_）">
-          {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" />}
+        <Field
+          label="施策コード"
+          required={initial !== null}
+          error={fieldError(error, 'code')}
+          hint={initial ? 'アプリ内で施策を指す番号（英数字・-・_）' : '空欄なら自動で採番します（ACT-0001 形式）'}
+        >
+          {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" placeholder={initial ? undefined : '自動採番'} />}
         </Field>
         <Field label="機能" required error={fieldError(error, 'function_id')}>
           {(p) => (

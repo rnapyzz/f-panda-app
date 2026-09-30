@@ -11,10 +11,11 @@ test('施策を作成し、確度を変更すると変更理由を求められ�
   await page.getByRole('button', { name: '＋ 施策を追加' }).click()
   const form = page.getByRole('dialog', { name: '施策の追加' })
   await form.getByLabel('施策名').fill(name)
-  await form.getByLabel('施策コード').fill(`ACT-${f.run}`)
+  // 施策コードは空欄のまま（自動採番）
   await form.getByLabel(/^機能/).selectOption({ label: `E2E課 ${f.run}` })
   await form.getByRole('button', { name: '保存' }).click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
+  await expect(page.getByText(/^ACT-\d{4,}$/)).toBeVisible()
 
   // 確度の変更 → 変更理由のダイアログ
   await page.getByRole('button', { name: '編集', exact: true }).click()

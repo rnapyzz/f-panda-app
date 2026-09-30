@@ -303,6 +303,7 @@ const fieldLabels: Record<string, string> = {
   base_scenario_id: '複製元',
   password_changed: 'パスワード',
   copied: '複製した件数',
+  note: 'メモ',
 }
 
 const valueLabels: Record<string, Record<string, string>> = {
