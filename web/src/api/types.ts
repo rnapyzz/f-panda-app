@@ -79,7 +79,6 @@ export const categoryLabels: Record<SubjectCategory, string> = {
 
 export type ActivityType = 'project' | 'recurring' | 'cost_pool'
 export type ActivityStatus = 'planned' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled'
-export type CalcMode = 'manual' | 'formula'
 
 export type Activity = Timestamps & {
   id: number
@@ -91,7 +90,6 @@ export type Activity = Timestamps & {
   start_date: string | null
   end_date: string | null
   owner_user_id: number | null
-  calc_mode: CalcMode
   probability: number | null
   assumptions: string
   can_edit: boolean
@@ -118,11 +116,15 @@ export type Driver = Timestamps & {
   unit: string
 }
 
-export type Formula = Timestamps & {
+/** 金額の内訳。施策 × 科目の下に複数持てる。formula_enabled なら計算式で算出した金額を反映する */
+export type Line = Timestamps & {
   id: number
   activity_id: number
   subject_id: number
+  name: string
   expression: string
+  formula_enabled: boolean
+  sort_order: number
 }
 
 export type ExternalCode = Timestamps & {
@@ -136,7 +138,7 @@ export type ActivityDetail = Activity & {
   external_codes: ExternalCode[]
   milestones: Milestone[]
   drivers: Driver[]
-  formulas: Formula[]
+  lines: Line[]
 }
 
 export const activityTypeLabels: Record<ActivityType, string> = {
@@ -151,11 +153,6 @@ export const activityStatusLabels: Record<ActivityStatus, string> = {
   completed: '完了',
   on_hold: '保留',
   cancelled: '中止',
-}
-
-export const calcModeLabels: Record<CalcMode, string> = {
-  manual: '直接入力',
-  formula: '計算式',
 }
 
 export const milestoneStatusLabels: Record<MilestoneStatus, string> = {
@@ -218,20 +215,29 @@ export type AmountCell = {
   provisional_reason: string
 }
 
+/** 内訳の金額。formula_enabled なら計算式で算出され、直接入力できない */
+export type AmountLine = {
+  id: number
+  name: string
+  expression: string
+  formula_enabled: boolean
+  values: AmountCell[]
+}
+
+/** 科目の金額。values は科目への直接入力（内訳なし）、lines は内訳ごと。科目の金額はそれらの合計 */
 export type AmountRow = {
   subject_id: number
   code: string
   name: string
   category: SubjectCategory
-  has_formula: boolean
   values: AmountCell[]
+  lines: AmountLine[]
 }
 
 export type ActivitySummary = {
   id: number
   code: string
   name: string
-  calc_mode: CalcMode
   probability: number | null
   can_edit: boolean
 }
@@ -315,7 +321,8 @@ export const tableLabels: Record<string, string> = {
   activity_external_codes: '外部コード',
   activity_milestones: 'マイルストーン',
   activity_drivers: 'ドライバー定義',
-  activity_formulas: '計算式',
+  activity_lines: '内訳',
+  activity_formulas: '計算式', // 内訳の導入前の変更履歴用
   budget_facts: '金額',
   driver_values: 'ドライバー値',
   scenario_conditions: '想定条件',

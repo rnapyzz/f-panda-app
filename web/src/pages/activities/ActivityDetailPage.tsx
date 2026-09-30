@@ -3,13 +3,12 @@ import { api } from '../../api/client'
 import {
   activityStatusLabels,
   activityTypeLabels,
-  calcModeLabels,
   categoryLabels,
   driverKindLabels,
   milestoneStatusLabels,
   type ActivityDetail,
   type Driver,
-  type Formula,
+  type Line,
   type Unit,
   type List,
   type Milestone,
@@ -25,7 +24,7 @@ import { Link, navigate } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { ActivityFormDialog } from './ActivityFormDialog'
 import { creatableUnits, statusTone } from './ActivityListPage'
-import { DriverDialog, FormulaDialog, MilestoneDialog } from './ActivityDialogs'
+import { DriverDialog, LineDialog, MilestoneDialog } from './ActivityDialogs'
 import { ExternalCodesCard } from './ExternalCodesCard'
 
 const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 'green', delayed: 'red' } as const
@@ -41,7 +40,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false)
   const [milestone, setMilestone] = useState<Milestone | 'new' | null>(null)
   const [driver, setDriver] = useState<Driver | 'new' | null>(null)
-  const [formula, setFormula] = useState<Formula | 'new' | null>(null)
+  const [line, setLine] = useState<Line | 'new' | null>(null)
   const [deletingDriver, setDeletingDriver] = useState<Driver | null>(null)
   const [actionError, setActionError] = useState<unknown>(null)
 
@@ -88,13 +87,17 @@ export function ActivityDetailPage({ id }: { id: string }) {
       }),
     )
 
-  const deleteFormula = (f: Formula) =>
+  const deleteLine = (l: Line) =>
     run(() =>
-      askReason(`「${subjectById.get(f.subject_id)?.name}」の計算式の削除`, async (reason) => {
-        await api.del(`${base}/formulas/${f.subject_id}`, { reason })
+      askReason(`内訳「${l.name}」の削除（各シナリオのこの内訳の金額も削除されます）`, async (reason) => {
+        await api.del(`${base}/lines/${l.id}`, { reason })
         await reload()
       }),
     )
+
+  // 内訳は科目の並び（区分・表示順・コード）でまとめて表示する
+  const subjectOrder = new Map(subjects.data.items.map((s, i) => [s.id, i]))
+  const lines = [...a.lines].sort((x, y) => (subjectOrder.get(x.subject_id) ?? 0) - (subjectOrder.get(y.subject_id) ?? 0) || x.sort_order - y.sort_order || x.id - y.id)
 
   return (
     <>
@@ -153,7 +156,6 @@ export function ActivityDetailPage({ id }: { id: string }) {
               <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
               <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
               <Info label="確度">{formatPercent(a.probability)}</Info>
-              <Info label="算出方式">{calcModeLabels[a.calc_mode]}</Info>
             </dl>
             <div className="mt-4 border-t border-slate-100 pt-3">
               <h3 className="mb-1 text-xs font-semibold text-slate-500">前提条件</h3>
@@ -240,40 +242,45 @@ export function ActivityDetailPage({ id }: { id: string }) {
             )}
           </Card>
 
-          <Card title="計算式" actions={canEdit && <Button size="sm" onClick={() => setFormula('new')}>＋ 追加</Button>}>
-            {a.calc_mode === 'manual' && a.formulas.length > 0 && (
-              <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">算出方式が「直接入力」のため、計算式は金額の算出に使われません。</p>
-            )}
-            {a.formulas.length === 0 ? (
+          <Card title="金額の内訳" actions={canEdit && <Button size="sm" onClick={() => setLine('new')}>＋ 追加</Button>}>
+            {lines.length === 0 ? (
               <Empty>
-                計算式はありません。
-                {a.calc_mode === 'formula' ? '科目ごとに、ドライバーから金額を算出する式を登録します。' : '算出方式を「計算式」にすると、ドライバーから金額を算出できます。'}
+                内訳はありません。科目の金額は、そのまま直接入力できます。1つの科目を「月額利用料」「初期導入費」のように分けたいときや、ドライバーから計算式で金額を算出したいときに登録します。
               </Empty>
             ) : (
               <Table>
                 <thead>
                   <tr>
-                    <th className="w-48">科目</th>
+                    <th className="w-40">科目</th>
+                    <th>内訳</th>
+                    <th className="w-28">金額の入れ方</th>
                     <th>計算式</th>
                     {canEdit && <th className="w-28" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {a.formulas.map((f) => {
-                    const s = subjectById.get(f.subject_id)
+                  {lines.map((l, i) => {
+                    const s = subjectById.get(l.subject_id)
+                    const firstOfSubject = i === 0 || lines[i - 1].subject_id !== l.subject_id
                     return (
-                      <tr key={f.id}>
+                      <tr key={l.id}>
                         <td>
-                          {s?.name}
-                          {s && <span className="ml-1 text-xs text-slate-400">{categoryLabels[s.category]}</span>}
+                          {firstOfSubject && (
+                            <>
+                              {s?.name}
+                              {s && <span className="ml-1 text-xs text-slate-400">{categoryLabels[s.category]}</span>}
+                            </>
+                          )}
                         </td>
-                        <td className="font-mono text-xs">{f.expression}</td>
+                        <td className="font-medium">{l.name}</td>
+                        <td>{l.formula_enabled ? <Badge tone="indigo">計算式で反映</Badge> : <Badge tone="slate">直接入力</Badge>}</td>
+                        <td className={`font-mono text-xs ${l.formula_enabled ? '' : 'text-slate-400'}`}>{l.expression || '—'}</td>
                         {canEdit && (
                           <td className="text-right">
-                            <Button size="sm" variant="ghost" onClick={() => setFormula(f)}>
+                            <Button size="sm" variant="ghost" onClick={() => setLine(l)}>
                               編集
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => deleteFormula(f)}>
+                            <Button size="sm" variant="ghost" onClick={() => deleteLine(l)}>
                               削除
                             </Button>
                           </td>
@@ -331,15 +338,16 @@ export function ActivityDetailPage({ id }: { id: string }) {
           }}
         />
       )}
-      {formula && (
-        <FormulaDialog
-          initial={formula === 'new' ? null : formula}
-          subjects={subjects.data.items.filter((s) => formula !== 'new' || !a.formulas.some((f) => f.subject_id === s.id))}
+      {line && (
+        <LineDialog
+          initial={line === 'new' ? null : line}
+          subjects={subjects.data.items}
           drivers={a.drivers}
-          onClose={() => setFormula(null)}
-          save={async (subjectId, body) => {
-            await api.put(`${base}/formulas/${subjectId}`, body)
-            setFormula(null)
+          onClose={() => setLine(null)}
+          save={async (body) => {
+            if (line === 'new') await api.post(`${base}/lines`, body)
+            else await api.put(`${base}/lines/${line.id}`, body)
+            setLine(null)
             await reload()
           }}
         />

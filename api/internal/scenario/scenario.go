@@ -223,7 +223,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if req.BaseScenarioID != nil {
 			for _, c := range []struct{ table, columns string }{
 				{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
-				{"budget_facts", "activity_id, subject_id, target_month, amount, source, is_provisional, provisional_reason"},
+				{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
 				{"scenario_conditions", "activity_id, description"},
 			} {
 				res, err := tx.ExecContext(ctx,

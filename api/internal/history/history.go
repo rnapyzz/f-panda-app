@@ -68,12 +68,12 @@ type ChangeSet struct {
 }
 
 // activityTables は、記録に activity_id を持つテーブル。
-var activityTables = []string{"activity_external_codes", "activity_milestones", "activity_drivers", "activity_formulas", "budget_facts", "scenario_conditions"}
+var activityTables = []string{"activity_external_codes", "activity_milestones", "activity_drivers", "activity_lines", "activity_formulas", "budget_facts", "scenario_conditions"}
 
 // activityFilter は、監査ログ a が施策 ? に関係するかを判定する SQL 条件。引数を3つ取る。
 const activityFilter = `(
 	(a.table_name = 'activities' AND a.record_id = ?)
-	OR (a.table_name IN ('activity_external_codes', 'activity_milestones', 'activity_drivers', 'activity_formulas', 'budget_facts', 'scenario_conditions')
+	OR (a.table_name IN ('activity_external_codes', 'activity_milestones', 'activity_drivers', 'activity_lines', 'activity_formulas', 'budget_facts', 'scenario_conditions')
 	    AND CAST(COALESCE(JSON_EXTRACT(a.after_json, '$.activity_id'), JSON_EXTRACT(a.before_json, '$.activity_id')) AS UNSIGNED) = ?)
 	OR (a.table_name = 'driver_values'
 	    AND CAST(COALESCE(JSON_EXTRACT(a.after_json, '$.activity_driver_id'), JSON_EXTRACT(a.before_json, '$.activity_driver_id')) AS UNSIGNED)

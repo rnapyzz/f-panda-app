@@ -259,14 +259,17 @@ func (h *Handler) deleteDriver(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// codeUsedInFormulas は施策の計算式のいずれかが code を参照しているかを返す。
+// codeUsedInFormulas は施策の内訳の計算式のいずれか（反映しないものも含む）が code を参照しているかを返す。
 func codeUsedInFormulas(ctx context.Context, tx *sql.Tx, activityID int64, code string) (bool, error) {
-	formulas, err := listFormulas(ctx, tx, activityID)
+	lines, err := listLines(ctx, tx, activityID)
 	if err != nil {
 		return false, err
 	}
-	for _, f := range formulas {
-		e, err := formula.Parse(f.Expression)
+	for _, l := range lines {
+		if l.Expression == "" {
+			continue
+		}
+		e, err := formula.Parse(l.Expression)
 		if err != nil {
 			continue
 		}

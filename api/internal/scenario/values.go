@@ -56,13 +56,24 @@ type amountCell struct {
 	ProvisionalReason string      `json:"provisional_reason"`
 }
 
+// amountRow は科目の金額。Values は科目への直接入力（内訳なし）の金額、Lines は内訳ごとの金額。
+// 科目の金額はそれらの合計。
 type amountRow struct {
-	SubjectID  int64        `json:"subject_id"`
-	Code       string       `json:"code"`
-	Name       string       `json:"name"`
-	Category   string       `json:"category"`
-	HasFormula bool         `json:"has_formula"`
-	Values     []amountCell `json:"values"`
+	SubjectID int64        `json:"subject_id"`
+	Code      string       `json:"code"`
+	Name      string       `json:"name"`
+	Category  string       `json:"category"`
+	Values    []amountCell `json:"values"`
+	Lines     []lineRow    `json:"lines"`
+}
+
+// lineRow は内訳の金額。FormulaEnabled なら計算式で算出され、直接入力できない。
+type lineRow struct {
+	ID             int64        `json:"id"`
+	Name           string       `json:"name"`
+	Expression     string       `json:"expression"`
+	FormulaEnabled bool         `json:"formula_enabled"`
+	Values         []amountCell `json:"values"`
 }
 
 // valuesView はシナリオ×施策の入力画面用のデータ。
@@ -149,40 +160,8 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 		return valuesView{}, err
 	}
 
-	// 金額: 金額がある科目と、計算式がある科目
-	rows2, err := h.db.QueryContext(ctx, `
-		SELECT s.id, s.code, s.name, s.category, f.id IS NOT NULL,
-		       DATE_FORMAT(b.target_month, '%Y-%m'), b.amount, b.source, b.is_provisional, COALESCE(b.provisional_reason, '')
-		FROM subjects s
-		LEFT JOIN activity_formulas f ON f.subject_id = s.id AND f.activity_id = ?
-		LEFT JOIN budget_facts b ON b.subject_id = s.id AND b.activity_id = ? AND b.scenario_id = ?
-		WHERE f.id IS NOT NULL OR b.id IS NOT NULL
-		ORDER BY s.category DESC, s.sort_order, s.code, b.target_month`, activityID, activityID, scenarioID)
-	if err != nil {
-		return valuesView{}, err
-	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var a amountRow
-		var month, amount, source sql.NullString
-		var provisional sql.NullBool
-		var reason string
-		if err := rows2.Scan(&a.SubjectID, &a.Code, &a.Name, &a.Category, &a.HasFormula, &month, &amount, &source, &provisional, &reason); err != nil {
-			return valuesView{}, err
-		}
-		if n := len(v.Amounts); n == 0 || v.Amounts[n-1].SubjectID != a.SubjectID {
-			a.Values = []amountCell{}
-			v.Amounts = append(v.Amounts, a)
-		}
-		if month.Valid {
-			last := &v.Amounts[len(v.Amounts)-1]
-			last.Values = append(last.Values, amountCell{
-				TargetMonth: month.String, Amount: json.Number(amount.String), Source: source.String,
-				IsProvisional: provisional.Bool, ProvisionalReason: reason,
-			})
-		}
-	}
-	if err := rows2.Err(); err != nil {
+	// 金額: 内訳がある科目と、金額がある科目
+	if v.Amounts, err = h.loadAmounts(ctx, scenarioID, activityID); err != nil {
 		return valuesView{}, err
 	}
 
@@ -195,6 +174,95 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 		return valuesView{}, err
 	}
 	return v, nil
+}
+
+// loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
+func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64) ([]amountRow, error) {
+	rows := map[int64]*amountRow{}
+	lineOf := map[int64]*lineRow{}
+	get := func(subjectID int64) *amountRow {
+		if r, ok := rows[subjectID]; ok {
+			return r
+		}
+		r := &amountRow{SubjectID: subjectID, Values: []amountCell{}, Lines: []lineRow{}}
+		rows[subjectID] = r
+		return r
+	}
+
+	lrows, err := h.db.QueryContext(ctx, `
+		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled
+		FROM activity_lines WHERE activity_id = ? ORDER BY subject_id, sort_order, id`, activityID)
+	if err != nil {
+		return nil, err
+	}
+	for lrows.Next() {
+		var l lineRow
+		var subjectID int64
+		if err := lrows.Scan(&l.ID, &subjectID, &l.Name, &l.Expression, &l.FormulaEnabled); err != nil {
+			lrows.Close()
+			return nil, err
+		}
+		l.Values = []amountCell{}
+		r := get(subjectID)
+		r.Lines = append(r.Lines, l)
+	}
+	lrows.Close()
+	if err := lrows.Err(); err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		for i := range r.Lines {
+			lineOf[r.Lines[i].ID] = &r.Lines[i]
+		}
+	}
+
+	frows, err := h.db.QueryContext(ctx, `
+		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
+		FROM budget_facts WHERE scenario_id = ? AND activity_id = ? ORDER BY target_month`, scenarioID, activityID)
+	if err != nil {
+		return nil, err
+	}
+	for frows.Next() {
+		var subjectID int64
+		var lineID sql.NullInt64
+		var c amountCell
+		var amount string
+		if err := frows.Scan(&subjectID, &lineID, &c.TargetMonth, &amount, &c.Source, &c.IsProvisional, &c.ProvisionalReason); err != nil {
+			frows.Close()
+			return nil, err
+		}
+		c.Amount = json.Number(amount)
+		if l, ok := lineOf[lineID.Int64]; lineID.Valid && ok {
+			l.Values = append(l.Values, c)
+		} else {
+			r := get(subjectID)
+			r.Values = append(r.Values, c)
+		}
+	}
+	frows.Close()
+	if err := frows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 科目の情報を付けて、区分（収益 → 費用）・表示順・コードの順に並べる
+	srows, err := h.db.QueryContext(ctx, "SELECT id, code, name, category FROM subjects ORDER BY category, sort_order, code")
+	if err != nil {
+		return nil, err
+	}
+	defer srows.Close()
+	out := []amountRow{}
+	for srows.Next() {
+		var id int64
+		var code, name, category string
+		if err := srows.Scan(&id, &code, &name, &category); err != nil {
+			return nil, err
+		}
+		if r, ok := rows[id]; ok {
+			r.Code, r.Name, r.Category = code, name, category
+			out = append(out, *r)
+		}
+	}
+	return out, srows.Err()
 }
 
 // --- 更新の共通処理 ---
@@ -437,7 +505,8 @@ func parseDriverValue(v httpx.Validator, field string, n json.Number) string {
 
 type amountInput struct {
 	SubjectID int64        `json:"subject_id"`
-	Amount    *json.Number `json:"amount"` // null で削除
+	LineID    *int64       `json:"line_id"` // 内訳。null は科目への直接入力
+	Amount    *json.Number `json:"amount"`  // null で削除
 	cellInput
 }
 
@@ -447,7 +516,8 @@ type amountsRequest struct {
 }
 
 // putAmounts は PUT /api/scenarios/{id}/activities/{aid}/amounts。
-// 金額（円）を直接入力する。計算式で算出する科目（算出方式が formula で計算式がある科目）は入力できない。変更理由が必須。
+// 金額（円）を直接入力する。line_id で内訳を指定する（null は科目への直接入力）。
+// 計算式で反映する内訳は入力できない。変更理由が必須。
 func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 	scenarioID, activityID, err := pathIDs(r)
 	if err != nil {
@@ -462,12 +532,9 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	err = h.editTx(r, scenarioID, activityID, req.Reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
-		formulaSubjects := map[int64]bool{}
-		if a.CalcMode == "formula" {
-			var err error
-			if formulaSubjects, err = calc.FormulaSubjects(ctx, tx, activityID); err != nil {
-				return err
-			}
+		lines, err := calc.Lines(ctx, tx, activityID)
+		if err != nil {
+			return err
 		}
 
 		months := calc.FiscalMonths(s.FiscalYear)
@@ -482,13 +549,19 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 				return err
 			case !ok:
 				v.Add(prefix+".subject_id", "科目が見つかりません")
-			case formulaSubjects[in.SubjectID]:
-				v.Add(prefix+".subject_id", "計算式で算出する科目のため直接入力できません")
+			}
+			if in.LineID != nil {
+				switch l, ok := lines[*in.LineID]; {
+				case !ok || l.SubjectID != in.SubjectID:
+					v.Add(prefix+".line_id", "この施策・科目の内訳を指定してください")
+				case l.Computed:
+					v.Add(prefix+".line_id", "内訳「"+l.Name+"」は計算式で反映するため直接入力できません")
+				}
 			}
 			validateCell(v, prefix, &in.cellInput, months)
-			key := fmt.Sprintf("%d/%s", in.SubjectID, in.TargetMonth)
+			key := fmt.Sprintf("%d/%d/%s", in.SubjectID, deref(in.LineID), in.TargetMonth)
 			if seen[key] {
-				v.Add(prefix, "同じ科目・月が重複しています")
+				v.Add(prefix, "同じ科目・内訳・月が重複しています")
 			}
 			seen[key] = true
 			if in.Amount != nil {
@@ -504,7 +577,7 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		for i, in := range req.Amounts {
-			before, found := existing[in.SubjectID][in.TargetMonth]
+			before, found := existing[calc.Key{SubjectID: in.SubjectID, LineID: deref(in.LineID), Month: in.TargetMonth}]
 			if in.Amount == nil {
 				if found {
 					if _, err := tx.ExecContext(ctx, "DELETE FROM budget_facts WHERE id = ?", before.ID); err != nil {
@@ -517,12 +590,13 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 				continue
 			}
 			after := calc.Fact{
-				ScenarioID: scenarioID, ActivityID: activityID, SubjectID: in.SubjectID, TargetMonth: in.TargetMonth,
+				ScenarioID: scenarioID, ActivityID: activityID, SubjectID: in.SubjectID, LineID: in.LineID, TargetMonth: in.TargetMonth,
 				Amount: amounts[i], Source: "manual", IsProvisional: in.IsProvisional, ProvisionalReason: in.ProvisionalReason,
 			}
 			if found {
 				after.ID = before.ID
-				if before == after {
+				if before.Amount == after.Amount && before.Source == after.Source &&
+					before.IsProvisional == after.IsProvisional && before.ProvisionalReason == after.ProvisionalReason {
 					continue
 				}
 				if err := calc.UpdateFact(ctx, tx, after); err != nil {
@@ -546,6 +620,13 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return h.respondValues(w, r, scenarioID, activityID)
+}
+
+func deref(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // parseAmount は金額（円、整数）を検証する。

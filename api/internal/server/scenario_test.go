@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-// scenarioFixture は、計算式で金額を算出する施策（formula）と直接入力の施策（manual）を持つ。
+// scenarioFixture は、計算式で金額を算出する内訳を持つ施策（formula）と直接入力だけの施策（manual）を持つ。
 type scenarioFixture struct {
 	*activityFixture
 	sales, cost           int64 // 科目
 	formulaAct, manualAct int64 // 施策（どちらも担当者は member）
 	priceID, volumeID     int64 // formulaAct のドライバー
+	salesLine             int64 // formulaAct の売上の内訳（計算式で反映する）
 	budget                int64 // 2026年度のシナリオ
 }
 
@@ -24,16 +25,14 @@ func newScenarioFixture(t *testing.T) *scenarioFixture {
 	f.cost = a.mustCreate("/api/subjects", map[string]any{"code": "8110", "name": "外注費", "category": "expense"})
 
 	f.formulaAct = a.mustCreate("/api/activities", activityBody(f.fn1, "SAAS-1", map[string]any{
-		"owner_user_id": f.memberID, "calc_mode": "formula", "probability": 0.5,
+		"owner_user_id": f.memberID, "probability": 0.5,
 	}))
 	base := fmt.Sprintf("/api/activities/%d", f.formulaAct)
 	f.priceID = a.mustCreate(base+"/drivers", map[string]any{"code": "unit_price", "name": "単価", "driver_kind": "value"})
 	f.volumeID = a.mustCreate(base+"/drivers", map[string]any{"code": "volume", "name": "件数", "driver_kind": "kpi"})
-	if status, body := a.do("PUT", fmt.Sprintf("%s/formulas/%d", base, f.sales), map[string]any{
-		"expression": "unit_price * volume * probability", "reason": "算出式の設定",
-	}); status != http.StatusCreated {
-		t.Fatalf("計算式の登録: status = %d, body = %v", status, body)
-	}
+	f.salesLine = a.mustCreate(base+"/lines", map[string]any{
+		"subject_id": f.sales, "name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "算出式の設定",
+	})
 
 	f.manualAct = a.mustCreate("/api/activities", activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID}))
 	f.budget = a.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 当初予算", "scenario_kind": "budget", "fiscal_year": 2026})
@@ -48,14 +47,31 @@ func (f *scenarioFixture) valuesPath(scenarioID, activityID int64) string {
 func amountOf(body map[string]any, subjectID int64, month string) (amount string, cell map[string]any) {
 	for _, row := range body["amounts"].([]any) {
 		r := row.(map[string]any)
-		if int64(r["subject_id"].(float64)) != subjectID {
-			continue
+		if int64(r["subject_id"].(float64)) == subjectID {
+			return cellOf(r["values"], month)
 		}
-		for _, c := range r["values"].([]any) {
-			cm := c.(map[string]any)
-			if cm["target_month"] == month {
-				return numString(cm["amount"]), cm
+	}
+	return "", nil
+}
+
+// lineAmountOf は内訳の金額を返す。
+func lineAmountOf(body map[string]any, lineID int64, month string) (amount string, cell map[string]any) {
+	for _, row := range body["amounts"].([]any) {
+		for _, l := range row.(map[string]any)["lines"].([]any) {
+			lm := l.(map[string]any)
+			if int64(lm["id"].(float64)) == lineID {
+				return cellOf(lm["values"], month)
 			}
+		}
+	}
+	return "", nil
+}
+
+func cellOf(values any, month string) (string, map[string]any) {
+	for _, c := range values.([]any) {
+		cm := c.(map[string]any)
+		if cm["target_month"] == month {
+			return numString(cm["amount"]), cm
 		}
 	}
 	return "", nil
@@ -129,14 +145,14 @@ func TestDriverValuesRecalculateAmounts(t *testing.T) {
 		t.Fatalf("ドライバー値の登録: status = %d, body = %v", status, body)
 	}
 	// 1000 * 3 * 0.5 = 1500、1000.5 * 3 * 0.5 = 1500.75 → 1501（四捨五入）
-	if got, _ := amountOf(body, f.sales, "2026-10"); got != "1500" {
+	if got, _ := lineAmountOf(body, f.salesLine, "2026-10"); got != "1500" {
 		t.Errorf("2026-10 の金額 = %q, want 1500", got)
 	}
-	got, cell := amountOf(body, f.sales, "2026-11")
+	got, cell := lineAmountOf(body, f.salesLine, "2026-11")
 	if got != "1501" || cell["source"] != "formula" || cell["is_provisional"] != true {
 		t.Errorf("2026-11 = %v, want 1501・formula・仮の値", cell)
 	}
-	if got, _ := amountOf(body, f.sales, "2026-12"); got != "" {
+	if got, _ := lineAmountOf(body, f.salesLine, "2026-12"); got != "" {
 		t.Errorf("2026-12 の金額 = %q, want なし（件数が未入力）", got)
 	}
 	if body["editable"] != true {
@@ -154,19 +170,19 @@ func TestDriverValuesRecalculateAmounts(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("更新: status = %d, body = %v", status, body)
 	}
-	if got, _ := amountOf(body, f.sales, "2026-10"); got != "" {
+	if got, _ := lineAmountOf(body, f.salesLine, "2026-10"); got != "" {
 		t.Errorf("件数削除後の 2026-10 = %q, want なし", got)
 	}
-	if got, cell := amountOf(body, f.sales, "2026-11"); got != "2001" || cell["is_provisional"] != false {
+	if got, cell := lineAmountOf(body, f.salesLine, "2026-11"); got != "2001" || cell["is_provisional"] != false {
 		t.Errorf("2026-11 = %v, want 2001・仮の値ではない", cell)
 	}
 
 	// 確度を変えると金額も再計算される（1000.5 * 4 * 0.8 = 3201.6 → 3202）
-	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "calc_mode": "formula", "probability": 0.8, "reason": "受注確度の上方修正"})
+	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "probability": 0.8, "reason": "受注確度の上方修正"})
 	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d", f.formulaAct), update); status != http.StatusOK {
 		t.Fatalf("確度の変更: status = %d, body = %v", status, body)
 	}
-	if got, _ := amountOf(f.member.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.sales, "2026-11"); got != "3202" {
+	if got, _ := lineAmountOf(f.member.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.salesLine, "2026-11"); got != "3202" {
 		t.Errorf("確度変更後の 2026-11 = %q, want 3202", got)
 	}
 
@@ -218,9 +234,7 @@ func TestDriverValueValidation(t *testing.T) {
 func TestDivisionByZeroRollsBack(t *testing.T) {
 	f := newScenarioFixture(t)
 	base := fmt.Sprintf("/api/activities/%d", f.formulaAct)
-	if status, body := f.admin.do("PUT", fmt.Sprintf("%s/formulas/%d", base, f.cost), map[string]any{"expression": "unit_price / volume", "reason": "r"}); status != http.StatusCreated {
-		t.Fatalf("計算式: status = %d, body = %v", status, body)
-	}
+	f.admin.mustCreate(base+"/lines", map[string]any{"subject_id": f.cost, "name": "外注費", "expression": "unit_price / volume", "formula_enabled": true, "reason": "r"})
 	status, body := f.member.do("PUT", f.valuesPath(f.budget, f.formulaAct)+"/driver-values", map[string]any{
 		"reason": "r",
 		"values": []map[string]any{
@@ -255,13 +269,13 @@ func TestFormulaChangeRecalculatesOnlyUnlockedScenarios(t *testing.T) {
 	}
 
 	// 計算式を変更（確度を掛けない）
-	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d/formulas/%d", f.formulaAct, f.sales), map[string]any{"expression": "unit_price * volume", "reason": "確度は別管理にする"}); status != http.StatusOK {
+	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d/lines/%d", f.formulaAct, f.salesLine), map[string]any{"name": "利用料", "expression": "unit_price * volume", "formula_enabled": true, "reason": "確度は別管理にする"}); status != http.StatusOK {
 		t.Fatalf("計算式の変更: status = %d, body = %v", status, body)
 	}
-	if got, _ := amountOf(f.viewer.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.sales, "2026-10"); got != "1000" {
+	if got, _ := lineAmountOf(f.viewer.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.salesLine, "2026-10"); got != "1000" {
 		t.Errorf("ロック済み予算の金額 = %q, want 1000（変わらない）", got)
 	}
-	if got, _ := amountOf(f.viewer.mustGet(f.valuesPath(forecast, f.formulaAct)), f.sales, "2026-10"); got != "2000" {
+	if got, _ := lineAmountOf(f.viewer.mustGet(f.valuesPath(forecast, f.formulaAct)), f.salesLine, "2026-10"); got != "2000" {
 		t.Errorf("見込の金額 = %q, want 2000（再計算される）", got)
 	}
 }
@@ -321,13 +335,16 @@ func TestManualAmounts(t *testing.T) {
 		}
 	}
 
-	// 計算式で算出する科目は直接入力できないが、計算式のない科目は入力できる
+	// 計算式で反映する内訳には直接入力できないが、同じ科目への直接入力はできる
 	fpath := f.valuesPath(f.budget, f.formulaAct) + "/amounts"
-	if status, body := f.member.do("PUT", fpath, map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-05", "amount": 1}}}); status != http.StatusUnprocessableEntity || detail(body, "amounts[0].subject_id") == "" {
-		t.Errorf("計算式の科目への直接入力: status = %d, body = %v", status, body)
+	if status, body := f.member.do("PUT", fpath, map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "line_id": f.salesLine, "target_month": "2026-05", "amount": 1}}}); status != http.StatusUnprocessableEntity || detail(body, "amounts[0].line_id") == "" {
+		t.Errorf("計算式の内訳への直接入力: status = %d, body = %v", status, body)
 	}
-	if status, body := f.member.do("PUT", fpath, map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.cost, "target_month": "2026-05", "amount": -1}}}); status != http.StatusOK {
-		t.Errorf("計算式のない科目への直接入力: status = %d, body = %v", status, body)
+	if status, body := f.member.do("PUT", fpath, map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.cost, "line_id": f.salesLine, "target_month": "2026-05", "amount": 1}}}); status != http.StatusUnprocessableEntity || detail(body, "amounts[0].line_id") == "" {
+		t.Errorf("別科目の内訳の指定: status = %d, body = %v", status, body)
+	}
+	if status, body := f.member.do("PUT", fpath, map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-05", "amount": 1}}}); status != http.StatusOK {
+		t.Errorf("計算式の内訳がある科目への直接入力: status = %d, body = %v", status, body)
 	}
 
 	// null で削除
@@ -385,3 +402,81 @@ func numString(v any) string {
 	}
 	return fmt.Sprint(v)
 }
+
+func TestAmountLines(t *testing.T) {
+	f := newScenarioFixture(t)
+	base := fmt.Sprintf("/api/activities/%d", f.formulaAct)
+	vpath := f.valuesPath(f.budget, f.formulaAct)
+	lpath := fmt.Sprintf("%s/lines/%d", base, f.salesLine)
+	setupLine := f.member.mustCreate(base+"/lines", map[string]any{"subject_id": f.sales, "name": "初期導入費"})
+
+	// 同じ科目に、計算式の内訳・直接入力の内訳・科目への直接入力が並ぶ
+	f.member.do("PUT", vpath+"/driver-values", map[string]any{"reason": "r", "values": []map[string]any{
+		{"driver_id": f.priceID, "target_month": "2026-10", "value": 1000},
+		{"driver_id": f.volumeID, "target_month": "2026-10", "value": 3},
+	}})
+	status, body := f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "r", "amounts": []map[string]any{
+		{"subject_id": f.sales, "line_id": setupLine, "target_month": "2026-10", "amount": 200000},
+		{"subject_id": f.sales, "target_month": "2026-10", "amount": 1000},
+	}})
+	if status != http.StatusOK {
+		t.Fatalf("金額の入力: status = %d, body = %v", status, body)
+	}
+	for name, got := range map[string]string{
+		"1500":   first(lineAmountOf(body, f.salesLine, "2026-10")),
+		"200000": first(lineAmountOf(body, setupLine, "2026-10")),
+		"1000":   first(amountOf(body, f.sales, "2026-10")),
+	} {
+		if got != name {
+			t.Errorf("金額 = %q, want %s", got, name)
+		}
+	}
+	// 再計算しても、ほかの内訳・直接入力の金額は消えない
+	f.member.do("PUT", vpath+"/driver-values", map[string]any{"reason": "r", "values": []map[string]any{{"driver_id": f.volumeID, "target_month": "2026-10", "value": 4}}})
+	body = f.member.mustGet(vpath)
+	if a, b, c := first(lineAmountOf(body, f.salesLine, "2026-10")), first(lineAmountOf(body, setupLine, "2026-10")), first(amountOf(body, f.sales, "2026-10")); a != "2000" || b != "200000" || c != "1000" {
+		t.Errorf("再計算後 = %s / %s / %s, want 2000 / 200000 / 1000", a, b, c)
+	}
+
+	// 反映をやめると金額は残り、直接入力できるようになる
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": false, "reason": "値引き交渉中のため手入力"}); status != http.StatusOK {
+		t.Fatalf("反映をやめる: status = %d, body = %v", status, body)
+	}
+	status, body = f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "値引き", "amounts": []map[string]any{{"subject_id": f.sales, "line_id": f.salesLine, "target_month": "2026-10", "amount": 1800}}})
+	if got, cell := lineAmountOf(body, f.salesLine, "2026-10"); status != http.StatusOK || got != "1800" || cell["source"] != "manual" {
+		t.Errorf("反映しない内訳への入力: status = %d, cell = %v", status, cell)
+	}
+	// 反映に戻すと再計算される
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "式に戻す"}); status != http.StatusOK {
+		t.Fatalf("反映に戻す: status = %d, body = %v", status, body)
+	}
+	if got, cell := lineAmountOf(f.member.mustGet(vpath), f.salesLine, "2026-10"); got != "2000" || cell["source"] != "formula" {
+		t.Errorf("反映に戻した後 = %v, want 2000・formula", cell)
+	}
+
+	// 複製したシナリオにも内訳の金額が引き継がれる
+	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "見込", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	body = f.viewer.mustGet(f.valuesPath(forecast, f.formulaAct))
+	if a, b := first(lineAmountOf(body, f.salesLine, "2026-10")), first(lineAmountOf(body, setupLine, "2026-10")); a != "2000" || b != "200000" {
+		t.Errorf("複製後 = %s / %s, want 2000 / 200000", a, b)
+	}
+
+	// ロック済みシナリオに金額がある内訳は削除できない。ロックがなければ金額ごと削除できる
+	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", f.budget), nil)
+	if status, _ := f.member.do("DELETE", fmt.Sprintf("%s/lines/%d", base, setupLine), map[string]any{"reason": "r"}); status != http.StatusConflict {
+		t.Errorf("ロック済みの金額がある内訳の削除: status = %d, want 409", status)
+	}
+	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/unlock", f.budget), map[string]any{"reason": "r"})
+	if status, body := f.member.do("DELETE", fmt.Sprintf("%s/lines/%d", base, setupLine), map[string]any{"reason": "内訳の整理"}); status != http.StatusNoContent {
+		t.Fatalf("内訳の削除: status = %d, body = %v", status, body)
+	}
+	if got := first(amountOf(f.viewer.mustGet(f.valuesPath(forecast, f.formulaAct)), f.sales, "2026-10")); got != "1000" {
+		t.Errorf("内訳削除後の科目への直接入力 = %q, want 1000", got)
+	}
+	var n int
+	if err := f.env.QueryRow("SELECT COUNT(*) FROM budget_facts WHERE line_id = ?", setupLine).Scan(&n); err != nil || n != 0 {
+		t.Errorf("削除した内訳の金額が %d 件残っている (err = %v)", n, err)
+	}
+}
+
+func first(s string, _ map[string]any) string { return s }

@@ -34,7 +34,7 @@
 
 | 目的         | 対応するデータ                                                                                     |
 | ------------ | -------------------------------------------------------------------------------------------------- |
-| ①根拠の透明性 | `activities`、`activity_drivers`、`driver_values`、`activity_formulas`                             |
+| ①根拠の透明性 | `activities`、`activity_drivers`、`driver_values`、`activity_lines`                             |
 | ②リスクの感度 | `activities.probability`・`assumptions`、`activity_milestones`、`scenario_conditions`、楽観/悲観シナリオ |
 | ③説明責任     | `is_provisional`・`provisional_reason`、`change_sets`、`audit_logs`                                |
 
@@ -67,19 +67,23 @@
 
 基本的に収益を伴わない活動（施策）である。活動管理としては期限やゴールを設定して管理することが望ましい。
 
-### 2.4 金額の算出方式（calc_mode）
+### 2.4 金額の内訳と計算式（activity_lines）
 
-施策ごとに金額の算出方式を選択する。
+同じ施策の中でも、ドライバーから計算したい金額と、直接入力したい金額が混在する。また、1つの科目が複数の要素からなることもある（例: 売上高 = 月額利用料 + 初期導入費 + スポット売上）。そのため、金額の入れ方は施策単位ではなく、**施策 × 科目の下の「内訳」（`activity_lines`）ごと**に決める。
 
-- **`formula`（式で算出）**: ドライバーの月次値（`driver_values`）と科目ごとの計算式（`activity_formulas`）から `budget_facts` を算出する。算出結果は `source = 'formula'` で保存する。
-  - 例: 売上 = `unit_price * volume * probability`
+- 内訳は名前を持ち、1つの施策 × 科目に複数登録できる（施策 × 科目 × 名前で一意）。
+- 内訳ごとに計算式を持てる。計算式で**反映する**（`formula_enabled`）か、**しない**（直接入力）かを選ぶ。反映しない場合も、式は参考として残せる。
+- **科目の金額 = 内訳の金額の合計 + 科目への直接入力（内訳なし）の金額**。内訳を作らない科目は、これまでどおり科目に直接入力する。
+- `budget_facts.line_id` で内訳を指す（NULL は科目への直接入力）。実績は科目単位で取り込む（`line_id` は NULL）。予実比較・リスクなどの集計も科目単位。
+- 計算式で反映する内訳は、ドライバーの月次値（`driver_values`）と式から金額を算出し、`source = 'formula'` で保存する。直接入力はできない。
+  - 例: 月額利用料 = `unit_price * customers * probability`
   - 式は四則演算・括弧・数値リテラル・ドライバーの `code` 参照のみをサポートする。`probability` は予約語で、施策の確度（`activities.probability`）を参照する。
   - 計算は有理数（誤差なし）で行い、金額にするときに円未満を四捨五入する。
-  - ドライバー値を保存したとき、計算式・確度・算出方式を変更したときに金額を再計算する。再計算の対象はロックされていない実績以外のシナリオ（確定した版は変わらない）。
+  - ドライバー値を保存したとき、確度を変更したとき、計算式や反映の有無を変更したときに金額を再計算する。再計算の対象はロックされていない実績以外のシナリオ（確定した版は変わらない）。
   - 計算に必要なドライバー値がそろわない月は金額を持たない。仮の値のドライバーを使った金額は、仮の値として扱う。
-  - 計算式がある科目は直接入力できない。計算式のない科目は、算出方式が formula でも直接入力できる。
-  - 計算式を削除した科目の金額はそのまま残り、以後は直接入力で編集できる。
-- **`manual`（直接入力）**: 金額を直接入力する。ドライバー・KPIは根拠として並べて表示するだけで、金額の計算には使わない。
+- 反映をやめた内訳の金額はそのまま残り、以後は直接入力で編集できる。
+- 内訳を削除すると、各シナリオのその内訳の金額も削除する。ロック済み・実績のシナリオに金額がある内訳は削除できない（反映しない設定にする）。
+- ドライバーは、いずれかの内訳の式（反映しない式を含む）で使われている間は、コード変更・削除ができない。
 
 ### 2.5 施策コードと外部コード
 
@@ -108,8 +112,8 @@
 
 - 値の変更は必ず「変更セット」（`change_sets`）単位で行う。変更理由（`reason`）は次の変更で必須とし、それ以外（マスタの変更など）では任意とする。
   - 金額・ドライバー値の変更
-  - 施策の確度・前提条件・期間（開始日/終了日）・算出方式の変更
-  - 計算式の登録・変更・削除
+  - 施策の確度・前提条件・期間（開始日/終了日）の変更
+  - 内訳の計算式・反映の有無の変更（計算式で反映する内訳の登録を含む）、内訳の削除
   - マイルストーンの期日変更・削除
   - 施策の削除
 - 各テーブルの変更前後の値は監査ログ（`audit_logs`）に JSON で残し、変更セットに紐づける。
@@ -121,13 +125,13 @@
 
 | エンティティ          | 説明                                                                                                  |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `activities`          | 施策マスタ。施策コード・タイプ・期間・確度・前提条件・算出方式を持つ。1つのユニット（`unit`）に所属する。 |
+| `activities`          | 施策マスタ。施策コード・タイプ・期間・確度・前提条件を持つ。1つのユニット（`unit`）に所属する。 |
 | `activity_external_codes` | 施策の外部コード（会計・基幹システムの案件番号など）。施策に0個以上。                             |
 | `activity_milestones` | 施策のマイルストーン。                                                                                |
 | `activity_drivers`    | 施策のドライバー定義（バリュードライバー / コストドライバー / KPI）。                                 |
 | `driver_values`       | ドライバーの月次値。シナリオごとに持つ。                                                              |
-| `activity_formulas`   | 施策 × 科目ごとの計算式（`calc_mode = 'formula'` の施策のみ）。                                        |
-| `budget_facts`        | 金額データのファクトテーブル。年月（target_month）・科目（subject）・施策（activity）・金額（amount）と `scenario` を持つ。 |
+| `activity_lines`      | 施策 × 科目の金額の内訳。名前・計算式・計算式で反映するか（`formula_enabled`）を持つ。                  |
+| `budget_facts`        | 金額データのファクトテーブル。年月（target_month）・科目（subject）・施策（activity）・金額（amount）と `scenario` を持つ。内訳（`line_id`、NULL は科目への直接入力）を持てる。 |
 | `scenarios`           | シナリオマスタ。予算・見込の版、楽観/悲観、実績を含む。                                               |
 | `scenario_conditions` | シナリオ × 施策ごとの想定内容と発生条件（楽観/悲観の根拠）。                                           |
 | `units`           | ユニットマスタ。施策を束ねる単位。種別（サービス／共通費／管理部門）を持つ。セグメントと組織の末端ノードに1つずつ所属する。 |
@@ -198,8 +202,9 @@ erDiagram
     activities ||--o{ activity_milestones : "has"
     activities ||--o{ activity_drivers : "has"
     activity_drivers ||--o{ driver_values : "has"
-    activities ||--o{ activity_formulas : "has"
-    subjects ||--o{ activity_formulas : "target"
+    activities ||--o{ activity_lines : "has"
+    subjects ||--o{ activity_lines : "target"
+    activity_lines ||--o{ budget_facts : "breaks down"
 
     scenarios ||--o{ scenarios : "copied from"
     scenarios ||--o{ driver_values : "has"
@@ -264,7 +269,6 @@ erDiagram
         date start_date
         date end_date "NULL可"
         bigint owner_user_id FK
-        enum calc_mode "formula / manual"
         decimal probability "確度 0-1"
         text assumptions "前提条件"
     }
@@ -298,11 +302,14 @@ erDiagram
         boolean is_provisional
         text provisional_reason
     }
-    activity_formulas {
+    activity_lines {
         bigint id PK
         bigint activity_id FK
         bigint subject_id FK
-        varchar expression
+        varchar name "内訳名"
+        varchar expression "NULL可"
+        boolean formula_enabled "計算式で反映するか"
+        int sort_order
     }
     scenarios {
         bigint id PK
@@ -332,6 +339,7 @@ erDiagram
         bigint scenario_id FK
         bigint activity_id FK
         bigint subject_id FK
+        bigint line_id FK "内訳。NULL は科目への直接入力"
         date target_month
         decimal amount "円（整数）"
         enum source "manual / formula / import"
@@ -358,13 +366,13 @@ erDiagram
 
 ### 3.4 主な制約
 
-- `budget_facts`: (scenario_id, activity_id, subject_id, target_month) で一意
+- `budget_facts`: (scenario_id, activity_id, subject_id, line_id, target_month) で一意（line_id の NULL は 0 として扱う）
 - `driver_values`: (activity_driver_id, scenario_id, target_month) で一意
 - `activities`: code で一意
 - `organizations` / `segments` / `units`: code で一意（作成時に空なら ORG-0001 / SEG-0001 / UNIT-0001 形式で自動採番。CSV の取込で行を結びつけるキー）
 - `subjects`: code で一意
 - `activity_drivers`: (activity_id, code) で一意
-- `activity_formulas`: (activity_id, subject_id) で一意
+- `activity_lines`: (activity_id, subject_id, name) で一意。計算式で反映する内訳は式が必須
 - `scenario_conditions`: (scenario_id, activity_id) で一意
 - `target_month` は月初日（例: `2026-10-01`）で保持する
 - `users.email` は一意
@@ -378,7 +386,7 @@ erDiagram
 | シナリオの作成・複製・ロック       | ○                  | －                           | －                  | －                            |
 | 実績の取込                         | ○                  | －                           | －                  | －                            |
 | 施策の作成・削除                   | ○（全施策）        | ○（所管ユニット配下）      | －                  | －                            |
-| 施策の編集（ドライバー定義・計算式・マイルストーンを含む） | ○（全施策）        | ○（所管ユニット配下＋担当施策） | ○（担当施策）       | －                            |
+| 施策の編集（ドライバー定義・内訳・マイルストーンを含む） | ○（全施策）        | ○（所管ユニット配下＋担当施策） | ○（担当施策）       | －                            |
 | 見込・ドライバーの入力             | ○（全施策）        | ○（所管ユニット配下）      | ○（担当施策）       | －                            |
 | 閲覧・シナリオ間比較               | ○                  | ○                            | ○                   | ○                             |
 
@@ -441,7 +449,7 @@ target_month,activity_code,subject_code,amount
 | ユニット | **code**, name, unit_type, segment_code, organization_code, owner_email |
 | 勘定科目 | **code**, name, category, parent_code, sort_order |
 | ユーザー | **email**, name, role, is_active |
-| 施策 | **code**, name, unit_code, activity_type, status, start_date, end_date, owner_email, calc_mode, probability, assumptions, external_codes |
+| 施策 | **code**, name, unit_code, activity_type, status, start_date, end_date, owner_email, probability, assumptions, external_codes |
 
 - インポートは**追加と更新のみ**。CSV にないデータは削除しない。キーが既存のデータと一致すれば更新、なければ追加する。
 - 参照先（親・セグメント・組織・ユニット）はコード、担当者はメールアドレスで指定する。親は同じ CSV 内の新しい行でもよい（親子の順番は自由）。

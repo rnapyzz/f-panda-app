@@ -1,7 +1,7 @@
-// Package calc は、計算式（activity_formulas）とドライバー値（driver_values）から
+// Package calc は、内訳（activity_lines）の計算式とドライバー値（driver_values）から
 // 金額（budget_facts）を算出して保存する。
 //
-// 再計算するのは、算出方式が formula の施策の、計算式がある科目だけ。
+// 再計算するのは、計算式で反映する（formula_enabled）内訳だけ。算出した金額はその内訳の金額として保存する。
 // ロック済みのシナリオと実績シナリオは再計算しない（確定した値を変えないため）。
 // 計算に必要なドライバー値がそろわない月は金額を持たない（既存の値は削除する）。
 package calc
@@ -26,11 +26,35 @@ type Fact struct {
 	ScenarioID        int64  `json:"scenario_id"`
 	ActivityID        int64  `json:"activity_id"`
 	SubjectID         int64  `json:"subject_id"`
+	LineID            *int64 `json:"line_id"`      // 内訳。nil は科目への直接入力
 	TargetMonth       string `json:"target_month"` // YYYY-MM
 	Amount            string `json:"amount"`
 	Source            string `json:"source"`
 	IsProvisional     bool   `json:"is_provisional"`
 	ProvisionalReason string `json:"provisional_reason"`
+}
+
+// Key はシナリオ×施策の中で金額を特定するキー（科目・内訳・月）。LineID が 0 なら科目への直接入力。
+type Key struct {
+	SubjectID int64
+	LineID    int64
+	Month     string
+}
+
+// KeyOf は金額のキーを返す。
+func KeyOf(f Fact) Key {
+	k := Key{SubjectID: f.SubjectID, Month: f.TargetMonth}
+	if f.LineID != nil {
+		k.LineID = *f.LineID
+	}
+	return k
+}
+
+// sameFact は2つの金額が同じ内容か（ポインターの内訳 ID も値で比べる）。
+func sameFact(a, b Fact) bool {
+	la, lb := a.LineID, b.LineID
+	a.LineID, b.LineID = nil, nil
+	return a == b && ((la == nil && lb == nil) || (la != nil && lb != nil && *la == *lb))
 }
 
 // FiscalMonths は会計年度（4月開始）の12か月を YYYY-MM で返す。
@@ -82,7 +106,7 @@ type driverValue struct {
 	provisional bool
 }
 
-// Recalculate はシナリオ×施策の金額を再計算し、差分を budget_facts に反映して監査ログに記録する。
+// Recalculate はシナリオ×施策の、計算式で反映する内訳の金額を再計算し、差分を budget_facts に反映して監査ログに記録する。
 func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID, activityID int64) error {
 	var fiscalYear int
 	var locked bool
@@ -96,37 +120,28 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 		return nil
 	}
 
-	var calcMode string
-	var probability sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT calc_mode, probability FROM activities WHERE id = ?", activityID).
-		Scan(&calcMode, &probability); err != nil {
+	lines, err := loadComputedLines(ctx, tx, activityID)
+	if err != nil || len(lines) == 0 {
 		return err
 	}
-	if calcMode != "formula" {
-		return nil
-	}
-
-	formulas, err := loadFormulas(ctx, tx, activityID)
-	if err != nil || len(formulas) == 0 {
+	var probability sql.NullString
+	if err := tx.QueryRowContext(ctx, "SELECT probability FROM activities WHERE id = ?", activityID).Scan(&probability); err != nil {
 		return err
 	}
 	values, err := loadDriverValues(ctx, tx, scenarioID, activityID)
 	if err != nil {
 		return err
 	}
-	subjectNames, err := loadSubjectNames(ctx, tx, formulas)
-	if err != nil {
-		return err
-	}
 
-	// 計算結果（科目, 月）→ 金額
-	want := map[factKey]Fact{}
-	for subjectID, expr := range formulas {
+	want := map[Key]Fact{}
+	lineIDs := map[int64]bool{}
+	for _, l := range lines {
+		lineIDs[l.id] = true
 		for _, month := range FiscalMonths(fiscalYear) {
 			vars := map[string]*big.Rat{}
 			var provisional []string
 			complete := true
-			for _, id := range expr.Idents() {
+			for _, id := range l.expr.Idents() {
 				if id == "probability" {
 					if !probability.Valid {
 						complete = false
@@ -149,19 +164,21 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 			if !complete {
 				continue
 			}
-			result, err := expr.Eval(vars)
+			result, err := l.expr.Eval(vars)
 			if errors.Is(err, formula.ErrDivisionByZero) {
 				return httpx.Validation(map[string]string{
-					"values": fmt.Sprintf("%s の「%s」の計算で 0 による割り算が発生します", month, subjectNames[subjectID]),
+					"values": fmt.Sprintf("%s の内訳「%s」の計算で 0 による割り算が発生します", month, l.name),
 				})
 			}
 			if err != nil {
 				return err
 			}
+			lineID := l.id
 			f := Fact{
 				ScenarioID:  scenarioID,
 				ActivityID:  activityID,
-				SubjectID:   subjectID,
+				SubjectID:   l.subjectID,
+				LineID:      &lineID,
 				TargetMonth: month,
 				Amount:      formula.RoundHalfUp(result).String(),
 				Source:      "formula",
@@ -171,25 +188,26 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 				f.IsProvisional = true
 				f.ProvisionalReason = "仮の値のドライバーを含む: " + strings.Join(provisional, ", ")
 			}
-			want[factKey{subjectID, month}] = f
+			want[KeyOf(f)] = f
 		}
 	}
 
-	existing, err := loadFacts(ctx, tx, scenarioID, activityID, formulas)
+	all, err := LoadFacts(ctx, tx, scenarioID, activityID)
 	if err != nil {
 		return err
+	}
+	existing := map[Key]Fact{}
+	for k, f := range all {
+		if lineIDs[k.LineID] {
+			existing[k] = f
+		}
 	}
 	return apply(ctx, tx, rec, existing, want)
 }
 
-type factKey struct {
-	subjectID int64
-	month     string
-}
-
 // apply は existing を want に合わせて insert / update / delete する。
-func apply(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, existing, want map[factKey]Fact) error {
-	keys := make([]factKey, 0, len(existing)+len(want))
+func apply(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, existing, want map[Key]Fact) error {
+	keys := make([]Key, 0, len(existing)+len(want))
 	for k := range existing {
 		keys = append(keys, k)
 	}
@@ -200,10 +218,14 @@ func apply(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, existing, want 
 	}
 	// 監査ログの順序を安定させる
 	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].subjectID != keys[j].subjectID {
-			return keys[i].subjectID < keys[j].subjectID
+		a, b := keys[i], keys[j]
+		if a.SubjectID != b.SubjectID {
+			return a.SubjectID < b.SubjectID
 		}
-		return keys[i].month < keys[j].month
+		if a.LineID != b.LineID {
+			return a.LineID < b.LineID
+		}
+		return a.Month < b.Month
 	})
 
 	for _, k := range keys {
@@ -228,7 +250,7 @@ func apply(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, existing, want 
 			}
 		case had && has:
 			after.ID = before.ID
-			if before == after {
+			if sameFact(before, after) {
 				continue
 			}
 			if err := UpdateFact(ctx, tx, after); err != nil {
@@ -245,9 +267,9 @@ func apply(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, existing, want 
 // InsertFact は budget_facts に1行追加する。
 func InsertFact(ctx context.Context, tx *sql.Tx, f Fact) (int64, error) {
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO budget_facts (scenario_id, activity_id, subject_id, target_month, amount, source, is_provisional, provisional_reason)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		f.ScenarioID, f.ActivityID, f.SubjectID, f.TargetMonth+"-01", f.Amount, f.Source, f.IsProvisional, nullString(f.ProvisionalReason),
+		INSERT INTO budget_facts (scenario_id, activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ScenarioID, f.ActivityID, f.SubjectID, nullInt64(f.LineID), f.TargetMonth+"-01", f.Amount, f.Source, f.IsProvisional, nullString(f.ProvisionalReason),
 	)
 	if err != nil {
 		return 0, err
@@ -255,7 +277,7 @@ func InsertFact(ctx context.Context, tx *sql.Tx, f Fact) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateFact は budget_facts の1行を更新する。
+// UpdateFact は budget_facts の1行を更新する（科目・内訳・月は変えない）。
 func UpdateFact(ctx context.Context, tx *sql.Tx, f Fact) error {
 	_, err := tx.ExecContext(ctx,
 		"UPDATE budget_facts SET amount = ?, source = ?, is_provisional = ?, provisional_reason = ? WHERE id = ?",
@@ -264,79 +286,87 @@ func UpdateFact(ctx context.Context, tx *sql.Tx, f Fact) error {
 	return err
 }
 
-// LoadFacts はシナリオ×施策の金額を（科目, 月）ごとに返す。行ロックを取る。
-func LoadFacts(ctx context.Context, tx *sql.Tx, scenarioID, activityID int64) (map[int64]map[string]Fact, error) {
-	facts, err := loadFacts(ctx, tx, scenarioID, activityID, nil)
-	if err != nil {
-		return nil, err
-	}
-	out := map[int64]map[string]Fact{}
-	for k, f := range facts {
-		if out[k.subjectID] == nil {
-			out[k.subjectID] = map[string]Fact{}
-		}
-		out[k.subjectID][k.month] = f
-	}
-	return out, nil
-}
-
-// loadFacts は既存の金額を読み込む。subjects が nil でなければ、その科目だけに絞る。
-func loadFacts(ctx context.Context, tx *sql.Tx, scenarioID, activityID int64, subjects map[int64]*formula.Expr) (map[factKey]Fact, error) {
+// LoadFacts はシナリオ×施策の金額を（科目・内訳・月）ごとに行ロック付きで返す。
+func LoadFacts(ctx context.Context, tx *sql.Tx, scenarioID, activityID int64) (map[Key]Fact, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
+		SELECT id, subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
 		FROM budget_facts WHERE scenario_id = ? AND activity_id = ? FOR UPDATE`,
 		scenarioID, activityID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[factKey]Fact{}
+	out := map[Key]Fact{}
 	for rows.Next() {
 		f := Fact{ScenarioID: scenarioID, ActivityID: activityID}
-		if err := rows.Scan(&f.ID, &f.SubjectID, &f.TargetMonth, &f.Amount, &f.Source, &f.IsProvisional, &f.ProvisionalReason); err != nil {
+		var lineID sql.NullInt64
+		if err := rows.Scan(&f.ID, &f.SubjectID, &lineID, &f.TargetMonth, &f.Amount, &f.Source, &f.IsProvisional, &f.ProvisionalReason); err != nil {
 			return nil, err
 		}
-		if subjects != nil {
-			if _, ok := subjects[f.SubjectID]; !ok {
-				continue
-			}
+		if lineID.Valid {
+			v := lineID.Int64
+			f.LineID = &v
 		}
-		out[factKey{f.SubjectID, f.TargetMonth}] = f
+		out[KeyOf(f)] = f
 	}
 	return out, rows.Err()
 }
 
-// FormulaSubjects は施策で計算式がある科目の ID を返す。
-func FormulaSubjects(ctx context.Context, tx *sql.Tx, activityID int64) (map[int64]bool, error) {
-	formulas, err := loadFormulas(ctx, tx, activityID)
-	if err != nil {
-		return nil, err
-	}
-	out := map[int64]bool{}
-	for id := range formulas {
-		out[id] = true
-	}
-	return out, nil
+// LineInfo は内訳の要約。
+type LineInfo struct {
+	SubjectID int64
+	Name      string
+	// Computed は計算式で反映する内訳か（直接入力できない）
+	Computed bool
 }
 
-func loadFormulas(ctx context.Context, tx *sql.Tx, activityID int64) (map[int64]*formula.Expr, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT subject_id, expression FROM activity_formulas WHERE activity_id = ?", activityID)
+// Lines は施策の内訳を返す。
+func Lines(ctx context.Context, tx *sql.Tx, activityID int64) (map[int64]LineInfo, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id, subject_id, name, formula_enabled FROM activity_lines WHERE activity_id = ?", activityID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[int64]*formula.Expr{}
+	out := map[int64]LineInfo{}
 	for rows.Next() {
-		var subjectID int64
+		var id int64
+		var l LineInfo
+		if err := rows.Scan(&id, &l.SubjectID, &l.Name, &l.Computed); err != nil {
+			return nil, err
+		}
+		out[id] = l
+	}
+	return out, rows.Err()
+}
+
+type computedLine struct {
+	id, subjectID int64
+	name          string
+	expr          *formula.Expr
+}
+
+// loadComputedLines は計算式で反映する内訳を返す。
+func loadComputedLines(ctx context.Context, tx *sql.Tx, activityID int64) ([]computedLine, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, subject_id, name, expression FROM activity_lines
+		WHERE activity_id = ? AND formula_enabled AND expression IS NOT NULL ORDER BY id`, activityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []computedLine
+	for rows.Next() {
+		var l computedLine
 		var src string
-		if err := rows.Scan(&subjectID, &src); err != nil {
+		if err := rows.Scan(&l.id, &l.subjectID, &l.name, &src); err != nil {
 			return nil, err
 		}
 		e, err := formula.Parse(src)
 		if err != nil {
-			return nil, fmt.Errorf("activity %d subject %d: %w", activityID, subjectID, err)
+			return nil, fmt.Errorf("activity %d line %d: %w", activityID, l.id, err)
 		}
-		out[subjectID] = e
+		l.expr = e
+		out = append(out, l)
 	}
 	return out, rows.Err()
 }
@@ -371,18 +401,13 @@ func loadDriverValues(ctx context.Context, tx *sql.Tx, scenarioID, activityID in
 	return out, rows.Err()
 }
 
-func loadSubjectNames(ctx context.Context, tx *sql.Tx, formulas map[int64]*formula.Expr) (map[int64]string, error) {
-	out := map[int64]string{}
-	for id := range formulas {
-		var name string
-		if err := tx.QueryRowContext(ctx, "SELECT name FROM subjects WHERE id = ?", id).Scan(&name); err != nil {
-			return nil, err
-		}
-		out[id] = name
-	}
-	return out, nil
-}
-
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func nullInt64(p *int64) sql.NullInt64 {
+	if p == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *p, Valid: true}
 }
