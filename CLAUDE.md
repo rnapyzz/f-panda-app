@@ -15,7 +15,8 @@ nginx + React.js + TailwindCSS + Go + MySQL 8。すべて Docker コンテナで
 
 - 起動: `make up`（http://localhost:8080）／停止: `make down`
 - マイグレーション: `make migrate`、`make migrate-status`、DB 作り直し: `make reset-db`
-- テスト: `make test`（Go のテスト、フロントの lint とビルド）
+- テスト: `make test`（Go のテスト、フロントの lint・ビルド・単体テスト）、E2E: `make e2e`（専用スタックで Playwright）
+- 画面の変更では、関係する E2E（`web/e2e/`）も更新する。E2E のデータは実行ごとに一意な名前で作る（`uniq()`）
 - マイグレーションは `api/migrations/` に `<4桁の連番>_<説明>.sql` で追加し、適用済みファイルは変更しない
 
 ## 開発フロー

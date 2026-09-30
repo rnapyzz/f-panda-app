@@ -26,6 +26,11 @@ web/dist-ssr/
 *.tsbuildinfo
 npm-debug.log*
 
+# Playwright
+web/test-results/
+web/playwright-report/
+web/blob-report/
+
 # ログ
 logs/
 *.log

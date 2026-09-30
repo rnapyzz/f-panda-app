@@ -179,6 +179,7 @@
 - 画面遷移は `lib/router.tsx` の `Link` / `navigate` を使う。ルートは `App.tsx` に定義する
 - 変更理由: `useReason().withReason(op)` で操作を実行すると、API が「変更理由が必要」（422 `details.reason`）を返したときに理由の入力ダイアログを出して再実行する
 - 権限による表示の切り替え（編集ボタンを出すかなど）は画面で行うが、最終的な判定は API が行う
+- テスト: ロジックは `node:test`（`src/**/*.test.ts`、Node の型ストリップで .ts をそのまま実行）、主要な操作の流れは Playwright の E2E（`e2e/`）。E2E は `scripts/e2e.sh` が専用の compose スタックを起動して実行する
 
 ## ディレクトリ構成（案）
 
