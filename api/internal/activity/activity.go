@@ -43,6 +43,10 @@ func NewHandler(db *sql.DB) *Handler {
 func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	handle := func(pattern string, f httpx.HandlerFunc) { mux.Handle(pattern, requireAuth(httpx.Handle(f))) }
 
+	// CSV のインポート・エクスポート（/{id} より先に一致させる）
+	handle("GET /api/activities/export", h.export)
+	handle("POST /api/activities/import", h.importCSV)
+
 	handle("GET /api/activities", h.list)
 	handle("POST /api/activities", h.create)
 	handle("GET /api/activities/{id}", h.get)

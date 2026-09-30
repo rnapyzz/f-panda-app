@@ -1,3 +1,4 @@
+import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
 import { activityStatusLabels, activityTypeLabels, calcModeLabels, type Activity, type ActivityStatus, type Unit, type List, type User } from '../../api/types'
@@ -55,7 +56,28 @@ export function ActivityListPage() {
       <PageHeader
         title="施策"
         description="予実管理の単位となる施策（案件・運用・コストプール）の一覧です。"
-        actions={creatable.length > 0 && <Button variant="primary" onClick={() => setCreating(true)}>＋ 施策を追加</Button>}
+        actions={
+          <>
+            <CsvActions
+              resource="activities"
+              label="施策"
+              canImport={me.role === 'fpa_admin'}
+              columns="code,name,unit_code,activity_type,status,start_date,end_date,owner_email,calc_mode,probability,assumptions,external_codes"
+              notes={
+                <>
+                  <p>code が空の行は新しい施策として追加し、施策コードを自動で採番します。</p>
+                  <p>probability は 0〜1（例: 0.7）、日付は YYYY-MM-DD。external_codes は外部コードを空白区切りで書くと施策に追加します（書いていない外部コードは外しません）。</p>
+                </>
+              }
+              onImported={() => activities.reload()}
+            />
+            {creatable.length > 0 && (
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                ＋ 施策を追加
+              </Button>
+            )}
+          </>
+        }
       />
 
       <Card className="mb-4">

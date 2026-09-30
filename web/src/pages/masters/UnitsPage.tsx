@@ -1,3 +1,4 @@
+import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import { unitTypeLabels, type Unit, type List, type TreeNode, type UnitType, type User } from '../../api/types'
@@ -36,7 +37,23 @@ export function UnitsPage() {
       <PageHeader
         title="ユニット"
         description="施策を束ねる単位です。サービスのほか、共通経費や管理部門の箱もユニットとして登録し、種別で区別します。末端のセグメントと末端の組織に1つずつ所属します。担当者は、配下の施策を作成・編集できるマネージャーです。"
-        actions={canWrite && <Button variant="primary" onClick={() => setEditing('new')}>＋ ユニットを追加</Button>}
+        actions={
+          <>
+            <CsvActions
+              resource="units"
+              label="ユニット"
+              canImport={canWrite}
+              columns="code,name,unit_type,segment_code,organization_code,owner_email"
+              notes={<p>unit_type は service / cost_center / corporate。セグメント・組織は末端のもののコード、担当者はメールアドレスで指定します。</p>}
+              onImported={() => units.reload()}
+            />
+            {canWrite && (
+              <Button variant="primary" onClick={() => setEditing('new')}>
+                ＋ ユニットを追加
+              </Button>
+            )}
+          </>
+        }
       />
       <Card>
         {error ? (

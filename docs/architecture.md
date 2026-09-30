@@ -150,6 +150,17 @@
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
 
+## CSV インポート・エクスポート API
+
+| API | 内容 | 権限 |
+| --- | ---- | ---- |
+| `GET /api/{organizations,segments,units,subjects,users,activities}/export` | CSV（BOM 付き UTF-8）をダウンロード | 全員 |
+| `POST /api/{organizations,segments,units,subjects,users,activities}/import` | CSV を取込（`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | FP&A |
+
+- 形式と取込のルールは docs/plan.md「6.2」
+- 共通処理（アップロードの読込、ヘッダーと行の検証、行エラー、結果、CSV の書き出し）は `internal/csvio`
+- 結果: `{"dry_run", "rows", "inserted", "updated", "unchanged"}`。エラーは 422（`code: invalid_csv`、`error.rows` に行番号とメッセージ）
+
 ## リスク API
 
 `GET /api/reports/risk?scenario_id=&optimistic_id=&pessimistic_id=`（ログインユーザー全員）

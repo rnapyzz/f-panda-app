@@ -59,6 +59,8 @@ export type User = Timestamps & {
   email: string
   role: Role
   is_active: boolean
+  /** パスワードが設定されているか（CSV で追加したユーザーは未設定） */
+  has_password: boolean
 }
 
 export const roleLabels: Record<Role, string> = {

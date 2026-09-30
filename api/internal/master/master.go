@@ -47,6 +47,9 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 		mux.Handle("DELETE /api/"+path+"/{id}", write(t.delete))
 	}
 
+	// CSV のインポート・エクスポート（/{id} より先に一致させる）
+	h.importRoutes(read, write, mux)
+
 	mux.Handle("GET /api/units", read(h.listUnits))
 	mux.Handle("POST /api/units", write(h.createUnit))
 	mux.Handle("GET /api/units/{id}", read(h.getUnit))

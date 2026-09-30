@@ -1,3 +1,4 @@
+import { CsvActions } from '../../components/CsvTransfer'
 import { useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import { roleLabels, type List, type Role, type User } from '../../api/types'
@@ -20,7 +21,23 @@ export function UsersPage() {
       <PageHeader
         title="ユーザー"
         description="ユーザーは削除せず、無効化するとログインできなくなります。"
-        actions={canWrite && <Button variant="primary" onClick={() => setEditing('new')}>＋ ユーザーを追加</Button>}
+        actions={
+          <>
+            <CsvActions
+              resource="users"
+              label="ユーザー"
+              canImport={canWrite}
+              columns="email,name,role,is_active"
+              notes={<p>role は fpa_admin / manager / member / viewer。パスワードは CSV では扱いません。追加したユーザーは「パスワード未設定」になるので、「パスワード再設定」から設定してください。</p>}
+              onImported={reload}
+            />
+            {canWrite && (
+              <Button variant="primary" onClick={() => setEditing('new')}>
+                ＋ ユーザーを追加
+              </Button>
+            )}
+          </>
+        }
       />
       <Card>
         {loading && !data ? (
@@ -49,7 +66,10 @@ export function UsersPage() {
                   </td>
                   <td>{u.email}</td>
                   <td>{roleLabels[u.role]}</td>
-                  <td>{u.is_active ? <Badge tone="green">有効</Badge> : <Badge>無効</Badge>}</td>
+                  <td className="space-x-1">
+                    {u.is_active ? <Badge tone="green">有効</Badge> : <Badge>無効</Badge>}
+                    {!u.has_password && <Badge tone="amber">パスワード未設定</Badge>}
+                  </td>
                   {canWrite && (
                     <td className="text-right">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>

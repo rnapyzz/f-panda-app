@@ -1,3 +1,4 @@
+import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import type { List, TreeNode } from '../../api/types'
@@ -31,7 +32,23 @@ export function TreeMasterPage({ resource }: { resource: Resource }) {
       <PageHeader
         title={l.title}
         description={l.description}
-        actions={canWrite && <Button variant="primary" onClick={() => setEditing({ mode: 'create', parentId: null })}>＋ 最上位に追加</Button>}
+        actions={
+          <>
+            <CsvActions
+              resource={resource}
+              label={l.noun}
+              canImport={canWrite}
+              columns="code,name,parent_code,sort_order"
+              notes={<p>parent_code は親のコード（最上位なら空欄）。親は既存のものでも、同じ CSV 内の新しい行でも構いません。</p>}
+              onImported={reload}
+            />
+            {canWrite && (
+              <Button variant="primary" onClick={() => setEditing({ mode: 'create', parentId: null })}>
+                ＋ 最上位に追加
+              </Button>
+            )}
+          </>
+        }
       />
       <Card>
         {loading && !data ? (
