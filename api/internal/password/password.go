@@ -17,11 +17,16 @@ import (
 	"unicode/utf8"
 )
 
+// iterations は新しく作るハッシュの反復回数。検証はハッシュに保存された回数で行う。
+var iterations = 600_000
+
+// SetIterationsForTesting はテストを速くするために反復回数を下げる。本番コードから呼んではいけない。
+func SetIterationsForTesting(n int) { iterations = n }
+
 const (
-	scheme     = "pbkdf2-sha256"
-	iterations = 600_000
-	saltLen    = 16
-	keyLen     = 32
+	scheme  = "pbkdf2-sha256"
+	saltLen = 16
+	keyLen  = 32
 
 	// MinLength はパスワードの最小文字数。
 	MinLength = 12

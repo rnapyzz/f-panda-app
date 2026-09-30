@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
@@ -34,13 +35,11 @@ func scanFunction(row interface{ Scan(...any) error }) (function, error) {
 	var f function
 	var owner sql.NullInt64
 	err := row.Scan(&f.ID, &f.Name, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
-	f.OwnerUserID = ptrInt64(owner)
+	f.OwnerUserID = dbx.PtrInt64(owner)
 	return f, err
 }
 
-func findFunction(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id int64, lock string) (function, error) {
+func findFunction(ctx context.Context, q dbx.Querier, id int64, lock string) (function, error) {
 	f, err := scanFunction(q.QueryRowContext(ctx, functionSelect+" WHERE id = ?"+lock, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return function{}, notFound("機能")
@@ -67,7 +66,7 @@ func (h *Handler) listFunctions(w http.ResponseWriter, r *http.Request) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	writeList(w, items)
+	httpx.WriteList(w, items)
 	return nil
 }
 
@@ -81,7 +80,7 @@ func (h *Handler) getFunction(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, f)
+	httpx.WriteJSON(w, http.StatusOK, f)
 	return nil
 }
 
@@ -104,7 +103,7 @@ func (h *Handler) createFunction(w http.ResponseWriter, r *http.Request) error {
 		}
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO functions (name, segment_id, organization_id, owner_user_id) VALUES (?, ?, ?, ?)",
-			name, req.SegmentID, req.OrganizationID, nullInt64(req.OwnerUserID),
+			name, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID),
 		)
 		if err != nil {
 			return err
@@ -121,7 +120,7 @@ func (h *Handler) createFunction(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusCreated, created)
+	httpx.WriteJSON(w, http.StatusCreated, created)
 	return nil
 }
 
@@ -152,7 +151,7 @@ func (h *Handler) updateFunction(w http.ResponseWriter, r *http.Request) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			"UPDATE functions SET name = ?, segment_id = ?, organization_id = ?, owner_user_id = ? WHERE id = ?",
-			name, req.SegmentID, req.OrganizationID, nullInt64(req.OwnerUserID), id,
+			name, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID), id,
 		); err != nil {
 			return err
 		}
@@ -164,7 +163,7 @@ func (h *Handler) updateFunction(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil
 }
 
@@ -185,7 +184,7 @@ func (h *Handler) deleteFunction(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		n, err := count(ctx, tx, "SELECT COUNT(*) FROM activities WHERE function_id = ?", id)
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM activities WHERE function_id = ?", id)
 		if err != nil {
 			return err
 		}
@@ -205,21 +204,21 @@ func (h *Handler) deleteFunction(w http.ResponseWriter, r *http.Request) error {
 }
 
 func validateFunctionRequest(req functionRequest) (string, error) {
-	v := validator{}
-	name := v.text("name", "名称", req.Name, maxNameLen)
+	v := httpx.Validator{}
+	name := v.Text("name", "名称", req.Name, maxNameLen)
 	if req.SegmentID <= 0 {
-		v.add("segment_id", "セグメントを選択してください")
+		v.Add("segment_id", "セグメントを選択してください")
 	}
 	if req.OrganizationID <= 0 {
-		v.add("organization_id", "組織を選択してください")
+		v.Add("organization_id", "組織を選択してください")
 	}
-	return name, v.err()
+	return name, v.Err()
 }
 
 // checkFunctionRefs は所属先のセグメント・組織が存在する末端ノードであること、担当者が存在することを確認する。
 // 所属先の行を FOR UPDATE でロックし、同時に子ノードが追加されるのを防ぐ。
 func (h *Handler) checkFunctionRefs(ctx context.Context, tx *sql.Tx, req functionRequest) error {
-	v := validator{}
+	v := httpx.Validator{}
 	for _, ref := range []struct {
 		t     *treeHandler
 		field string
@@ -229,29 +228,28 @@ func (h *Handler) checkFunctionRefs(ctx context.Context, tx *sql.Tx, req functio
 		{h.organizations, "organization_id", req.OrganizationID},
 	} {
 		if _, err := ref.t.find(ctx, tx, ref.id, " FOR UPDATE"); err != nil {
-			var apiErr *httpx.Error
-			if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
-				v.add(ref.field, ref.t.label+"が見つかりません")
+			if httpx.IsNotFound(err) {
+				v.Add(ref.field, ref.t.label+"が見つかりません")
 				continue
 			}
 			return err
 		}
-		n, err := count(ctx, tx, "SELECT COUNT(*) FROM "+ref.t.table+" WHERE parent_id = ?", ref.id)
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM "+ref.t.table+" WHERE parent_id = ?", ref.id)
 		if err != nil {
 			return err
 		}
 		if n > 0 {
-			v.add(ref.field, "末端の"+ref.t.label+"を選択してください")
+			v.Add(ref.field, "末端の"+ref.t.label+"を選択してください")
 		}
 	}
 	if req.OwnerUserID != nil {
-		ok, err := exists(ctx, tx, "users", *req.OwnerUserID)
+		ok, err := dbx.Exists(ctx, tx, "users", *req.OwnerUserID)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			v.add("owner_user_id", "担当者が見つかりません")
+			v.Add("owner_user_id", "担当者が見つかりません")
 		}
 	}
-	return v.err()
+	return v.Err()
 }

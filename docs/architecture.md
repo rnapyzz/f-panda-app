@@ -51,7 +51,7 @@
 - セッション: ランダムな32バイトのトークンを Cookie で渡し、DB（`sessions`）には SHA-256 のみ保存する。有効期間は `SESSION_TTL`（デフォルト12時間）。期限切れは API サーバーが1時間ごとに削除する
 - Cookie: `HttpOnly`・`SameSite=Lax`。HTTPS 環境では `COOKIE_SECURE=true` で `Secure` を付ける
 - CSRF: Go 1.25 の `http.CrossOriginProtection` で、別オリジンからの更新系リクエストを拒否する
-- 権限: `auth.RequireAuth`（ログイン必須）と `auth.RequireRole(...)`（ロール制限）のミドルウェアで制御する
+- 権限: `auth.RequireAuth`（ログイン必須）と `auth.RequireRole(...)`（ロール制限）のミドルウェアで制御する。施策のようにデータごとに権限が変わるものはハンドラー内で判定する
 - 無効化（`users.is_active = false`）したユーザーはログインできず、既存のセッションも使えなくなる
 - 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`）
 
@@ -83,6 +83,28 @@
 - 勘定科目: コードは一意。親科目は同じ区分（収益/費用）のみ。子科目がある科目は削除・区分変更できない
 - ユーザー: 削除はせず `is_active` で無効化する（無効化するとセッションも削除）。自分自身のロール変更・無効化はできない。パスワード再設定で対象ユーザーのセッションを削除する
 - エラー: 入力エラーは 422（`details` にフィールドごとのメッセージ）、存在しない場合は 404、参照中などの矛盾は 409
+
+## 施策 API
+
+| リソース       | API                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------- |
+| 施策           | `GET/POST /api/activities`、`GET/PUT/DELETE /api/activities/{id}`                        |
+| マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
+| ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
+| 計算式         | `PUT/DELETE /api/activities/{id}/formulas/{subject_id}`（科目ごとに1つ、PUT で登録・更新） |
+
+- 一覧は `function_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
+- 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・計算式を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
+- 権限は施策ごとに判定する（docs/plan.md「4. ロール」）
+- 値の形式
+  - 施策コード: 半角英数字・`-`・`_`、50文字以内、全体で一意
+  - ステータス: `planned` / `in_progress` / `completed` / `on_hold` / `cancelled`
+  - 確度: 0〜1、小数点以下4桁まで。日付は `YYYY-MM-DD`。プロジェクト型は開始日・終了日が必須
+  - ドライバー code: 英小文字で始まる英小文字・数字・`_`、施策内で一意。`probability` は予約語
+  - マイルストーンのステータス: `not_started` / `in_progress` / `completed` / `delayed`
+- 計算式は `internal/formula` で解析・評価する（`math/big.Rat` による誤差のない計算、四捨五入は `RoundHalfUp`）。登録時に構文と、未定義のドライバーを使っていないかを検証する
+- 計算式で使われているドライバーは、code の変更・削除ができない。値が登録済みのドライバーも削除できない
+- 金額・ドライバー値・シナリオ条件がある施策は削除できない（409）。削除できる場合は、マイルストーン・ドライバー・計算式も合わせて削除し、それぞれ監査ログに残す
 
 ## フロントエンド（React）
 

@@ -13,6 +13,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 const maxBodyBytes = 1 << 20 // 1MB
@@ -120,4 +122,57 @@ func PathID(r *http.Request, name string) (int64, error) {
 		return 0, NotFound("指定されたデータが見つかりません")
 	}
 	return id, nil
+}
+
+// WriteList は items を {"items": [...]} の形で書き出す。nil は空配列にする。
+func WriteList[T any](w http.ResponseWriter, items []T) {
+	if items == nil {
+		items = []T{}
+	}
+	WriteJSON(w, http.StatusOK, map[string][]T{"items": items})
+}
+
+// Validator は入力値の検証エラーをフィールドごとに集める。
+type Validator map[string]string
+
+// Add はフィールドにエラーを追加する。同じフィールドには最初のエラーだけを残す。
+func (v Validator) Add(field, msg string) {
+	if _, ok := v[field]; !ok {
+		v[field] = msg
+	}
+}
+
+// Text は必須の文字列を検証し、前後の空白を除いた値を返す。
+func (v Validator) Text(field, label, s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		v.Add(field, label+"を入力してください")
+	case utf8.RuneCountInString(s) > maxLen:
+		v.Add(field, fmt.Sprintf("%sは%d文字以下にしてください", label, maxLen))
+	}
+	return s
+}
+
+// OptionalText は任意の文字列を検証し、前後の空白を除いた値を返す。
+func (v Validator) OptionalText(field, label, s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) > maxLen {
+		v.Add(field, fmt.Sprintf("%sは%d文字以下にしてください", label, maxLen))
+	}
+	return s
+}
+
+// Err はエラーがあれば検証エラーを返す。
+func (v Validator) Err() error {
+	if len(v) == 0 {
+		return nil
+	}
+	return Validation(v)
+}
+
+// IsNotFound は err が 404 の API エラーかを返す。
+func IsNotFound(err error) bool {
+	var apiErr *Error
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound
 }

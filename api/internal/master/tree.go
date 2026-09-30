@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
@@ -48,13 +49,11 @@ func scanTreeNode(row interface{ Scan(...any) error }) (treeNode, error) {
 	var n treeNode
 	var parent sql.NullInt64
 	err := row.Scan(&n.ID, &parent, &n.Name, &n.Level, &n.SortOrder, &n.CreatedAt, &n.UpdatedAt)
-	n.ParentID = ptrInt64(parent)
+	n.ParentID = dbx.PtrInt64(parent)
 	return n, err
 }
 
-func (t *treeHandler) find(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id int64, lock string) (treeNode, error) {
+func (t *treeHandler) find(ctx context.Context, q dbx.Querier, id int64, lock string) (treeNode, error) {
 	n, err := scanTreeNode(q.QueryRowContext(ctx, t.selectSQL()+" WHERE id = ?"+lock, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return treeNode{}, notFound(t.label)
@@ -81,7 +80,7 @@ func (t *treeHandler) list(w http.ResponseWriter, r *http.Request) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	writeList(w, items)
+	httpx.WriteList(w, items)
 	return nil
 }
 
@@ -95,7 +94,7 @@ func (t *treeHandler) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, n)
+	httpx.WriteJSON(w, http.StatusOK, n)
 	return nil
 }
 
@@ -105,9 +104,9 @@ func (t *treeHandler) create(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	v := validator{}
-	name := v.text("name", "名称", req.Name, maxNameLen)
-	if err := v.err(); err != nil {
+	v := httpx.Validator{}
+	name := v.Text("name", "名称", req.Name, maxNameLen)
+	if err := v.Err(); err != nil {
 		return err
 	}
 
@@ -125,7 +124,7 @@ func (t *treeHandler) create(w http.ResponseWriter, r *http.Request) error {
 
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO "+t.table+" (parent_id, name, level, sort_order) VALUES (?, ?, ?, ?)",
-			nullInt64(req.ParentID), name, level, req.SortOrder,
+			dbx.NullInt64(req.ParentID), name, level, req.SortOrder,
 		)
 		if err != nil {
 			return err
@@ -142,7 +141,7 @@ func (t *treeHandler) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusCreated, created)
+	httpx.WriteJSON(w, http.StatusCreated, created)
 	return nil
 }
 
@@ -156,12 +155,12 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	v := validator{}
-	name := v.text("name", "名称", req.Name, maxNameLen)
+	v := httpx.Validator{}
+	name := v.Text("name", "名称", req.Name, maxNameLen)
 	if req.ParentID != nil && *req.ParentID == id {
-		v.add("parent_id", "自分自身を親にはできません")
+		v.Add("parent_id", "自分自身を親にはできません")
 	}
-	if err := v.err(); err != nil {
+	if err := v.Err(); err != nil {
 		return err
 	}
 
@@ -194,7 +193,7 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 
 		if _, err := tx.ExecContext(ctx,
 			"UPDATE "+t.table+" SET parent_id = ?, name = ?, sort_order = ?, level = ? WHERE id = ?",
-			nullInt64(req.ParentID), name, req.SortOrder, level, id,
+			dbx.NullInt64(req.ParentID), name, req.SortOrder, level, id,
 		); err != nil {
 			return err
 		}
@@ -221,7 +220,7 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil
 }
 
@@ -242,14 +241,14 @@ func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		n, err := count(ctx, tx, "SELECT COUNT(*) FROM "+t.table+" WHERE parent_id = ?", id)
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM "+t.table+" WHERE parent_id = ?", id)
 		if err != nil {
 			return err
 		}
 		if n > 0 {
 			return httpx.Conflict("配下に" + t.label + "があるため削除できません")
 		}
-		if n, err = count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", id); err != nil {
+		if n, err = dbx.Count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", id); err != nil {
 			return err
 		}
 		if n > 0 {
@@ -271,13 +270,12 @@ func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 func (t *treeHandler) lockParent(ctx context.Context, tx *sql.Tx, parentID int64) (treeNode, error) {
 	parent, err := t.find(ctx, tx, parentID, " FOR UPDATE")
 	if err != nil {
-		var apiErr *httpx.Error
-		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		if httpx.IsNotFound(err) {
 			return treeNode{}, httpx.Validation(map[string]string{"parent_id": "親の" + t.label + "が見つかりません"})
 		}
 		return treeNode{}, err
 	}
-	n, err := count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", parentID)
+	n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", parentID)
 	if err != nil {
 		return treeNode{}, err
 	}
