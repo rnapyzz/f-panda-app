@@ -335,6 +335,17 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
                 <td className="px-2 text-right text-xs tabular-nums">{formatYen(String(v.months.reduce((s, m) => s + monthTotal(c, m), 0n)))}</td>
               </tr>
             ))}
+            <tr className="bg-slate-100 font-semibold">
+              <th scope="row" className="sticky left-0 z-10 bg-slate-100 px-3 py-1.5 text-left text-xs text-slate-700">
+                利益（収益 − 費用）
+              </th>
+              {v.months.map((m) => (
+                <td key={m} className="px-2 py-1.5 text-right text-xs tabular-nums">
+                  {formatYen(String(monthTotal('revenue', m) - monthTotal('expense', m)))}
+                </td>
+              ))}
+              <td className="px-2 text-right text-xs tabular-nums">{formatYen(String(v.months.reduce((s, m) => s + monthTotal('revenue', m) - monthTotal('expense', m), 0n)))}</td>
+            </tr>
           </Grid>
         )}
       </Card>

@@ -136,6 +136,17 @@
 - CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。1件もエラーがなければ保存する
 - 取込先は、ロックされていない実績シナリオ（`scenario_kind = actual`）のみ。それ以外は 409
 
+## 予実比較 API
+
+`GET /api/reports/comparison`（ログインユーザー全員）
+
+- `scenario_ids`: 比較するシナリオ（カンマ区切り、最大4つ）。先頭が差異の基準
+- `landing_actual_id` / `landing_forecast_id` / `landing_through`（YYYY-MM）: 着地見込を系列に加える。`landing_through` までの月は実績シナリオ、それ以降の月は見込シナリオの金額を使う
+- `function_id`: 指定するとその機能の施策ごと、指定しなければ機能ごとに集計する
+- レスポンス: 系列（`series`）と、機能（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
+- すべての系列は同じ年度のシナリオであること
+- セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
+
 ## フロントエンド（React）
 
 - React + TypeScript + TailwindCSS v4、ビルドは Vite。依存ライブラリは React と Tailwind のみ

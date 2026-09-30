@@ -10,6 +10,7 @@ import { FunctionsPage } from './pages/masters/FunctionsPage'
 import { SubjectsPage } from './pages/masters/SubjectsPage'
 import { TreeMasterPage } from './pages/masters/TreeMasterPage'
 import { UsersPage } from './pages/masters/UsersPage'
+import { ReportPage } from './pages/reports/ReportPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
 import { ValuesPage } from './pages/scenarios/ValuesPage'
@@ -23,6 +24,7 @@ const routes: Route[] = [
   { path: '/scenarios', render: () => <ScenarioListPage /> },
   { path: '/scenarios/:id', render: (p) => <ScenarioDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios/:sid/activities/:aid', render: (p) => <ValuesPage key={`${p.sid}/${p.aid}`} scenarioId={p.sid} activityId={p.aid} /> },
+  { path: '/reports', render: () => <ReportPage /> },
   { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },
   { path: '/masters/segments', render: () => <TreeMasterPage key="segments" resource="segments" /> },
   { path: '/masters/functions', render: () => <FunctionsPage /> },
