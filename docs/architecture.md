@@ -106,6 +106,26 @@
 - 計算式で使われているドライバーは、code の変更・削除ができない。値が登録済みのドライバーも削除できない
 - 金額・ドライバー値・シナリオ条件がある施策は削除できない（409）。削除できる場合は、マイルストーン・ドライバー・計算式も合わせて削除し、それぞれ監査ログに残す
 
+## シナリオ・数値入力 API
+
+| API                                                           | 内容                                         | 権限           |
+| ------------------------------------------------------------- | -------------------------------------------- | -------------- |
+| `GET /api/scenarios`（`fiscal_year` / `scenario_kind` で絞り込み） | 一覧                                         | 全員           |
+| `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製）          | FP&A           |
+| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称変更                               | 全員 / FP&A    |
+| `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック・ロック解除（解除は理由必須）         | FP&A           |
+| `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
+| `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
+| `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
+| `PUT .../activities/{aid}/condition`                          | 想定条件の登録（空文字で削除）               | 施策の編集権限 |
+
+- 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
+- ドライバー値は小数点以下6桁まで、金額は円単位の整数（マイナス可）
+- 「仮の値」（`is_provisional: true`）には理由（`provisional_reason`）が必須
+- 更新 API のレスポンスは、更新後の `GET .../activities/{aid}` と同じ形
+- ロック済みシナリオ・実績シナリオへの入力は 409。入力の可否はレスポンスの `editable` で分かる
+- 金額の再計算は `internal/calc` が行い、変更した金額は同じ変更セットの監査ログに残す
+
 ## フロントエンド（React）
 
 - React + TypeScript + TailwindCSS v4、ビルドは Vite

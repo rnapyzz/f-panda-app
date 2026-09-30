@@ -24,6 +24,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -219,6 +220,41 @@ func lockFunction(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err 
 	}
 	return dbx.PtrInt64(o), err
 }
+
+// Summary は他のパッケージ（シナリオの値入力など）が使う施策の要約。
+type Summary struct {
+	ID          int64        `json:"id"`
+	Code        string       `json:"code"`
+	Name        string       `json:"name"`
+	CalcMode    string       `json:"calc_mode"`
+	Probability *json.Number `json:"probability"`
+	CanEdit     bool         `json:"can_edit"`
+}
+
+func summarize(u auth.User, a activity) Summary {
+	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, CalcMode: a.CalcMode, Probability: a.Probability, CanEdit: canEdit(u, a)}
+}
+
+// Load は施策の要約を返す。存在しなければ 404。
+func Load(ctx context.Context, q dbx.Querier, u auth.User, id int64) (Summary, error) {
+	a, err := findActivity(ctx, q, id, "")
+	if err != nil {
+		return Summary{}, err
+	}
+	return summarize(u, a), nil
+}
+
+// LockForEdit は施策を行ロック付きで取得し、編集権限がなければ 403 を返す。
+func LockForEdit(ctx context.Context, tx *sql.Tx, u auth.User, id int64) (Summary, error) {
+	a, err := lockEditable(ctx, tx, u, id)
+	if err != nil {
+		return Summary{}, err
+	}
+	return summarize(u, a), nil
+}
+
+// RequireReason は変更理由が空ならエラーを返す。
+func RequireReason(reason string) error { return requireReason(reason) }
 
 // requireReason は変更理由が空ならエラーを返す。
 func requireReason(reason string) error {
@@ -451,7 +487,14 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if updated, err = findActivity(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		return rec.Update(ctx, "activities", id, before, updated)
+		if err := rec.Update(ctx, "activities", id, before, updated); err != nil {
+			return err
+		}
+		// 確度・算出方式が変わると計算式で算出した金額も変わる。
+		if !sameProbability(before.Probability, in.Probability) || before.CalcMode != in.CalcMode {
+			return calc.RecalculateActivity(ctx, tx, rec, id)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

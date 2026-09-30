@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/formula"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -148,9 +149,14 @@ func (h *Handler) putFormula(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if found {
-			return rec.Update(ctx, "activity_formulas", saved.ID, before, saved)
+			err = rec.Update(ctx, "activity_formulas", saved.ID, before, saved)
+		} else {
+			err = rec.Insert(ctx, "activity_formulas", saved.ID, saved)
 		}
-		return rec.Insert(ctx, "activity_formulas", saved.ID, saved)
+		if err != nil {
+			return err
+		}
+		return calc.RecalculateActivity(ctx, tx, rec, activityID)
 	})
 	if err != nil {
 		return err
