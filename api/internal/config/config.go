@@ -12,6 +12,10 @@ import (
 type Config struct {
 	HTTPAddr string
 	DB       DBConfig
+	// SessionTTL はログインセッションの有効期間。
+	SessionTTL time.Duration
+	// CookieSecure が true のとき、セッション Cookie に Secure 属性を付ける（HTTPS 環境で有効にする）。
+	CookieSecure bool
 }
 
 // DBConfig は MySQL の接続設定。
@@ -26,7 +30,9 @@ type DBConfig struct {
 // Load は環境変数から設定を読み込む。未設定の項目は開発用のデフォルト値を使う。
 func Load() Config {
 	return Config{
-		HTTPAddr: getenv("HTTP_ADDR", ":8080"),
+		HTTPAddr:     getenv("HTTP_ADDR", ":8080"),
+		SessionTTL:   getduration("SESSION_TTL", 12*time.Hour),
+		CookieSecure: getenv("COOKIE_SECURE", "false") == "true",
 		DB: DBConfig{
 			Host:     getenv("DB_HOST", "localhost"),
 			Port:     getenv("DB_PORT", "3306"),
@@ -65,6 +71,14 @@ func (c DBConfig) dsn(multiStatements bool) string {
 	cfg.MultiStatements = multiStatements
 	cfg.Params = map[string]string{"charset": "utf8mb4"}
 	return cfg.FormatDSN()
+}
+
+func getduration(key string, fallback time.Duration) time.Duration {
+	d, err := time.ParseDuration(getenv(key, ""))
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }
 
 func getenv(key, fallback string) string {

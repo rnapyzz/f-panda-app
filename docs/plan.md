@@ -86,7 +86,7 @@
 
 ### 2.6 変更履歴と説明責任
 
-- 値の変更は必ず「変更セット」（`change_sets`）単位で行い、変更理由（`reason`）の入力を必須とする。
+- 値の変更は必ず「変更セット」（`change_sets`）単位で行う。金額・ドライバーの変更では変更理由（`reason`）の入力を必須とし、マスタの変更では任意とする。
 - 各テーブルの変更前後の値は監査ログ（`audit_logs`）に JSON で残し、変更セットに紐づける。
 - 仮の値を使った場合は `is_provisional = true` とし、`provisional_reason` に理由を記録する。
 
@@ -108,7 +108,8 @@
 | `segments`            | 事業マスタ。ポートフォリオ管理のための階層構造を表現した集計軸。ツリー構造（parent_id）を持つ。        |
 | `organizations`       | 組織マスタ。ツリー構造（parent_id）および階層レベルを持つ。                                           |
 | `subjects`            | 勘定科目マスタ。P/Lを構成する営業収益・営業費用のカテゴリを持つ。                                      |
-| `users`               | ユーザー。ロールを持つ。                                                                              |
+| `users`               | ユーザー。ロールと有効/無効を持つ。                                                                   |
+| `sessions`            | ログインセッション。トークンのハッシュと有効期限を持つ。                                              |
 | `change_sets`         | 変更セット。まとめて行った変更の単位と変更理由。                                                      |
 | `audit_logs`          | 監査ログ。レコード単位の変更前後の値。                                                                |
 
@@ -174,6 +175,7 @@ erDiagram
 
     users ||--o{ scenarios : "creates"
     users ||--o{ change_sets : "makes"
+    users ||--o{ sessions : "has"
     scenarios ||--o{ change_sets : "target"
     change_sets ||--o{ audit_logs : "has"
 
@@ -183,6 +185,12 @@ erDiagram
         varchar email "一意"
         varchar password_hash
         enum role "fpa_admin / manager / member / viewer"
+        boolean is_active
+    }
+    sessions {
+        char id PK "トークンのSHA-256"
+        bigint user_id FK
+        datetime expires_at
     }
     segments {
         bigint id PK
@@ -376,7 +384,7 @@ target_month,activity_code,subject_code,amount
 | 会計年度         | 4月開始。`fiscal_year = 2026` は 2026-04〜2027-03 を指す                                                    |
 | 通貨             | 日本円のみ                                                                                                  |
 | 金額単位         | 円単位で保持・表示する。`budget_facts.amount` は `DECIMAL(18,0)`。式で算出した金額は円未満を四捨五入する |
-| 認証             | メールアドレス＋パスワード（パスワードはハッシュ化して保存）。将来 SSO に対応する                           |
+| 認証             | メールアドレス＋パスワード（パスワードはハッシュ化して保存）。将来 SSO に対応する。詳細は architecture.md   |
 
 ## 8. 未決事項
 
