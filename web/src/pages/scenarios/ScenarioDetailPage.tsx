@@ -61,17 +61,25 @@ export function ScenarioDetailPage({ id }: { id: string }) {
         }
         description={`${s.fiscal_year}年度（${s.fiscal_year}年4月〜${s.fiscal_year + 1}年3月）`}
         actions={
-          isAdmin && (
-            <>
-              {s.scenario_kind === 'actual' && !s.is_locked && (
-                <Button variant="primary" onClick={() => setImporting(true)}>
-                  実績 CSV を取り込む
-                </Button>
-              )}
-              <Button onClick={() => setRenaming(true)}>名称を変更</Button>
-              {s.is_locked ? <Button onClick={() => setLocked(false)}>ロックを解除</Button> : <Button onClick={() => setLocked(true)}>🔒 ロックする</Button>}
-            </>
-          )
+          <>
+            <Link
+              to={`/history?scenario_id=${s.id}`}
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              変更履歴
+            </Link>
+            {isAdmin && (
+              <>
+                {s.scenario_kind === 'actual' && !s.is_locked && (
+                  <Button variant="primary" onClick={() => setImporting(true)}>
+                    実績 CSV を取り込む
+                  </Button>
+                )}
+                <Button onClick={() => setRenaming(true)}>名称を変更</Button>
+                {s.is_locked ? <Button onClick={() => setLocked(false)}>ロックを解除</Button> : <Button onClick={() => setLocked(true)}>🔒 ロックする</Button>}
+              </>
+            )}
+          </>
         }
       />
       {actionError ? (

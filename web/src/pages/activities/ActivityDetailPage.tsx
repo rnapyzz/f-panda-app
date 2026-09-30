@@ -118,6 +118,12 @@ export function ActivityDetailPage({ id }: { id: string }) {
             >
               数値を見る・入力する
             </Link>
+            <Link
+              to={`/history?activity_id=${a.id}`}
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              変更履歴
+            </Link>
             {canEdit && (
               <Button variant="primary" onClick={() => setEditing(true)}>
                 編集

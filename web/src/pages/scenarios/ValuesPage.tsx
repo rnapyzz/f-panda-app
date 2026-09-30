@@ -188,6 +188,9 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         <Link to={`/activities/${v.activity.id}`} className="text-slate-500 hover:text-slate-700">
           施策の詳細 →
         </Link>
+        <Link to={`/history?activity_id=${v.activity.id}&scenario_id=${v.scenario.id}`} className="text-slate-500 hover:text-slate-700">
+          このシナリオでの変更履歴 →
+        </Link>
       </div>
       <PageHeader
         title={
