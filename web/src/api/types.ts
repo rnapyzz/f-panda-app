@@ -59,3 +59,91 @@ export const categoryLabels: Record<SubjectCategory, string> = {
   revenue: '収益',
   expense: '費用',
 }
+
+// --- 施策 ---
+
+export type ActivityType = 'project' | 'recurring' | 'cost_pool'
+export type ActivityStatus = 'planned' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled'
+export type CalcMode = 'manual' | 'formula'
+
+export type Activity = Timestamps & {
+  id: number
+  function_id: number
+  code: string
+  name: string
+  activity_type: ActivityType
+  status: ActivityStatus
+  start_date: string | null
+  end_date: string | null
+  owner_user_id: number | null
+  calc_mode: CalcMode
+  probability: number | null
+  assumptions: string
+  can_edit: boolean
+}
+
+export type MilestoneStatus = 'not_started' | 'in_progress' | 'completed' | 'delayed'
+
+export type Milestone = Timestamps & {
+  id: number
+  activity_id: number
+  name: string
+  due_date: string
+  status: MilestoneStatus
+}
+
+export type DriverKind = 'value' | 'cost' | 'kpi'
+
+export type Driver = Timestamps & {
+  id: number
+  activity_id: number
+  code: string
+  name: string
+  driver_kind: DriverKind
+  unit: string
+}
+
+export type Formula = Timestamps & {
+  id: number
+  activity_id: number
+  subject_id: number
+  expression: string
+}
+
+export type ActivityDetail = Activity & {
+  milestones: Milestone[]
+  drivers: Driver[]
+  formulas: Formula[]
+}
+
+export const activityTypeLabels: Record<ActivityType, string> = {
+  project: 'プロジェクト型',
+  recurring: '運用型',
+  cost_pool: 'コストプール型',
+}
+
+export const activityStatusLabels: Record<ActivityStatus, string> = {
+  planned: '計画中',
+  in_progress: '実行中',
+  completed: '完了',
+  on_hold: '保留',
+  cancelled: '中止',
+}
+
+export const calcModeLabels: Record<CalcMode, string> = {
+  manual: '直接入力',
+  formula: '計算式',
+}
+
+export const milestoneStatusLabels: Record<MilestoneStatus, string> = {
+  not_started: '未着手',
+  in_progress: '進行中',
+  completed: '完了',
+  delayed: '遅延',
+}
+
+export const driverKindLabels: Record<DriverKind, string> = {
+  value: 'バリュードライバー',
+  cost: 'コストドライバー',
+  kpi: 'KPI',
+}
