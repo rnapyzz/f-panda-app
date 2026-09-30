@@ -44,6 +44,23 @@
 - マイグレーション: `api/migrations/<連番>_<説明>.sql` を `embed` で埋め込み、自前のランナー（`api/internal/migrate`）で適用する。適用済みバージョンは `schema_migrations` に記録する。compose の `migrate` サービスが起動時に適用する
 - 計算式の評価: ドライバー式（四則演算・括弧・数値・ドライバー code 参照）は自前の簡易パーサで評価する
 
+## 認証
+
+- メールアドレス＋パスワードでログインし、セッション Cookie（`fpanda_session`）で認証する
+- パスワード: 標準ライブラリの PBKDF2-HMAC-SHA256（600,000回）でハッシュ化。12〜128文字
+- セッション: ランダムな32バイトのトークンを Cookie で渡し、DB（`sessions`）には SHA-256 のみ保存する。有効期間は `SESSION_TTL`（デフォルト12時間）。期限切れは API サーバーが1時間ごとに削除する
+- Cookie: `HttpOnly`・`SameSite=Lax`。HTTPS 環境では `COOKIE_SECURE=true` で `Secure` を付ける
+- CSRF: Go 1.25 の `http.CrossOriginProtection` で、別オリジンからの更新系リクエストを拒否する
+- 権限: `auth.RequireAuth`（ログイン必須）と `auth.RequireRole(...)`（ロール制限）のミドルウェアで制御する
+- 無効化（`users.is_active = false`）したユーザーはログインできず、既存のセッションも使えなくなる
+- 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`）
+
+| API                      | 内容                     |
+| ------------------------ | ------------------------ |
+| `POST /api/auth/login`   | ログイン                 |
+| `POST /api/auth/logout`  | ログアウト               |
+| `GET /api/auth/me`       | ログイン中のユーザー     |
+
 ## フロントエンド（React）
 
 - React + TypeScript + TailwindCSS v4、ビルドは Vite

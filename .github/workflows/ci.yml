@@ -42,8 +42,8 @@ jobs:
       - name: go test
         run: go test -race ./...
 
-  migrations:
-    name: Migrations (MySQL)
+  integration:
+    name: Migrations & integration tests (MySQL)
     runs-on: ubuntu-latest
     services:
       mysql:
@@ -66,6 +66,11 @@ jobs:
       DB_USER: fpanda
       DB_PASSWORD: fpanda
       DB_NAME: fpanda
+      # 統合テストはテストごとに DB を作成するため root で接続する
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: "3306"
+      TEST_DB_USER: root
+      TEST_DB_PASSWORD: root
     defaults:
       run:
         working-directory: api
@@ -83,6 +88,8 @@ jobs:
         run: |
           go run ./cmd/migrate status | tee /tmp/status.log
           if grep -q "^pending" /tmp/status.log; then exit 1; fi
+      - name: 統合テスト（DB を使うテスト）
+        run: go test -race ./...
 
   web:
     name: Web (React)
@@ -106,7 +113,7 @@ jobs:
   compose:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
-    needs: [api, migrations, web]
+    needs: [api, integration, web]
     steps:
       - uses: actions/checkout@v7
       - name: build

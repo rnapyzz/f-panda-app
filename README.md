@@ -27,6 +27,14 @@ make up                # docker compose up --build -d
 
 起動時に `migrate` コンテナが未適用のマイグレーションを自動で適用する。
 
+### 最初のユーザーを作成する
+
+```bash
+make create-user EMAIL=admin@example.com NAME=管理者 ROLE=fpa_admin
+```
+
+パスワード（12文字以上）の入力を求められる。`ROLE` を省略すると `fpa_admin` になる。
+
 ### よく使うコマンド
 
 | コマンド              | 内容                                   |
@@ -37,7 +45,9 @@ make up                # docker compose up --build -d
 | `make migrate`        | マイグレーションを適用                  |
 | `make migrate-status` | マイグレーションの適用状況を表示        |
 | `make reset-db`       | DB のデータを削除して作り直す           |
+| `make create-user`    | ユーザーを作成                          |
 | `make test`           | Go のテスト、フロントの lint とビルド   |
+| `make test-api`       | Go のテスト（DB を使うテストを含む）    |
 
 ### マイグレーション
 
@@ -50,6 +60,10 @@ GitHub Actions（`.github/workflows/ci.yml`）で、PR と main への push ご�
 | ジョブ       | 内容                                                                 |
 | ------------ | -------------------------------------------------------------------- |
 | `api`        | gofmt・`go mod tidy` の差分確認・`go vet`・`go test -race`           |
-| `migrations` | MySQL 8.4 に対してマイグレーションを適用し、再実行で変更がないこと   |
+| `integration` | MySQL 8.4 に対してマイグレーションを適用・再実行で変更がないこと、DB を使う統合テスト |
 | `web`        | `npm run lint`・`npm run build`（型チェックを含む）                  |
 | `compose`    | `docker compose up` で全体を起動し、`/api/health` とトップページを確認 |
+
+### テスト
+
+DB を使うテストは、環境変数 `TEST_DB_HOST` が設定されているときだけ実行される（未設定ならスキップ）。テストごとに一時的なデータベースを作成・削除するため、DB を作成できるユーザー（root）で接続する。`make test-api` は compose の db に接続して実行する。

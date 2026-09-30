@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,11 +14,14 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/config"
+	"github.com/rnapyzz/f-panda-app/api/internal/server"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
 		logger.Error("server stopped with error", "error", err)
 		os.Exit(1)
@@ -38,17 +40,23 @@ func run(logger *slog.Logger) error {
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", healthHandler(db))
+	authSvc := auth.NewService(db, cfg.SessionTTL)
 
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Addr: cfg.HTTPAddr,
+		Handler: server.NewHandler(server.Deps{
+			DB:           db,
+			Auth:         authSvc,
+			CookieSecure: cfg.CookieSecure,
+			Logger:       logger,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go cleanupSessions(ctx, authSvc, logger)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -71,21 +79,23 @@ func run(logger *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func healthHandler(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		status := http.StatusOK
-		body := map[string]string{"status": "ok", "database": "ok"}
-		if err := db.PingContext(ctx); err != nil {
-			status = http.StatusServiceUnavailable
-			body["status"] = "degraded"
-			body["database"] = "unavailable"
+// cleanupSessions は期限切れのセッションを1時間ごとに削除する。
+func cleanupSessions(ctx context.Context, svc *auth.Service, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := svc.DeleteExpiredSessions(ctx)
+			if err != nil {
+				logger.Error("cleanup sessions", "error", err)
+				continue
+			}
+			if n > 0 {
+				logger.Info("expired sessions deleted", "count", n)
+			}
 		}
-
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(body)
 	}
 }
