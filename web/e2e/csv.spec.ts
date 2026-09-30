@@ -8,7 +8,7 @@ test('マスタを CSV でエクスポートし、編集した CSV を確認し�
 
   // エクスポート（ダウンロード）
   const download = page.waitForEvent('download')
-  await page.getByRole('link', { name: 'CSV エクスポート' }).click()
+  await page.getByRole('button', { name: 'CSV エクスポート' }).click()
   const file = await download
   expect(file.suggestedFilename()).toMatch(/^organizations-\d{8}\.csv$/)
 
@@ -43,4 +43,17 @@ test('CSV で追加したユーザーは「パスワード未設定」と表示�
   await expect(dialog.getByText('取り込みました')).toBeVisible()
   await dialog.getByRole('button', { name: '閉じる' }).last().click()
   await expect(page.getByRole('row', { name: new RegExp(email) })).toContainText('パスワード未設定')
+})
+
+test('エクスポートに失敗したら理由を表示する', async ({ page }) => {
+  await login(page)
+  // サーバーがエラーを返した場合を再現する
+  await page.route('**/api/subjects/export', (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: '勘定科目が見つかりません' } }) }),
+  )
+  await page.goto('/masters/subjects')
+  await page.getByRole('button', { name: 'CSV エクスポート' }).click()
+  const dialog = page.getByRole('dialog', { name: 'エクスポートできませんでした' })
+  await expect(dialog.getByRole('alert')).toHaveText('勘定科目が見つかりません')
+  await expect(dialog.getByText('make up')).toBeVisible()
 })

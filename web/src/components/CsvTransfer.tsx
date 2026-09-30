@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { api, ApiError } from '../api/client'
+import { api, ApiError, download } from '../api/client'
 import { Button, Dialog, ErrorMessage, Field, Input, Table, Textarea } from './ui'
 
 type ImportResult = { dry_run: boolean; rows: number; inserted: number; updated: number; unchanged: number }
@@ -24,15 +24,42 @@ export function CsvActions({
   onImported: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<unknown>(null)
+
+  const exportCsv = async () => {
+    setExporting(true)
+    try {
+      await download(`/${resource}/export`)
+    } catch (err) {
+      setExportError(err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <>
-      <a
-        href={`/api/${resource}/export`}
-        download
-        className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium whitespace-nowrap text-slate-700 hover:bg-slate-50"
-      >
-        CSV エクスポート
-      </a>
+      <Button onClick={exportCsv} disabled={exporting}>
+        {exporting ? 'エクスポート中…' : 'CSV エクスポート'}
+      </Button>
+      {exportError ? (
+        <Dialog
+          open
+          title="エクスポートできませんでした"
+          onClose={() => setExportError(null)}
+          footer={
+            <Button variant="primary" onClick={() => setExportError(null)}>
+              閉じる
+            </Button>
+          }
+        >
+          <ErrorMessage error={exportError} />
+          {exportError instanceof ApiError && exportError.status === 404 && (
+            <p className="mt-2 text-xs text-slate-500">サーバーが古い可能性があります。開発環境では `make up` で API を作り直してください。</p>
+          )}
+        </Dialog>
+      ) : null}
       {canImport && <Button onClick={() => setOpen(true)}>CSV インポート</Button>}
       {open && (
         <CsvImportDialog
