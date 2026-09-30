@@ -150,8 +150,20 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
 
   return (
     <>
-      <div className={cx('flex h-14 shrink-0 items-center border-b border-slate-100', collapsed ? 'justify-center' : 'px-4')}>
+      {/* 折りたたみボタンは、ログアウトと離して上部に置く */}
+      <div className={cx('flex shrink-0 items-center border-b border-slate-100', collapsed ? 'flex-col gap-2 py-3' : 'h-14 justify-between pr-2 pl-4')}>
         <Brand compact={collapsed} />
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label={collapsed ? 'メニューを広げる' : 'メニューを折りたたむ'}
+            title={collapsed ? 'メニューを広げる' : 'メニューを折りたたむ'}
+          >
+            <IconCollapse collapsed={collapsed} />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3" aria-label="メインメニュー">
@@ -197,28 +209,15 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
             <div className="text-xs text-slate-400">{roleLabels[user.role]}</div>
           </div>
         )}
-        <div className={cx('flex gap-1', collapsed ? 'flex-col items-center' : 'items-center')}>
-          <button
-            type="button"
-            onClick={() => logout()}
-            title={collapsed ? `ログアウト（${user.name}）` : undefined}
-            className={cx('flex items-center gap-2 rounded-md py-1.5 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800', collapsed ? 'justify-center px-1.5' : 'flex-1 px-1.5')}
-          >
-            <IconLogout className="size-5 shrink-0" />
-            {collapsed ? <span className="sr-only">ログアウト</span> : 'ログアウト'}
-          </button>
-          {onToggle && (
-            <button
-              type="button"
-              onClick={onToggle}
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label={collapsed ? 'メニューを広げる' : 'メニューを折りたたむ'}
-              title={collapsed ? 'メニューを広げる' : 'メニューを折りたたむ'}
-            >
-              <IconCollapse collapsed={collapsed} />
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => logout()}
+          title={collapsed ? `ログアウト（${user.name}）` : undefined}
+          className={cx('flex w-full items-center gap-2 rounded-md py-1.5 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800', collapsed ? 'justify-center' : 'px-1.5')}
+        >
+          <IconLogout className="size-5 shrink-0" />
+          {collapsed ? <span className="sr-only">ログアウト</span> : 'ログアウト'}
+        </button>
       </div>
     </>
   )
