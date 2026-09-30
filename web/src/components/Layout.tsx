@@ -32,7 +32,8 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4 sm:gap-6">
-          <Link to="/" className="text-base font-bold whitespace-nowrap text-indigo-700">
+          <Link to="/" className="flex shrink-0 items-center gap-2 text-base font-bold whitespace-nowrap text-indigo-700">
+            <img src="/favicon.svg" alt="" width={28} height={28} />
             F-Panda
           </Link>
           <nav className="flex min-w-0 gap-1 overflow-x-auto" aria-label="メインメニュー">
