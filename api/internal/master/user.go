@@ -9,6 +9,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
+	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/password"
 )
@@ -52,9 +53,7 @@ func scanUser(row interface{ Scan(...any) error }) (user, error) {
 	return u, err
 }
 
-func findUser(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id int64, lock string) (user, error) {
+func findUser(ctx context.Context, q dbx.Querier, id int64, lock string) (user, error) {
 	u, err := scanUser(q.QueryRowContext(ctx, userSelect+" WHERE id = ?"+lock, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return user{}, notFound("ユーザー")
@@ -81,7 +80,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	writeList(w, items)
+	httpx.WriteList(w, items)
 	return nil
 }
 
@@ -95,7 +94,7 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, u)
+	httpx.WriteJSON(w, http.StatusOK, u)
 	return nil
 }
 
@@ -105,12 +104,12 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	v := validator{}
+	v := httpx.Validator{}
 	name, email := validateUserFields(v, req.Name, req.Email, req.Role)
 	if err := password.Validate(req.Password); err != nil {
-		v.add("password", err.Error())
+		v.Add("password", err.Error())
 	}
-	if err := v.err(); err != nil {
+	if err := v.Err(); err != nil {
 		return err
 	}
 	hash, err := password.Hash(req.Password)
@@ -125,7 +124,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) error {
 			"INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
 			name, email, hash, req.Role,
 		)
-		if mysqlErrNo(err) == errDuplicateEntry {
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"email": "このメールアドレスは既に登録されています"})
 		}
 		if err != nil {
@@ -143,7 +142,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusCreated, created)
+	httpx.WriteJSON(w, http.StatusCreated, created)
 	return nil
 }
 
@@ -158,9 +157,9 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	v := validator{}
+	v := httpx.Validator{}
 	name, email := validateUserFields(v, req.Name, req.Email, req.Role)
-	if err := v.err(); err != nil {
+	if err := v.Err(); err != nil {
 		return err
 	}
 
@@ -184,7 +183,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) error {
 			"UPDATE users SET name = ?, email = ?, role = ?, is_active = ? WHERE id = ?",
 			name, email, req.Role, req.IsActive, id,
 		)
-		if mysqlErrNo(err) == errDuplicateEntry {
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"email": "このメールアドレスは既に登録されています"})
 		}
 		if err != nil {
@@ -204,7 +203,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil
 }
 
@@ -247,14 +246,14 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func validateUserFields(v validator, name, email string, role auth.Role) (string, string) {
-	name = v.text("name", "氏名", name, maxNameLen)
-	email = auth.NormalizeEmail(v.text("email", "メールアドレス", email, 255))
+func validateUserFields(v httpx.Validator, name, email string, role auth.Role) (string, string) {
+	name = v.Text("name", "氏名", name, maxNameLen)
+	email = auth.NormalizeEmail(v.Text("email", "メールアドレス", email, 255))
 	if email != "" && !validEmail(email) {
-		v.add("email", "メールアドレスの形式が正しくありません")
+		v.Add("email", "メールアドレスの形式が正しくありません")
 	}
 	if !role.Valid() {
-		v.add("role", "ロールは fpa_admin / manager / member / viewer のいずれかを指定してください")
+		v.Add("role", "ロールは fpa_admin / manager / member / viewer のいずれかを指定してください")
 	}
 	return name, email
 }

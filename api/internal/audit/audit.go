@@ -81,3 +81,21 @@ func toJSON(v any) (any, error) {
 	}
 	return string(b), nil
 }
+
+// InTx はトランザクション内で変更セットを作成して fn を実行する。fn がエラーを返したらロールバックする。
+func InTx(ctx context.Context, db *sql.DB, userID int64, scenarioID *int64, reason string, fn func(tx *sql.Tx, rec *Recorder) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rec, err := Begin(ctx, tx, userID, scenarioID, reason)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx, rec); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

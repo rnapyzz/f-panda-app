@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
@@ -36,13 +37,11 @@ func scanSubject(row interface{ Scan(...any) error }) (subject, error) {
 	var s subject
 	var parent sql.NullInt64
 	err := row.Scan(&s.ID, &parent, &s.Code, &s.Name, &s.Category, &s.SortOrder, &s.CreatedAt, &s.UpdatedAt)
-	s.ParentID = ptrInt64(parent)
+	s.ParentID = dbx.PtrInt64(parent)
 	return s, err
 }
 
-func findSubject(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id int64, lock string) (subject, error) {
+func findSubject(ctx context.Context, q dbx.Querier, id int64, lock string) (subject, error) {
 	s, err := scanSubject(q.QueryRowContext(ctx, subjectSelect+" WHERE id = ?"+lock, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return subject{}, notFound("科目")
@@ -69,7 +68,7 @@ func (h *Handler) listSubjects(w http.ResponseWriter, r *http.Request) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	writeList(w, items)
+	httpx.WriteList(w, items)
 	return nil
 }
 
@@ -83,7 +82,7 @@ func (h *Handler) getSubject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, s)
+	httpx.WriteJSON(w, http.StatusOK, s)
 	return nil
 }
 
@@ -106,9 +105,9 @@ func (h *Handler) createSubject(w http.ResponseWriter, r *http.Request) error {
 		}
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO subjects (parent_id, code, name, category, sort_order) VALUES (?, ?, ?, ?, ?)",
-			nullInt64(req.ParentID), code, name, req.Category, req.SortOrder,
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder,
 		)
-		if mysqlErrNo(err) == errDuplicateEntry {
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
 		}
 		if err != nil {
@@ -126,7 +125,7 @@ func (h *Handler) createSubject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusCreated, created)
+	httpx.WriteJSON(w, http.StatusCreated, created)
 	return nil
 }
 
@@ -156,7 +155,7 @@ func (h *Handler) updateSubject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if req.Category != before.Category {
-			n, err := count(ctx, tx, "SELECT COUNT(*) FROM subjects WHERE parent_id = ?", id)
+			n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM subjects WHERE parent_id = ?", id)
 			if err != nil {
 				return err
 			}
@@ -166,9 +165,9 @@ func (h *Handler) updateSubject(w http.ResponseWriter, r *http.Request) error {
 		}
 		_, err = tx.ExecContext(ctx,
 			"UPDATE subjects SET parent_id = ?, code = ?, name = ?, category = ?, sort_order = ? WHERE id = ?",
-			nullInt64(req.ParentID), code, name, req.Category, req.SortOrder, id,
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, id,
 		)
-		if mysqlErrNo(err) == errDuplicateEntry {
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
 		}
 		if err != nil {
@@ -182,7 +181,7 @@ func (h *Handler) updateSubject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeItem(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil
 }
 
@@ -203,7 +202,7 @@ func (h *Handler) deleteSubject(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		n, err := count(ctx, tx, "SELECT COUNT(*) FROM subjects WHERE parent_id = ?", id)
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM subjects WHERE parent_id = ?", id)
 		if err != nil {
 			return err
 		}
@@ -223,13 +222,13 @@ func (h *Handler) deleteSubject(w http.ResponseWriter, r *http.Request) error {
 }
 
 func validateSubjectRequest(req *subjectRequest) (code, name string, err error) {
-	v := validator{}
-	code = v.text("code", "科目コード", req.Code, 50)
-	name = v.text("name", "科目名", req.Name, maxNameLen)
+	v := httpx.Validator{}
+	code = v.Text("code", "科目コード", req.Code, 50)
+	name = v.Text("name", "科目名", req.Name, maxNameLen)
 	if req.Category != "revenue" && req.Category != "expense" {
-		v.add("category", "区分は revenue（収益）か expense（費用）を指定してください")
+		v.Add("category", "区分は revenue（収益）か expense（費用）を指定してください")
 	}
-	return code, name, v.err()
+	return code, name, v.Err()
 }
 
 // checkSubjectParent は親科目が存在し、同じ区分で、循環しないことを確認する。id は更新対象（新規作成時は 0）。
@@ -242,8 +241,7 @@ func checkSubjectParent(ctx context.Context, tx *sql.Tx, id int64, req subjectRe
 	}
 	parent, err := findSubject(ctx, tx, *req.ParentID, " FOR SHARE")
 	if err != nil {
-		var apiErr *httpx.Error
-		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		if httpx.IsNotFound(err) {
 			return httpx.Validation(map[string]string{"parent_id": "親科目が見つかりません"})
 		}
 		return err
@@ -255,7 +253,7 @@ func checkSubjectParent(ctx context.Context, tx *sql.Tx, id int64, req subjectRe
 		return nil
 	}
 	// 親をたどって自分自身に行き着くなら循環している。
-	n, err := count(ctx, tx, `
+	n, err := dbx.Count(ctx, tx, `
 		WITH RECURSIVE anc AS (
 			SELECT id, parent_id FROM subjects WHERE id = ?
 			UNION ALL
