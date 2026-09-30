@@ -182,7 +182,7 @@ func resolveActuals(rows []csvRow, fiscalMonths []string, activities, subjects m
 		}
 		activityID, found := activities[row.activityCode]
 		if !found {
-			errs.add(row.line, "施策コード %q は登録されていません", row.activityCode)
+			errs.add(row.line, "施策コード %q は登録されていません（施策コードまたは外部コードを指定してください）", row.activityCode)
 			ok = false
 		}
 		subjectID, found := subjects[row.subjectCode]
@@ -290,11 +290,19 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 			return httpx.Conflict("ロックされたシナリオには取り込めません")
 		}
 
-		activities, err := codeMap(ctx, tx, "activities")
+		// activity_code 列には、施策コードと外部コード（案件番号など）のどちらも使える
+		activities, err := codeMap(ctx, tx, "SELECT code, id FROM activities")
 		if err != nil {
 			return err
 		}
-		subjects, err := codeMap(ctx, tx, "subjects")
+		externals, err := codeMap(ctx, tx, "SELECT code, activity_id FROM activity_external_codes")
+		if err != nil {
+			return err
+		}
+		for code, id := range externals {
+			activities[code] = id
+		}
+		subjects, err := codeMap(ctx, tx, "SELECT code, id FROM subjects")
 		if err != nil {
 			return err
 		}
@@ -400,9 +408,9 @@ func (h *Handler) applyActuals(ctx context.Context, tx *sql.Tx, rec *audit.Recor
 	return nil
 }
 
-// codeMap は code → id の対応表を返す。
-func codeMap(ctx context.Context, tx *sql.Tx, table string) (map[string]int64, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT code, id FROM "+table)
+// codeMap は、コードと ID を返すクエリから code → id の対応表を作る。
+func codeMap(ctx context.Context, tx *sql.Tx, query string) (map[string]int64, error) {
+	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

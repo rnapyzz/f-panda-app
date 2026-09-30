@@ -49,6 +49,9 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	handle("PUT /api/activities/{id}", h.update)
 	handle("DELETE /api/activities/{id}", h.delete)
 
+	handle("POST /api/activities/{id}/external-codes", h.createExternalCode)
+	handle("DELETE /api/activities/{id}/external-codes/{eid}", h.deleteExternalCode)
+
 	handle("POST /api/activities/{id}/milestones", h.createMilestone)
 	handle("PUT /api/activities/{id}/milestones/{mid}", h.updateMilestone)
 	handle("DELETE /api/activities/{id}/milestones/{mid}", h.deleteMilestone)
@@ -110,9 +113,10 @@ type activityView struct {
 // activityDetail は施策の詳細（マイルストーン・ドライバー・計算式を含む）。
 type activityDetail struct {
 	activityView
-	Milestones []milestone   `json:"milestones"`
-	Drivers    []driver      `json:"drivers"`
-	Formulas   []formulaItem `json:"formulas"`
+	ExternalCodes []externalCode `json:"external_codes"`
+	Milestones    []milestone    `json:"milestones"`
+	Drivers       []driver       `json:"drivers"`
+	Formulas      []formulaItem  `json:"formulas"`
 }
 
 type activityRequest struct {
@@ -303,8 +307,8 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	}
 	if s := strings.TrimSpace(q.Get("q")); s != "" {
 		like := "%" + escapeLike(s) + "%"
-		where = append(where, "(a.code LIKE ? OR a.name LIKE ?)")
-		args = append(args, like, like)
+		where = append(where, "(a.code LIKE ? OR a.name LIKE ? OR EXISTS (SELECT 1 FROM activity_external_codes e WHERE e.activity_id = a.id AND e.code LIKE ?))")
+		args = append(args, like, like, like)
 	}
 	query := activitySelect
 	if len(where) > 0 {
@@ -354,6 +358,9 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	if d.Drivers, err = listDrivers(ctx, h.db, id); err != nil {
 		return err
 	}
+	if d.ExternalCodes, err = listExternalCodes(ctx, h.db, id); err != nil {
+		return err
+	}
 	if d.Formulas, err = listFormulas(ctx, h.db, id); err != nil {
 		return err
 	}
@@ -380,7 +387,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if req.Status == "" {
 		req.Status = "planned"
 	}
-	in, err := validateActivity(req)
+	// 施策コードが空なら自動で採番する
+	autoCode := strings.TrimSpace(req.Code) == ""
+	in, err := validateActivity(req, autoCode)
 	if err != nil {
 		return err
 	}
@@ -398,13 +407,33 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if err := checkOwner(ctx, tx, in.OwnerUserID); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO activities (function_id, code, name, activity_type, status, start_date, end_date,
-			                        owner_user_id, calc_mode, probability, assumptions)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			in.FunctionID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions),
-		)
+		insert := func() (sql.Result, error) {
+			return tx.ExecContext(ctx, `
+				INSERT INTO activities (function_id, code, name, activity_type, status, start_date, end_date,
+				                        owner_user_id, calc_mode, probability, assumptions)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				in.FunctionID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
+				dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions),
+			)
+		}
+		var res sql.Result
+		if autoCode {
+			// 同時に採番された場合に備えて、重複したら次の番号で再試行する
+			for attempt := 0; ; attempt++ {
+				if in.Code, err = nextActivityCode(ctx, tx); err != nil {
+					return err
+				}
+				res, err = insert()
+				if dbx.ErrNo(err) != dbx.ErrDuplicateEntry || attempt >= 4 {
+					break
+				}
+			}
+		} else {
+			if err := checkCodeNotExternal(ctx, tx, in.Code); err != nil {
+				return err
+			}
+			res, err = insert()
+		}
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この施策コードは既に使われています"})
 		}
@@ -441,7 +470,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	in, err := validateActivity(req)
+	in, err := validateActivity(req, false)
 	if err != nil {
 		return err
 	}
@@ -461,6 +490,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 			}
 			if !canManageFunction(u, fnOwner) {
 				return httpx.Forbidden()
+			}
+		}
+		if in.Code != before.Code {
+			if err := checkCodeNotExternal(ctx, tx, in.Code); err != nil {
+				return err
 			}
 		}
 		if needsReason(before, in) {
@@ -505,7 +539,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 
 // delete は DELETE /api/activities/{id}。
 // 金額・ドライバー値・シナリオ条件が登録済みの施策は、履歴を失わないよう削除できない。
-// マイルストーン・ドライバー定義・計算式は合わせて削除する。
+// 外部コード・マイルストーン・ドライバー定義・計算式は合わせて削除する。
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
 	if err != nil {
@@ -546,6 +580,15 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 
+		externals, err := listExternalCodes(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, e := range externals {
+			if err := rec.Delete(ctx, "activity_external_codes", e.ID, e); err != nil {
+				return err
+			}
+		}
 		formulas, err := listFormulas(ctx, tx, id)
 		if err != nil {
 			return err
@@ -573,7 +616,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		for _, table := range []string{"activity_formulas", "activity_drivers", "activity_milestones"} {
+		for _, table := range []string{"activity_external_codes", "activity_formulas", "activity_drivers", "activity_milestones"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE activity_id = ?", id); err != nil {
 				return err
 			}
@@ -605,7 +648,8 @@ type activityInput struct {
 	Assumptions  string
 }
 
-func validateActivity(req activityRequest) (activityInput, error) {
+// validateActivity は施策の入力を検証する。allowEmptyCode なら施策コードの空欄を許す（自動採番する）。
+func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, error) {
 	v := httpx.Validator{}
 	in := activityInput{
 		FunctionID:   req.FunctionID,
@@ -620,7 +664,7 @@ func validateActivity(req activityRequest) (activityInput, error) {
 	if in.FunctionID <= 0 {
 		v.Add("function_id", "機能を選択してください")
 	}
-	if !codePattern.MatchString(in.Code) {
+	if !(allowEmptyCode && in.Code == "") && !codePattern.MatchString(in.Code) {
 		v.Add("code", "施策コードは半角英数字・ハイフン・アンダースコアの50文字以内で入力してください")
 	}
 	if !slices.Contains(activityTypes, in.ActivityType) {

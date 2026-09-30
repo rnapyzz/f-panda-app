@@ -68,7 +68,7 @@ export function ActivityListPage() {
             }}
           >
             <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="activity-q">
-              キーワード（コード・名称）
+              キーワード（コード・名称・外部コード）
             </label>
             <Input id="activity-q" value={q} onChange={(e) => setQ(e.target.value)} onBlur={() => q !== filters.q && setFilter('q', q)} placeholder="Enter で検索" />
           </form>

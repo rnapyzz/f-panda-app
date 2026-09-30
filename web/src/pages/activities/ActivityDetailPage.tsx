@@ -26,6 +26,7 @@ import { useApi } from '../../lib/useApi'
 import { ActivityFormDialog } from './ActivityFormDialog'
 import { creatableFunctions, statusTone } from './ActivityListPage'
 import { DriverDialog, FormulaDialog, MilestoneDialog } from './ActivityDialogs'
+import { ExternalCodesCard } from './ExternalCodesCard'
 
 const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 'green', delayed: 'red' } as const
 
@@ -144,20 +145,23 @@ export function ActivityDetailPage({ id }: { id: string }) {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="基本情報" className="lg:col-span-1">
-          <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
-            <Info label="タイプ">{activityTypeLabels[a.activity_type]}</Info>
-            <Info label="機能">{functionById.get(a.function_id)?.name}</Info>
-            <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
-            <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
-            <Info label="確度">{formatPercent(a.probability)}</Info>
-            <Info label="算出方式">{calcModeLabels[a.calc_mode]}</Info>
-          </dl>
-          <div className="mt-4 border-t border-slate-100 pt-3">
-            <h3 className="mb-1 text-xs font-semibold text-slate-500">前提条件</h3>
-            <p className="text-sm whitespace-pre-wrap text-slate-700">{a.assumptions || <span className="text-slate-400">未入力</span>}</p>
-          </div>
-        </Card>
+        <div className="space-y-4 lg:col-span-1">
+          <Card title="基本情報">
+            <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
+              <Info label="タイプ">{activityTypeLabels[a.activity_type]}</Info>
+              <Info label="機能">{functionById.get(a.function_id)?.name}</Info>
+              <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
+              <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
+              <Info label="確度">{formatPercent(a.probability)}</Info>
+              <Info label="算出方式">{calcModeLabels[a.calc_mode]}</Info>
+            </dl>
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <h3 className="mb-1 text-xs font-semibold text-slate-500">前提条件</h3>
+              <p className="text-sm whitespace-pre-wrap text-slate-700">{a.assumptions || <span className="text-slate-400">未入力</span>}</p>
+            </div>
+          </Card>
+          <ExternalCodesCard activityId={a.id} codes={a.external_codes} canEdit={canEdit} onChanged={reload} />
+        </div>
 
         <div className="space-y-4 lg:col-span-2">
           <Card title="マイルストーン" actions={canEdit && <Button size="sm" onClick={() => setMilestone('new')}>＋ 追加</Button>}>

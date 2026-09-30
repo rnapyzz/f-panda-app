@@ -110,7 +110,15 @@ export type Formula = Timestamps & {
   expression: string
 }
 
+export type ExternalCode = Timestamps & {
+  id: number
+  activity_id: number
+  code: string
+  note: string
+}
+
 export type ActivityDetail = Activity & {
+  external_codes: ExternalCode[]
   milestones: Milestone[]
   drivers: Driver[]
   formulas: Formula[]
@@ -289,6 +297,7 @@ export type ChangeLog = {
 
 export const tableLabels: Record<string, string> = {
   activities: '施策',
+  activity_external_codes: '外部コード',
   activity_milestones: 'マイルストーン',
   activity_drivers: 'ドライバー定義',
   activity_formulas: '計算式',

@@ -89,6 +89,7 @@
 | リソース       | API                                                                                     |
 | -------------- | --------------------------------------------------------------------------------------- |
 | 施策           | `GET/POST /api/activities`、`GET/PUT/DELETE /api/activities/{id}`                        |
+| 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 計算式         | `PUT/DELETE /api/activities/{id}/formulas/{subject_id}`（科目ごとに1つ、PUT で登録・更新） |
@@ -97,7 +98,8 @@
 - 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・計算式を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
 - 権限は施策ごとに判定する（docs/plan.md「4. ロール」）
 - 値の形式
-  - 施策コード: 半角英数字・`-`・`_`、50文字以内、全体で一意
+  - 施策コード: 半角英数字・`-`・`_`、50文字以内、全体で一意。作成時に空欄なら `ACT-0001` 形式で自動採番
+  - 外部コード: 空白・カンマ・引用符を除く100文字以内、全体で一意。施策コードと同じ値は不可
   - ステータス: `planned` / `in_progress` / `completed` / `on_hold` / `cancelled`
   - 確度: 0〜1、小数点以下4桁まで。日付は `YYYY-MM-DD`。プロジェクト型は開始日・終了日が必須
   - ドライバー code: 英小文字で始まる英小文字・数字・`_`、施策内で一意。`probability` は予約語
