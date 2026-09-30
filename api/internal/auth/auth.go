@@ -87,6 +87,10 @@ func (s *Service) Login(ctx context.Context, email, pw string) (token string, u 
 	}
 
 	ok, err := password.Verify(pw, hash)
+	if errors.Is(err, password.ErrInvalidHash) {
+		// パスワード未設定（CSV で追加したユーザーなど）はログインできない
+		return "", User{}, ErrInvalidCredentials
+	}
 	if err != nil {
 		return "", User{}, err
 	}

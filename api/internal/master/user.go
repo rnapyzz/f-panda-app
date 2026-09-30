@@ -21,6 +21,8 @@ type user struct {
 	Email    string    `json:"email"`
 	Role     auth.Role `json:"role"`
 	IsActive bool      `json:"is_active"`
+	// HasPassword は、パスワードが設定されているか（CSV で追加したユーザーは未設定）
+	HasPassword bool `json:"has_password"`
 	timestamps
 }
 
@@ -45,11 +47,11 @@ type passwordRequest struct {
 	reasonRequest
 }
 
-const userSelect = "SELECT id, name, email, role, is_active, created_at, updated_at FROM users"
+const userSelect = "SELECT id, name, email, role, is_active, password_hash <> '" + unusablePasswordHash + "', created_at, updated_at FROM users"
 
 func scanUser(row interface{ Scan(...any) error }) (user, error) {
 	var u user
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.IsActive, &u.HasPassword, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 

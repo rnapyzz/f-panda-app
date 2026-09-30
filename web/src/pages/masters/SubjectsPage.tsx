@@ -1,3 +1,4 @@
+import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import { categoryLabels, type List, type Subject, type SubjectCategory } from '../../api/types'
@@ -21,7 +22,23 @@ export function SubjectsPage() {
       <PageHeader
         title="勘定科目"
         description="P/L を構成する科目です。科目コードは実績 CSV の取込で使います。"
-        actions={canWrite && <Button variant="primary" onClick={() => setEditing('new')}>＋ 科目を追加</Button>}
+        actions={
+          <>
+            <CsvActions
+              resource="subjects"
+              label="勘定科目"
+              canImport={canWrite}
+              columns="code,name,category,parent_code,sort_order"
+              notes={<p>category は revenue（収益）/ expense（費用）。親科目は同じ区分のもののコードを指定します。</p>}
+              onImported={reload}
+            />
+            {canWrite && (
+              <Button variant="primary" onClick={() => setEditing('new')}>
+                ＋ 科目を追加
+              </Button>
+            )}
+          </>
+        }
       />
       <Card>
         {loading && !data ? (
