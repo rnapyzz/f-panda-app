@@ -138,9 +138,15 @@
 
 ## フロントエンド（React）
 
-- React + TypeScript + TailwindCSS v4、ビルドは Vite
-- API 呼び出しは `fetch`
-- ライブラリの追加は必要最小限（ルーティング・グラフ描画などは必要になった時点で検討する）
+- React + TypeScript + TailwindCSS v4、ビルドは Vite。依存ライブラリは React と Tailwind のみ
+- 構成
+  - `src/api/`: API クライアント（`client.ts`）と型（`types.ts`）。エラーは `ApiError`（`code`・`details`・`rows`）として投げる
+  - `src/lib/`: ルーター（History API を使った最小実装）、認証（`AuthProvider`）、`useApi`（取得と再取得）、書式
+  - `src/components/`: 共通 UI（ボタン・入力・表・ダイアログなど）、レイアウト、確認ダイアログ、変更理由ダイアログ
+  - `src/pages/`: 画面
+- 画面遷移は `lib/router.tsx` の `Link` / `navigate` を使う。ルートは `App.tsx` に定義する
+- 変更理由: `useReason().withReason(op)` で操作を実行すると、API が「変更理由が必要」（422 `details.reason`）を返したときに理由の入力ダイアログを出して再実行する
+- 権限による表示の切り替え（編集ボタンを出すかなど）は画面で行うが、最終的な判定は API が行う
 
 ## ディレクトリ構成（案）
 
