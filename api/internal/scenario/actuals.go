@@ -440,7 +440,7 @@ func loadMonthFacts(ctx context.Context, tx *sql.Tx, scenarioID int64, months []
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id, activity_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
 		FROM budget_facts
-		WHERE scenario_id = ? AND target_month IN (?`+strings.Repeat(", ?", len(months)-1)+`) FOR UPDATE`, args...)
+		WHERE scenario_id = ? AND line_id IS NULL AND target_month IN (?`+strings.Repeat(", ?", len(months)-1)+`) FOR UPDATE`, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,6 @@ import { api, query } from '../../api/client'
 import {
   activityStatusLabels,
   activityTypeLabels,
-  calcModeLabels,
   categoryLabels,
   driverKindLabels,
   milestoneStatusLabels,
@@ -276,7 +275,7 @@ const fieldLabels: Record<string, string> = {
   start_date: '開始日',
   end_date: '終了日',
   status: 'ステータス',
-  calc_mode: '算出方式',
+  calc_mode: '算出方式', // 内訳の導入前の変更履歴用
   activity_type: 'タイプ',
   owner_user_id: '担当者',
   unit_id: 'ユニット',
@@ -284,6 +283,8 @@ const fieldLabels: Record<string, string> = {
   is_provisional: '仮の値',
   provisional_reason: '仮の値の理由',
   expression: '計算式',
+  formula_enabled: '計算式で反映',
+  line_id: '内訳',
   due_date: '期日',
   description: '内容',
   source: '登録方法',
@@ -311,7 +312,7 @@ const fieldLabels: Record<string, string> = {
 
 const valueLabels: Record<string, Record<string, string>> = {
   status: { ...activityStatusLabels, ...milestoneStatusLabels },
-  calc_mode: calcModeLabels,
+  calc_mode: { manual: '直接入力', formula: '計算式' },
   activity_type: activityTypeLabels,
   driver_kind: driverKindLabels,
   role: roleLabels,

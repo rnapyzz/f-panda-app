@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { categoryLabels, driverKindLabels, milestoneStatusLabels, type Driver, type DriverKind, type Formula, type Milestone, type MilestoneStatus, type Subject } from '../../api/types'
+import { categoryLabels, driverKindLabels, milestoneStatusLabels, type Driver, type DriverKind, type Line, type Milestone, type MilestoneStatus, type Subject } from '../../api/types'
 import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError } from '../../components/ui'
 
 /** ダイアログの保存処理と状態をまとめる */
@@ -104,26 +104,27 @@ export function DriverDialog({ initial, onClose, save }: { initial: Driver | nul
   )
 }
 
-export function FormulaDialog({
+export function LineDialog({
   initial,
   subjects,
   drivers,
   onClose,
   save,
 }: {
-  initial: Formula | null
+  initial: Line | null
   subjects: Subject[]
   drivers: Driver[]
   onClose: () => void
-  save: (subjectId: number, body: Record<string, unknown>) => Promise<void>
+  save: (body: Record<string, unknown>) => Promise<void>
 }) {
   const [subjectId, setSubjectId] = useState(initial ? String(initial.subject_id) : '')
+  const [name, setName] = useState(initial?.name ?? '')
+  const [formulaEnabled, setFormulaEnabled] = useState(initial?.formula_enabled ?? false)
   const [expression, setExpression] = useState(initial?.expression ?? '')
   const [reason, setReason] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const { error, busy, submit } = useSubmit(async () => {
-    if (!subjectId) throw new Error('科目を選択してください')
-    await save(Number(subjectId), { expression, reason })
+    await save({ subject_id: Number(subjectId) || 0, name, expression, formula_enabled: formulaEnabled, reason })
   })
 
   // 識別子をカーソル位置に挿入する
@@ -137,22 +138,65 @@ export function FormulaDialog({
     requestAnimationFrame(() => el?.focus())
   }
 
+  // 計算式・反映の有無を変えると金額に影響するため、変更理由を求める
+  const formulaChanged = initial ? initial.expression !== expression.trim() || initial.formula_enabled !== formulaEnabled : formulaEnabled
+
   return (
-    <Dialog open wide title={initial ? '計算式の編集' : '計算式の追加'} onClose={onClose} footer={<Footer form="formula-form" busy={busy} onClose={onClose} />}>
-      <form id="formula-form" onSubmit={submit} className="space-y-4">
-        <Field label="科目" required>
-          {(p) => (
-            <Select {...p} value={subjectId} disabled={initial !== null} onChange={(e) => setSubjectId(e.target.value)}>
-              <option value="">選択してください</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.code} {s.name}（{categoryLabels[s.category]}）
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="計算式" required error={fieldError(error, 'expression')} hint="四則演算（+ - * /）と括弧が使えます。結果は円未満を四捨五入します。費用はマイナスで計上する場合、式の先頭に - を付けます">
+    <Dialog open wide title={initial ? '内訳の編集' : '内訳の追加'} onClose={onClose} footer={<Footer form="line-form" busy={busy} onClose={onClose} />}>
+      <form id="line-form" onSubmit={submit} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="科目" required error={fieldError(error, 'subject_id')}>
+            {(p) => (
+              <Select
+                {...p}
+                value={subjectId}
+                disabled={initial !== null}
+                onChange={(e) => {
+                  setSubjectId(e.target.value)
+                  if (!name) setName(subjects.find((s) => String(s.id) === e.target.value)?.name ?? '')
+                }}
+              >
+                <option value="">選択してください</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} {s.name}（{categoryLabels[s.category]}）
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="内訳名" required error={fieldError(error, 'name')} hint="例: 月額利用料、初期導入費">
+            {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />}
+          </Field>
+        </div>
+        <fieldset>
+          <legend className="mb-1 text-sm font-medium text-slate-700">金額の入れ方</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                [false, '直接入力', '金額を入力します。計算式は参考として残せます'],
+                [true, '計算式で反映', 'ドライバーの値と計算式から金額を算出します'],
+              ] as const
+            ).map(([value, label, desc]) => (
+              <label
+                key={label}
+                className={`flex cursor-pointer gap-2 rounded-md border px-3 py-2 text-sm ${formulaEnabled === value ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                <input type="radio" name="formula_enabled" checked={formulaEnabled === value} onChange={() => setFormulaEnabled(value)} className="mt-0.5" />
+                <span>
+                  <span className="font-medium text-slate-800">{label}</span>
+                  <span className="block text-xs text-slate-500">{desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <Field
+          label="計算式"
+          required={formulaEnabled}
+          error={fieldError(error, 'expression')}
+          hint="四則演算（+ - * /）と括弧が使えます。結果は円未満を四捨五入します。費用はマイナスで計上する場合、式の先頭に - を付けます"
+        >
           {(p) => <Input {...p} ref={inputRef} value={expression} onChange={(e) => setExpression(e.target.value)} className="font-mono" placeholder="unit_price * volume * probability" />}
         </Field>
         <div>
@@ -168,12 +212,17 @@ export function FormulaDialog({
               probability<span className="ml-1 font-sans text-slate-400">施策の確度</span>
             </button>
           </div>
-          {drivers.length === 0 && <p className="mt-1 text-xs text-amber-700">ドライバーが未登録です。先にドライバーを追加してください。</p>}
+          {drivers.length === 0 && <p className="mt-1 text-xs text-amber-700">ドライバーが未登録です。計算式を使うには、先にドライバーを追加してください。</p>}
         </div>
-        <Field label="変更理由" required error={fieldError(error, 'reason')} hint="計算式の変更は金額に影響するため、理由を記録します">
-          {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
-        </Field>
-        <FormError error={error} fields={['expression', 'reason']} />
+        {formulaChanged && (
+          <Field label="変更理由" required error={fieldError(error, 'reason')} hint="計算式・反映の有無は金額に影響するため、理由を記録します">
+            {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
+          </Field>
+        )}
+        {initial && initial.formula_enabled && !formulaEnabled && (
+          <p className="rounded bg-slate-50 px-3 py-2 text-xs text-slate-600">反映をやめても、これまでに算出した金額は残ります。以後は直接入力で編集できます。</p>
+        )}
+        <FormError error={error} fields={['subject_id', 'name', 'expression', 'reason']} />
       </form>
     </Dialog>
   )

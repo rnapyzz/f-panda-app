@@ -10,6 +10,7 @@ import (
 // labeler は監査ログの対象を人が読める名前にする。名前は現在のマスタから引き、
 // 削除済みのものは記録（before/after）の値を使う。
 type labeler struct {
+	lines      map[int64]string
 	activities map[int64]string
 	subjects   map[int64]string
 	drivers    map[int64]struct {
@@ -28,6 +29,9 @@ func (h *Handler) newLabeler(ctx context.Context) (*labeler, error) {
 		return nil, err
 	}
 	if l.subjects, err = nameMap(ctx, h.db, "SELECT id, name FROM subjects"); err != nil {
+		return nil, err
+	}
+	if l.lines, err = nameMap(ctx, h.db, "SELECT id, name FROM activity_lines"); err != nil {
 		return nil, err
 	}
 	rows, err := h.db.QueryContext(ctx, "SELECT id, name, activity_id FROM activity_drivers")
@@ -82,9 +86,14 @@ func (l *labeler) label(log Log) string {
 		return activity() + " / マイルストーン「" + rec.str("name") + "」"
 	case "activity_drivers":
 		return activity() + " / ドライバー「" + rec.str("name") + "」"
-	case "activity_formulas":
+	case "activity_lines":
+		return activity() + " / " + l.subjectName(rec) + " / 内訳「" + rec.str("name") + "」"
+	case "activity_formulas": // 内訳に置き換える前の計算式（改称前の監査ログ用）
 		return activity() + " / 計算式（" + l.subjectName(rec) + "）"
 	case "budget_facts":
+		if id, ok := rec.int("line_id"); ok {
+			return activity() + " / " + l.subjectName(rec) + " / " + l.lineName(id) + " / " + rec.str("target_month")
+		}
 		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month")
 	case "driver_values":
 		id, _ := rec.int("activity_driver_id")
@@ -112,6 +121,13 @@ func (l *labeler) activityName(id int64) string {
 		return name
 	}
 	return fmt.Sprintf("（削除された施策 #%d）", id)
+}
+
+func (l *labeler) lineName(id int64) string {
+	if name, ok := l.lines[id]; ok {
+		return "内訳「" + name + "」"
+	}
+	return fmt.Sprintf("（削除された内訳 #%d）", id)
 }
 
 func (l *labeler) subjectName(rec record) string {

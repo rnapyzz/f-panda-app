@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,7 +24,7 @@ import (
 
 var activityColumns = []string{
 	"code", "name", "unit_code", "activity_type", "status", "start_date", "end_date",
-	"owner_email", "calc_mode", "probability", "assumptions", "external_codes",
+	"owner_email", "probability", "assumptions", "external_codes",
 }
 
 // export は GET /api/activities/export。
@@ -31,7 +32,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 	rows, err := h.db.QueryContext(r.Context(), `
 		SELECT a.code, a.name, un.code, a.activity_type, a.status,
 		       COALESCE(DATE_FORMAT(a.start_date, '%Y-%m-%d'), ''), COALESCE(DATE_FORMAT(a.end_date, '%Y-%m-%d'), ''),
-		       COALESCE(usr.email, ''), a.calc_mode, COALESCE(CAST(a.probability AS CHAR), ''), COALESCE(a.assumptions, ''),
+		       COALESCE(usr.email, ''), COALESCE(CAST(a.probability AS CHAR), ''), COALESCE(a.assumptions, ''),
 		       COALESCE((SELECT GROUP_CONCAT(e.code ORDER BY e.code SEPARATOR ' ') FROM activity_external_codes e WHERE e.activity_id = a.id), '')
 		FROM activities a
 		JOIN units un ON un.id = a.unit_id
@@ -42,6 +43,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer rows.Close()
 	var out [][]string
+	probCol := slices.Index(activityColumns, "probability")
 	for rows.Next() {
 		rec := make([]string, len(activityColumns))
 		dest := make([]any, len(rec))
@@ -51,7 +53,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 		if err := rows.Scan(dest...); err != nil {
 			return err
 		}
-		rec[9] = string(trimDecimal(rec[9])) // 確度 0.7000 → 0.7
+		rec[probCol] = string(trimDecimal(rec[probCol])) // 確度 0.7000 → 0.7
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -114,14 +116,10 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) error {
 				Name:         row.Get("name"),
 				ActivityType: row.Get("activity_type"),
 				Status:       row.Get("status"),
-				CalcMode:     row.Get("calc_mode"),
 				Assumptions:  row.Get("assumptions"),
 			}
 			if req.Status == "" {
 				req.Status = "planned"
-			}
-			if req.CalcMode == "" {
-				req.CalcMode = "manual"
 			}
 			for _, d := range []struct {
 				col string
@@ -264,10 +262,10 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
-			                        owner_user_id, calc_mode, probability, assumptions)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			                        owner_user_id, probability, assumptions)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions))
+			dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions))
 		if err != nil {
 			return false, false, 0, err
 		}
@@ -281,17 +279,17 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 
 	same := before.UnitID == in.UnitID && before.Name == in.Name && before.ActivityType == in.ActivityType &&
 		before.Status == in.Status && sameDate(before.StartDate, in.StartDate) && sameDate(before.EndDate, in.EndDate) &&
-		sameOwner(before.OwnerUserID, in.OwnerUserID) && before.CalcMode == in.CalcMode &&
+		sameOwner(before.OwnerUserID, in.OwnerUserID) &&
 		sameProbability(before.Probability, in.Probability) && before.Assumptions == in.Assumptions
 	if same {
 		return false, false, before.ID, nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE activities SET unit_id = ?, name = ?, activity_type = ?, status = ?, start_date = ?, end_date = ?,
-		       owner_user_id = ?, calc_mode = ?, probability = ?, assumptions = ?
+		       owner_user_id = ?, probability = ?, assumptions = ?
 		WHERE id = ?`,
 		in.UnitID, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-		dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions), before.ID); err != nil {
+		dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions), before.ID); err != nil {
 		return false, false, 0, err
 	}
 	after, err := findActivity(ctx, tx, before.ID, "")
@@ -301,8 +299,8 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 	if err := rec.Update(ctx, "activities", before.ID, before, after); err != nil {
 		return false, false, 0, err
 	}
-	// 確度・算出方式が変わると計算式で算出した金額も変わる
-	if !sameProbability(before.Probability, in.Probability) || before.CalcMode != in.CalcMode {
+	// 確度が変わると、確度（probability）を使う計算式の金額も変わる
+	if !sameProbability(before.Probability, in.Probability) {
 		if err := calc.RecalculateActivity(ctx, tx, rec, before.ID); err != nil {
 			return false, false, 0, err
 		}

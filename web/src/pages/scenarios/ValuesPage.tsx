@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
-import { calcModeLabels, categoryLabels, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
+import { categoryLabels, type AmountRow, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatPercent, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { Link, navigate } from '../../lib/router'
@@ -10,8 +10,8 @@ import { ScenarioBadges } from './ScenarioListPage'
 /** 1セルの入力内容。value が '' なら削除 */
 type CellEdit = { value: string; is_provisional: boolean; provisional_reason: string }
 
-/** セルのキー。d = ドライバー値、a = 金額 */
-type CellKey = `d:${number}:${string}` | `a:${number}:${string}`
+/** セルのキー。d = ドライバー値（d:ドライバー:月）、a = 金額（a:科目:内訳:月。内訳 0 は科目への直接入力） */
+type CellKey = `d:${number}:${string}` | `a:${number}:${number}:${string}`
 
 type ServerCell = CellEdit & { source?: string }
 
@@ -46,7 +46,11 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
       for (const c of d.values) m.set(`d:${d.id}:${c.target_month}`, { value: String(c.value), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason })
     }
     for (const a of v?.amounts ?? []) {
-      for (const c of a.values) m.set(`a:${a.subject_id}:${c.target_month}`, { value: String(c.amount), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason, source: c.source })
+      for (const [lineId, values] of [[0, a.values] as const, ...a.lines.map((l) => [l.id, l.values] as const)]) {
+        for (const c of values) {
+          m.set(`a:${a.subject_id}:${lineId}:${c.target_month}`, { value: String(c.amount), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason, source: c.source })
+        }
+      }
     }
     return m
   }, [v])
@@ -82,35 +86,49 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
 
   // 金額の行: 既存の行＋追加した行。収益 → 費用の順
   const subjectById = new Map(subjects.data.items.map((s) => [s.id, s]))
-  const amountRows = [
+  const amountRows: AmountRow[] = [
     ...v.amounts,
     ...extraSubjects
       .filter((id) => !v.amounts.some((a) => a.subject_id === id))
       .map((id) => {
         const s = subjectById.get(id)!
-        return { subject_id: id, code: s.code, name: s.name, category: s.category, has_formula: false, values: [] }
+        return { subject_id: id, code: s.code, name: s.name, category: s.category, values: [], lines: [] }
       }),
   ].sort((a, b) => (a.category === b.category ? 0 : a.category === 'revenue' ? -1 : 1))
-  const isFormulaRow = (row: { has_formula: boolean }) => row.has_formula && v.activity.calc_mode === 'formula'
   const addableSubjects = subjects.data.items.filter((s) => !amountRows.some((r) => r.subject_id === s.id))
+  const hasFormulaLines = amountRows.some((r) => r.lines.some((l) => l.formula_enabled))
 
-  const monthTotal = (category: 'revenue' | 'expense', month: string) => {
-    let sum = 0n
-    for (const r of amountRows) {
-      if (r.category !== category) continue
-      const raw = normalize(cell(`a:${r.subject_id}:${month}`).value)
-      if (/^-?\d+$/.test(raw)) sum += BigInt(raw)
-    }
-    return sum
-  }
-  const rowTotal = (subjectId: number) => {
-    let sum = 0n
-    for (const m of v.months) {
-      const raw = normalize(cell(`a:${subjectId}:${m}`).value)
-      if (/^-?\d+$/.test(raw)) sum += BigInt(raw)
-    }
-    return sum
-  }
+  /** 科目の月の金額（内訳と科目への直接入力の合計） */
+  const subjectMonth = (r: AmountRow, month: string) => [0, ...r.lines.map((l) => l.id)].reduce((sum, lineId) => sum + toBigInt(cell(`a:${r.subject_id}:${lineId}:${month}`).value), 0n)
+  const monthTotal = (category: 'revenue' | 'expense', month: string) => amountRows.filter((r) => r.category === category).reduce((sum, r) => sum + subjectMonth(r, month), 0n)
+  const rowTotal = (subjectId: number, lineId: number) => v.months.reduce((sum, m) => sum + toBigInt(cell(`a:${subjectId}:${lineId}:${m}`).value), 0n)
+  const subjectTotal = (r: AmountRow) => v.months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
+
+  /** 金額を入力・表示する1行 */
+  const amountLine = (r: AmountRow, lineId: number, label: string, title: ReactNode, sub: string, lineEditable: boolean, indent: boolean) => (
+    <tr key={`${r.subject_id}:${lineId}`}>
+      <RowHeader title={title} sub={sub} indent={indent} />
+      {v.months.map((m) => {
+        const k: CellKey = `a:${r.subject_id}:${lineId}:${m}`
+        return (
+          <CellInput
+            key={m}
+            label={`${label} ${monthLabel(m)}`}
+            value={cell(k).value}
+            display={formatYen(cell(k).value)}
+            editable={editable && lineEditable}
+            provisional={cell(k).is_provisional}
+            changed={isChanged(k)}
+            error={cellErrors.get(k)}
+            selected={selected === k}
+            onFocus={() => setSelected(k)}
+            onChange={(value) => update(k, { value })}
+          />
+        )
+      })}
+      <td className="border-b border-slate-100 bg-slate-50 px-2 text-right tabular-nums">{formatYen(String(rowTotal(r.subject_id, lineId)))}</td>
+    </tr>
+  )
 
   const save = async () => {
     setSaving(true)
@@ -119,10 +137,18 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
     const driverKeys = changedKeys.filter((k) => k.startsWith('d:'))
     const amountKeys = changedKeys.filter((k) => k.startsWith('a:'))
     const toItem = (k: CellKey) => {
-      const [, id, month] = k.split(':')
+      const parts = k.split(':')
+      const month = parts[parts.length - 1]
       const e = edits.get(k)!
       const value = normalize(e.value)
-      return { id: Number(id), target_month: month, value: value === '' ? null : value, is_provisional: e.is_provisional, provisional_reason: e.is_provisional ? e.provisional_reason : '' }
+      return {
+        id: Number(parts[1]),
+        lineId: parts.length === 4 ? Number(parts[2]) : 0,
+        target_month: month,
+        value: value === '' ? null : value,
+        is_provisional: e.is_provisional,
+        provisional_reason: e.is_provisional ? e.provisional_reason : '',
+      }
     }
     let current: 'driver' | 'amount' = 'driver'
     try {
@@ -130,7 +156,7 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
       if (driverKeys.length > 0) {
         latest = await api.put<ValuesView>(`${path}/driver-values`, {
           reason,
-          values: driverKeys.map(toItem).map(({ id, ...rest }) => ({ driver_id: id, ...rest })),
+          values: driverKeys.map(toItem).map(({ id, target_month, value, is_provisional, provisional_reason }) => ({ driver_id: id, target_month, value, is_provisional, provisional_reason })),
         })
         // ドライバー値は保存できたので、編集中の一覧から外す
         setEdits((prev) => {
@@ -143,7 +169,7 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
       if (amountKeys.length > 0) {
         latest = await api.put<ValuesView>(`${path}/amounts`, {
           reason,
-          amounts: amountKeys.map(toItem).map(({ id, value, ...rest }) => ({ subject_id: id, amount: value, ...rest })),
+          amounts: amountKeys.map(toItem).map(({ id, lineId, value, ...rest }) => ({ subject_id: id, line_id: lineId || null, amount: value, ...rest })),
         })
       }
       if (latest) view.setData(latest)
@@ -203,7 +229,6 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
           <span className="flex flex-wrap items-center gap-2">
             {v.scenario.name}
             <ScenarioBadges s={v.scenario} />
-            <span>算出方式: {calcModeLabels[v.activity.calc_mode]}</span>
             <span>確度: {formatPercent(v.activity.probability)}</span>
           </span>
         }
@@ -281,49 +306,53 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
           )
         }
       >
-        {v.activity.calc_mode === 'formula' && (
-          <p className="mb-3 text-xs text-slate-500">
-            <span className="rounded bg-indigo-50 px-1 font-mono text-indigo-700">fx</span> の行は計算式で算出します。ドライバー値を保存すると再計算されます。
-          </p>
-        )}
+        <p className="mb-3 text-xs text-slate-500">
+          科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は
+          <Link to={`/activities/${v.activity.id}`} className="text-indigo-700 underline">
+            施策の詳細
+          </Link>
+          で追加できます。
+          {hasFormulaLines && (
+            <>
+              {' '}
+              <span className="rounded bg-indigo-50 px-1 font-mono text-indigo-700">fx</span> の内訳は計算式で算出します。ドライバー値を保存すると再計算されます。
+            </>
+          )}
+        </p>
         {amountRows.length === 0 ? (
           <p className="text-sm text-slate-500">金額はまだありません。{editable ? '「＋ 科目を追加」から入力する科目を選んでください。' : ''}</p>
         ) : (
           <Grid months={v.months} total>
-            {amountRows.map((r) => {
-              const formulaRow = isFormulaRow(r)
-              return (
-                <tr key={r.subject_id}>
-                  <RowHeader
-                    title={
-                      <>
-                        {formulaRow && <span className="mr-1 rounded bg-indigo-50 px-1 font-mono text-xs text-indigo-700">fx</span>}
-                        {r.name}
-                      </>
-                    }
-                    sub={`${r.code} ${categoryLabels[r.category]}`}
-                  />
-                  {v.months.map((m) => {
-                    const k: CellKey = `a:${r.subject_id}:${m}`
-                    return (
-                      <CellInput
-                        key={m}
-                        label={`${r.name} ${monthLabel(m)}`}
-                        value={cell(k).value}
-                        display={formatYen(cell(k).value)}
-                        editable={editable && !formulaRow}
-                        provisional={cell(k).is_provisional}
-                        changed={isChanged(k)}
-                        error={cellErrors.get(k)}
-                        selected={selected === k}
-                        onFocus={() => setSelected(k)}
-                        onChange={(value) => update(k, { value })}
-                      />
-                    )
-                  })}
-                  <td className="bg-slate-50 px-2 text-right font-medium tabular-nums">{formatYen(String(rowTotal(r.subject_id)))}</td>
-                </tr>
-              )
+            {amountRows.flatMap((r) => {
+              const sub = `${r.code} ${categoryLabels[r.category]}`
+              // 内訳のない科目は、科目への直接入力の1行だけ
+              if (r.lines.length === 0) return [amountLine(r, 0, r.name, r.name, sub, true, false)]
+              return [
+                <tr key={r.subject_id} className="bg-slate-50/60">
+                  <RowHeader title={r.name} sub={`${sub}・合計`} />
+                  {v.months.map((m) => (
+                    <td key={m} className="border-b border-slate-100 px-3 py-1 text-right font-medium tabular-nums">
+                      {formatYen(String(subjectMonth(r, m)))}
+                    </td>
+                  ))}
+                  <td className="border-b border-slate-100 bg-slate-50 px-2 text-right font-medium tabular-nums">{formatYen(String(subjectTotal(r)))}</td>
+                </tr>,
+                ...r.lines.map((l) =>
+                  amountLine(
+                    r,
+                    l.id,
+                    `${r.name} ${l.name}`,
+                    <>
+                      {l.formula_enabled && <span className="mr-1 rounded bg-indigo-50 px-1 font-mono text-xs text-indigo-700">fx</span>}
+                      {l.name}
+                    </>,
+                    l.formula_enabled ? l.expression : '直接入力',
+                    !l.formula_enabled,
+                    true,
+                  ),
+                ),
+                amountLine(r, 0, `${r.name} その他`, 'その他', '科目への直接入力', true, true),
+              ]
             })}
             {(['revenue', 'expense'] as const).map((c) => (
               <tr key={c} className="bg-slate-50 font-semibold">
@@ -432,13 +461,23 @@ function readonlyReason(v: ValuesView): string {
   return 'この施策の編集権限がないため、参照のみです。'
 }
 
-function describeCell(k: CellKey, v: ValuesView, amountRows: { subject_id: number; name: string; has_formula: boolean }[]) {
-  const [kind, id, month] = k.split(':')
-  if (kind === 'd') {
-    return { label: v.drivers.find((d) => d.id === Number(id))?.name ?? '', month, editable: true }
+function describeCell(k: CellKey, v: ValuesView, amountRows: AmountRow[]) {
+  const parts = k.split(':')
+  const month = parts[parts.length - 1]
+  if (parts[0] === 'd') {
+    return { label: v.drivers.find((d) => d.id === Number(parts[1]))?.name ?? '', month, editable: true }
   }
-  const row = amountRows.find((r) => r.subject_id === Number(id))
-  return { label: row?.name ?? '', month, editable: !(row?.has_formula && v.activity.calc_mode === 'formula') }
+  const row = amountRows.find((r) => r.subject_id === Number(parts[1]))
+  const lineId = Number(parts[2])
+  if (!row || lineId === 0) return { label: row ? (row.lines.length > 0 ? `${row.name} その他` : row.name) : '', month, editable: true }
+  const line = row.lines.find((l) => l.id === lineId)
+  return { label: `${row.name} ${line?.name ?? ''}`, month, editable: !line?.formula_enabled }
+}
+
+/** 入力中の金額を整数として足し合わせる（数値でない入力は 0 として扱う） */
+function toBigInt(raw: string): bigint {
+  const v = normalize(raw)
+  return /^-?\d+$/.test(v) ? BigInt(v) : 0n
 }
 
 function Grid({ months, total, children }: { months: string[]; total?: boolean; children: ReactNode }) {
@@ -462,9 +501,9 @@ function Grid({ months, total, children }: { months: string[]; total?: boolean; 
   )
 }
 
-function RowHeader({ title, sub }: { title: ReactNode; sub: string }) {
+function RowHeader({ title, sub, indent }: { title: ReactNode; sub: string; indent?: boolean }) {
   return (
-    <th scope="row" className="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-1 text-left font-normal">
+    <th scope="row" className={cx('sticky left-0 z-10 border-b border-slate-100 bg-white py-1 pr-3 text-left font-normal', indent ? 'pl-7' : 'pl-3')}>
       <div className="text-sm font-medium whitespace-nowrap text-slate-800">{title}</div>
       <div className="font-mono text-xs whitespace-nowrap text-slate-400">{sub}</div>
     </th>

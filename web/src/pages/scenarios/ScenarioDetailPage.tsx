@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import { activityTypeLabels, calcModeLabels, type Activity, type Unit, type List, type Scenario } from '../../api/types'
+import { activityTypeLabels, type Activity, type Unit, type List, type Scenario } from '../../api/types'
 import { useReason } from '../../components/ReasonDialog'
 import { Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Table, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
@@ -104,7 +104,6 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                 <th>施策名</th>
                 <th>タイプ</th>
                 <th>ユニット</th>
-                <th>算出方式</th>
                 <th />
               </tr>
             </thead>
@@ -115,7 +114,6 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                   <td className="font-medium">{a.name}</td>
                   <td className="text-slate-600">{activityTypeLabels[a.activity_type]}</td>
                   <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
-                  <td className="text-slate-600">{calcModeLabels[a.calc_mode]}</td>
                   <td className="text-right">
                     <Link to={`/scenarios/${s.id}/activities/${a.id}`} className="text-sm font-medium text-indigo-700 hover:underline">
                       {a.can_edit && !s.is_locked && s.scenario_kind !== 'actual' ? '数値を入力' : '数値を見る'} →

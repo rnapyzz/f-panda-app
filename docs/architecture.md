@@ -93,10 +93,10 @@
 | 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
-| 計算式         | `PUT/DELETE /api/activities/{id}/formulas/{subject_id}`（科目ごとに1つ、PUT で登録・更新） |
+| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するかを内訳ごとに設定） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
-- 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・計算式を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
+- 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・内訳を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
 - 権限は施策ごとに判定する（docs/plan.md「4. ロール」）
 - 値の形式
   - 施策コード: 半角英数字・`-`・`_`、50文字以内、全体で一意。作成時に空欄なら `ACT-0001` 形式で自動採番
@@ -106,8 +106,8 @@
   - ドライバー code: 英小文字で始まる英小文字・数字・`_`、施策内で一意。`probability` は予約語
   - マイルストーンのステータス: `not_started` / `in_progress` / `completed` / `delayed`
 - 計算式は `internal/formula` で解析・評価する（`math/big.Rat` による誤差のない計算、四捨五入は `RoundHalfUp`）。登録時に構文と、未定義のドライバーを使っていないかを検証する
-- 計算式で使われているドライバーは、code の変更・削除ができない。値が登録済みのドライバーも削除できない
-- 金額・ドライバー値・シナリオ条件がある施策は削除できない（409）。削除できる場合は、マイルストーン・ドライバー・計算式も合わせて削除し、それぞれ監査ログに残す
+- 内訳の計算式（反映しない式を含む）で使われているドライバーは、code の変更・削除ができない。値が登録済みのドライバーも削除できない
+- 金額・ドライバー値・シナリオ条件がある施策は削除できない（409）。削除できる場合は、マイルストーン・ドライバー・内訳も合わせて削除し、それぞれ監査ログに残す
 
 ## シナリオ・数値入力 API
 

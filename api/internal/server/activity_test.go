@@ -55,7 +55,6 @@ func activityBody(fn int64, code string, overrides map[string]any) map[string]an
 		"name":          "施策 " + code,
 		"activity_type": "recurring",
 		"status":        "in_progress",
-		"calc_mode":     "manual",
 	}
 	for k, v := range overrides {
 		b[k] = v
@@ -174,7 +173,6 @@ func TestActivityChangesRequireReason(t *testing.T) {
 		"確度":   {"probability": 0.8},
 		"前提条件": {"probability": 0.5, "assumptions": "大型案件の受注が前提"},
 		"期間":   {"probability": 0.5, "start_date": "2026-10-01"},
-		"算出方式": {"probability": 0.5, "calc_mode": "formula"},
 	} {
 		body := activityBody(f.fn1, "ACT-1", overrides)
 		body["name"] = "改名"
@@ -197,7 +195,7 @@ func TestActivityChangesRequireReason(t *testing.T) {
 	}
 }
 
-func TestDriversAndFormulas(t *testing.T) {
+func TestDriversAndLines(t *testing.T) {
 	f := newActivityFixture(t)
 	sales := f.admin.mustCreate("/api/subjects", map[string]any{"code": "4110", "name": "受託売上", "category": "revenue"})
 	id := f.manager1.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"owner_user_id": f.memberID}))
@@ -221,29 +219,41 @@ func TestDriversAndFormulas(t *testing.T) {
 		}
 	}
 
-	fpath := fmt.Sprintf("%s/formulas/%d", base, sales)
+	lbase := base + "/lines"
 	for name, tc := range map[string]struct {
 		body  map[string]any
 		field string
 	}{
-		"理由なし":      {map[string]any{"expression": "unit_price * volume"}, "reason"},
-		"構文エラー":     {map[string]any{"expression": "unit_price *", "reason": "r"}, "expression"},
-		"未定義のドライバー": {map[string]any{"expression": "unit_price * qty", "reason": "r"}, "expression"},
+		"理由なし":      {map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price * volume", "formula_enabled": true}, "reason"},
+		"科目なし":      {map[string]any{"name": "利用料", "reason": "r"}, "subject_id"},
+		"名前なし":      {map[string]any{"subject_id": sales, "reason": "r"}, "name"},
+		"反映するのに式なし": {map[string]any{"subject_id": sales, "name": "利用料", "formula_enabled": true, "reason": "r"}, "expression"},
+		"構文エラー":     {map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price *", "reason": "r"}, "expression"},
+		"未定義のドライバー": {map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price * qty", "reason": "r"}, "expression"},
 	} {
-		if status, body := f.member.do("PUT", fpath, tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
-			t.Errorf("計算式 %s: status = %d, body = %v", name, status, body)
+		if status, body := f.member.do("POST", lbase, tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
+			t.Errorf("内訳 %s: status = %d, body = %v", name, status, body)
 		}
 	}
 
-	status, body := f.member.do("PUT", fpath, map[string]any{"expression": "unit_price * volume * probability", "reason": "算出方式を式に変更"})
-	if status != http.StatusCreated {
-		t.Fatalf("計算式の登録: status = %d, body = %v", status, body)
+	// 直接入力の内訳は理由なしで作れる。計算式で反映する内訳は理由が必須
+	f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "スポット"})
+	lid := f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "式で算出する"})
+	if status, body := f.member.do("POST", lbase, map[string]any{"subject_id": sales, "name": "利用料"}); status != http.StatusUnprocessableEntity || detail(body, "name") == "" {
+		t.Errorf("同名の内訳: status = %d, body = %v", status, body)
 	}
-	if status, _ := f.member.do("PUT", fpath, map[string]any{"expression": "unit_price * volume", "reason": "確度は別で管理"}); status != http.StatusOK {
-		t.Errorf("計算式の更新: status = %d, want 200", status)
+	lpath := fmt.Sprintf("%s/%d", lbase, lid)
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume * probability", "formula_enabled": true}); status != http.StatusOK {
+		t.Errorf("名前だけの変更（理由なし）: status = %d, body = %v", status, body)
 	}
-	if status, _ := f.member.do("PUT", fmt.Sprintf("%s/formulas/99999", base), map[string]any{"expression": "volume", "reason": "r"}); status != http.StatusNotFound {
-		t.Errorf("存在しない科目: status = %d, want 404", status)
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume", "formula_enabled": true}); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
+		t.Errorf("式の変更（理由なし）: status = %d, body = %v", status, body)
+	}
+	if status, _ := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume", "formula_enabled": true, "reason": "確度は別で管理"}); status != http.StatusOK {
+		t.Errorf("式の変更: status = %d, want 200", status)
+	}
+	if status, _ := f.member.do("PUT", fmt.Sprintf("%s/99999", lbase), map[string]any{"name": "x", "reason": "r"}); status != http.StatusNotFound {
+		t.Errorf("存在しない内訳: status = %d, want 404", status)
 	}
 
 	// 計算式で使われているドライバーは、コード変更も削除もできない
@@ -258,22 +268,33 @@ func TestDriversAndFormulas(t *testing.T) {
 		t.Errorf("使用中の削除: status = %d, want 409", status)
 	}
 
-	// 詳細にドライバー・計算式が含まれる
+	// 詳細にドライバー・内訳が含まれる
 	detailBody := f.viewer.mustGet(base)
 	if n := len(detailBody["drivers"].([]any)); n != 2 {
 		t.Errorf("drivers の件数 = %d, want 2", n)
 	}
-	formulas := detailBody["formulas"].([]any)
-	if len(formulas) != 1 || formulas[0].(map[string]any)["expression"] != "unit_price * volume" {
-		t.Errorf("formulas = %v", formulas)
+	lines := detailBody["lines"].([]any)
+	if len(lines) != 2 {
+		t.Errorf("lines = %v", lines)
+	}
+	for _, l := range lines {
+		if lm := l.(map[string]any); lm["name"] == "月額利用料" && (lm["expression"] != "unit_price * volume" || lm["formula_enabled"] != true) {
+			t.Errorf("内訳 = %v", lm)
+		}
 	}
 
-	// 計算式を消せばドライバーも消せる
-	if status, _ := f.member.do("DELETE", fpath, nil); status != http.StatusUnprocessableEntity {
-		t.Errorf("理由なしの計算式削除: status = %d, want 422", status)
+	// 計算式を使う内訳を消せばドライバーも消せる（反映しない式も参照に数える）
+	if status, _ := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume", "formula_enabled": false, "reason": "直接入力に切り替え"}); status != http.StatusOK {
+		t.Errorf("反映をやめる: status = %d, want 200", status)
 	}
-	if status, _ := f.member.do("DELETE", fpath, map[string]any{"reason": "直接入力に戻す"}); status != http.StatusNoContent {
-		t.Errorf("計算式の削除: status = %d, want 204", status)
+	if status, _ := f.member.do("DELETE", dpath, nil); status != http.StatusConflict {
+		t.Errorf("反映しない式で使用中の削除: status = %d, want 409", status)
+	}
+	if status, _ := f.member.do("DELETE", lpath, nil); status != http.StatusUnprocessableEntity {
+		t.Errorf("理由なしの内訳削除: status = %d, want 422", status)
+	}
+	if status, _ := f.member.do("DELETE", lpath, map[string]any{"reason": "内訳の整理"}); status != http.StatusNoContent {
+		t.Errorf("内訳の削除: status = %d, want 204", status)
 	}
 	if status, _ := f.member.do("DELETE", dpath, nil); status != http.StatusNoContent {
 		t.Errorf("ドライバーの削除: status = %d, want 204", status)
@@ -320,14 +341,12 @@ func TestDeleteActivity(t *testing.T) {
 	f := newActivityFixture(t)
 	sales := f.admin.mustCreate("/api/subjects", map[string]any{"code": "4110", "name": "受託売上", "category": "revenue"})
 
-	// 子データ（マイルストーン・ドライバー・計算式）は施策と一緒に削除され、監査ログに残る
+	// 子データ（マイルストーン・ドライバー・内訳）は施策と一緒に削除され、監査ログに残る
 	id := f.admin.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", nil))
 	base := fmt.Sprintf("/api/activities/%d", id)
 	f.admin.mustCreate(base+"/milestones", map[string]any{"name": "m", "due_date": "2026-12-01"})
 	f.admin.mustCreate(base+"/drivers", map[string]any{"code": "volume", "name": "件数", "driver_kind": "kpi"})
-	if status, _ := f.admin.do("PUT", fmt.Sprintf("%s/formulas/%d", base, sales), map[string]any{"expression": "volume * 1000", "reason": "r"}); status != http.StatusCreated {
-		t.Fatalf("計算式の登録: status = %d", status)
-	}
+	f.admin.mustCreate(base+"/lines", map[string]any{"subject_id": sales, "name": "売上", "expression": "volume * 1000", "formula_enabled": true, "reason": "r"})
 	if status, body := f.admin.do("DELETE", base, map[string]any{"reason": "施策の統合"}); status != http.StatusNoContent {
 		t.Fatalf("削除: status = %d, body = %v", status, body)
 	}

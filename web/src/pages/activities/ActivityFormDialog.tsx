@@ -3,17 +3,15 @@ import { api } from '../../api/client'
 import {
   activityStatusLabels,
   activityTypeLabels,
-  calcModeLabels,
   type Activity,
   type ActivityStatus,
   type ActivityType,
-  type CalcMode,
   type Unit,
   type User,
 } from '../../api/types'
 import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError } from '../../components/ui'
 
-const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'calc_mode', 'probability', 'assumptions']
+const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'probability', 'assumptions']
 
 /** 確度（0〜1）→ パーセントの入力値 */
 function toPercent(p: number | null): string {
@@ -52,7 +50,6 @@ export function ActivityFormDialog({
   const [startDate, setStartDate] = useState(initial?.start_date ?? '')
   const [endDate, setEndDate] = useState(initial?.end_date ?? '')
   const [ownerId, setOwnerId] = useState(initial?.owner_user_id ? String(initial.owner_user_id) : '')
-  const [calcMode, setCalcMode] = useState<CalcMode>(initial?.calc_mode ?? 'manual')
   const [probability, setProbability] = useState(toPercent(initial?.probability ?? null))
   const [assumptions, setAssumptions] = useState(initial?.assumptions ?? '')
   const [error, setError] = useState<unknown>(null)
@@ -72,7 +69,6 @@ export function ActivityFormDialog({
         start_date: startDate || null,
         end_date: endDate || null,
         owner_user_id: ownerId ? Number(ownerId) : null,
-        calc_mode: calcMode,
         probability: fromPercent(probability),
         assumptions,
       })
@@ -166,14 +162,6 @@ export function ActivityFormDialog({
         </Field>
         <Field label="確度（%）" error={fieldError(error, 'probability')} hint="案件や売上の発生確度。計算式では probability で参照できます">
           {(p) => <Input {...p} type="number" min={0} max={100} step="0.01" value={probability} onChange={(e) => setProbability(e.target.value)} />}
-        </Field>
-        <Field label="金額の算出方式" required error={fieldError(error, 'calc_mode')} className="col-span-2">
-          {(p) => (
-            <Select {...p} value={calcMode} onChange={(e) => setCalcMode(e.target.value as CalcMode)}>
-              <option value="manual">{calcModeLabels.manual}（金額を直接入力し、ドライバーは根拠として表示）</option>
-              <option value="formula">{calcModeLabels.formula}（ドライバーの値と計算式から金額を算出）</option>
-            </Select>
-          )}
         </Field>
         <Field label="前提条件" error={fieldError(error, 'assumptions')} className="col-span-2">
           {(p) => <Textarea {...p} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} placeholder="例: A社の年間契約更新が前提。単価は2026年度の改定後価格" />}

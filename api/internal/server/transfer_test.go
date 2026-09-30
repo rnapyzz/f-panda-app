@@ -233,18 +233,18 @@ func TestActivityImportExport(t *testing.T) {
 	f := newActivityFixture(t)
 	a := f.admin
 	unitCode := strings.Split(strings.Split(a.download("/api/units/export"), "\r\n")[1], ",")[0]
-	header := "code,name,unit_code,activity_type,status,start_date,end_date,owner_email,calc_mode,probability,assumptions,external_codes\n"
+	header := "code,name,unit_code,activity_type,status,start_date,end_date,owner_email,probability,assumptions,external_codes\n"
 
 	// code が空なら自動採番して追加。外部コードも登録
 	csv := header +
-		fmt.Sprintf(",新規受託 3件想定,%s,project,planned,2026-04-01,2027-03-31,member@example.com,manual,0.5,下期に2件受注が前提,P-100 P-101\n", unitCode) +
-		fmt.Sprintf("SAAS-X,SaaS X,%s,recurring,in_progress,,,,manual,,,\n", unitCode)
+		fmt.Sprintf(",新規受託 3件想定,%s,project,planned,2026-04-01,2027-03-31,member@example.com,0.5,下期に2件受注が前提,P-100 P-101\n", unitCode) +
+		fmt.Sprintf("SAAS-X,SaaS X,%s,recurring,in_progress,,,,,,\n", unitCode)
 	status, body := a.upload("/api/activities/import", csv, "期初計画の登録")
 	if status != http.StatusOK || resultCounts(body) != "inserted=2 updated=0 unchanged=0" {
 		t.Fatalf("取込: status = %d, body = %v", status, body)
 	}
 	exported := a.download("/api/activities/export")
-	if !strings.Contains(exported, "ACT-0001,新規受託 3件想定,"+unitCode+",project,planned,2026-04-01,2027-03-31,member@example.com,manual,0.5,下期に2件受注が前提,P-100 P-101") {
+	if !strings.Contains(exported, "ACT-0001,新規受託 3件想定,"+unitCode+",project,planned,2026-04-01,2027-03-31,member@example.com,0.5,下期に2件受注が前提,P-100 P-101") {
 		t.Errorf("エクスポート = %q", exported)
 	}
 	// 往復で変更なし
@@ -252,7 +252,7 @@ func TestActivityImportExport(t *testing.T) {
 		t.Errorf("往復: status = %d, body = %v", status, body)
 	}
 	// 確度の更新と外部コードの追加（記載のない外部コードは外さない）
-	csv = header + fmt.Sprintf("ACT-0001,新規受託 3件想定,%s,project,in_progress,2026-04-01,2027-03-31,member@example.com,manual,0.8,下期に2件受注が前提,P-102\n", unitCode)
+	csv = header + fmt.Sprintf("ACT-0001,新規受託 3件想定,%s,project,in_progress,2026-04-01,2027-03-31,member@example.com,0.8,下期に2件受注が前提,P-102\n", unitCode)
 	if status, body := a.upload("/api/activities/import", csv, "受注見込みの更新"); status != http.StatusOK || resultCounts(body) != "inserted=0 updated=1 unchanged=0" {
 		t.Fatalf("更新: status = %d, body = %v", status, body)
 	}
@@ -265,11 +265,11 @@ func TestActivityImportExport(t *testing.T) {
 
 	// エラー: 存在しないユニット・担当者、外部コードの衝突、タイプ不正
 	bad := header +
-		"X-1,x,NOPE,recurring,planned,,,,manual,,,\n" +
-		fmt.Sprintf("X-2,x,%s,recurring,planned,,,nobody@example.com,manual,,,\n", unitCode) +
-		fmt.Sprintf("SAAS-X,SaaS X,%s,recurring,in_progress,,,,manual,,,P-100\n", unitCode) +
-		fmt.Sprintf("X-3,x,%s,flow,planned,,,,manual,,,\n", unitCode) +
-		fmt.Sprintf("X-4,x,%s,recurring,planned,,,,manual,,,SAAS-X\n", unitCode)
+		"X-1,x,NOPE,recurring,planned,,,,,,\n" +
+		fmt.Sprintf("X-2,x,%s,recurring,planned,,,nobody@example.com,,,\n", unitCode) +
+		fmt.Sprintf("SAAS-X,SaaS X,%s,recurring,in_progress,,,,,,P-100\n", unitCode) +
+		fmt.Sprintf("X-3,x,%s,flow,planned,,,,,,\n", unitCode) +
+		fmt.Sprintf("X-4,x,%s,recurring,planned,,,,,,SAAS-X\n", unitCode)
 	status, body = a.upload("/api/activities/import", bad, "r")
 	errs := rowErrors(body)
 	if status != http.StatusUnprocessableEntity || len(errs) != 5 {

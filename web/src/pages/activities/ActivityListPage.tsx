@@ -1,7 +1,7 @@
 import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { activityStatusLabels, activityTypeLabels, calcModeLabels, type Activity, type ActivityStatus, type Unit, type List, type User } from '../../api/types'
+import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityStatus, type Unit, type List, type User } from '../../api/types'
 import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { formatPercent } from '../../lib/format'
@@ -62,7 +62,7 @@ export function ActivityListPage() {
               resource="activities"
               label="施策"
               canImport={me.role === 'fpa_admin'}
-              columns="code,name,unit_code,activity_type,status,start_date,end_date,owner_email,calc_mode,probability,assumptions,external_codes"
+              columns="code,name,unit_code,activity_type,status,start_date,end_date,owner_email,probability,assumptions,external_codes"
               notes={
                 <>
                   <p>code が空の行は新しい施策として追加し、施策コードを自動で採番します。</p>
@@ -145,7 +145,6 @@ export function ActivityListPage() {
                 <th>ユニット</th>
                 <th>担当者</th>
                 <th className="text-right">確度</th>
-                <th>算出方式</th>
               </tr>
             </thead>
             <tbody>
@@ -164,7 +163,6 @@ export function ActivityListPage() {
                   <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-slate-600">{a.owner_user_id ? userName.get(a.owner_user_id) : ''}</td>
                   <td className="text-right tabular-nums">{formatPercent(a.probability)}</td>
-                  <td className="text-slate-600">{calcModeLabels[a.calc_mode]}</td>
                 </tr>
               ))}
             </tbody>

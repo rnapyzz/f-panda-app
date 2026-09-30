@@ -1,11 +1,11 @@
-// Package activity は施策と、施策に紐づくマイルストーン・ドライバー定義・計算式の API を提供する。
+// Package activity は施策と、施策に紐づくマイルストーン・ドライバー定義・金額の内訳・外部コードの API を提供する。
 //
 // 権限:
 //   - 参照: ログインユーザー全員
 //   - 作成・削除: FP&A（全ユニット）、マネージャー（担当者になっているユニットの配下）
 //   - 編集: 上記に加え、施策の担当者（manager / member）
 //
-// 変更は変更セット・監査ログに記録する。確度・前提条件・期間・算出方式の変更、計算式の変更、
+// 変更は変更セット・監査ログに記録する。確度・前提条件・期間の変更、内訳の計算式・反映の有無の変更、
 // マイルストーン期日の変更、および削除では変更理由（reason）を必須とする。
 package activity
 
@@ -64,15 +64,15 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	handle("PUT /api/activities/{id}/drivers/{did}", h.updateDriver)
 	handle("DELETE /api/activities/{id}/drivers/{did}", h.deleteDriver)
 
-	handle("PUT /api/activities/{id}/formulas/{subject_id}", h.putFormula)
-	handle("DELETE /api/activities/{id}/formulas/{subject_id}", h.deleteFormula)
+	handle("POST /api/activities/{id}/lines", h.createLine)
+	handle("PUT /api/activities/{id}/lines/{lid}", h.updateLine)
+	handle("DELETE /api/activities/{id}/lines/{lid}", h.deleteLine)
 }
 
 // 施策タイプ・ステータス・算出方式
 var (
 	activityTypes = []string{"project", "recurring", "cost_pool"}
 	statuses      = []string{"planned", "in_progress", "completed", "on_hold", "cancelled"}
-	calcModes     = []string{"manual", "formula"}
 )
 
 const (
@@ -97,7 +97,6 @@ type activity struct {
 	StartDate    *string      `json:"start_date"`
 	EndDate      *string      `json:"end_date"`
 	OwnerUserID  *int64       `json:"owner_user_id"`
-	CalcMode     string       `json:"calc_mode"`
 	Probability  *json.Number `json:"probability"`
 	Assumptions  string       `json:"assumptions"`
 	timestamps
@@ -118,7 +117,7 @@ type activityDetail struct {
 	ExternalCodes []externalCode `json:"external_codes"`
 	Milestones    []milestone    `json:"milestones"`
 	Drivers       []driver       `json:"drivers"`
-	Formulas      []formulaItem  `json:"formulas"`
+	Lines         []line         `json:"lines"`
 }
 
 type activityRequest struct {
@@ -130,7 +129,6 @@ type activityRequest struct {
 	StartDate    *string      `json:"start_date"`
 	EndDate      *string      `json:"end_date"`
 	OwnerUserID  *int64       `json:"owner_user_id"`
-	CalcMode     string       `json:"calc_mode"`
 	Probability  *json.Number `json:"probability"`
 	Assumptions  string       `json:"assumptions"`
 	Reason       string       `json:"reason"`
@@ -142,7 +140,7 @@ type reasonRequest struct {
 
 const activitySelect = `
 	SELECT a.id, a.unit_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
-	       a.owner_user_id, a.calc_mode, a.probability, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
+	       a.owner_user_id, a.probability, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
 	       un.owner_user_id
 	FROM activities a JOIN units un ON un.id = a.unit_id`
 
@@ -152,7 +150,7 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	var owner, fnOwner sql.NullInt64
 	var prob sql.NullString
 	err := row.Scan(&a.ID, &a.UnitID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
-		&owner, &a.CalcMode, &prob, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
+		&owner, &prob, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
 	if err != nil {
 		return a, err
 	}
@@ -232,13 +230,12 @@ type Summary struct {
 	ID          int64        `json:"id"`
 	Code        string       `json:"code"`
 	Name        string       `json:"name"`
-	CalcMode    string       `json:"calc_mode"`
 	Probability *json.Number `json:"probability"`
 	CanEdit     bool         `json:"can_edit"`
 }
 
 func summarize(u auth.User, a activity) Summary {
-	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, CalcMode: a.CalcMode, Probability: a.Probability, CanEdit: canEdit(u, a)}
+	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, Probability: a.Probability, CanEdit: canEdit(u, a)}
 }
 
 // Load は施策の要約を返す。存在しなければ 404。
@@ -363,7 +360,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	if d.ExternalCodes, err = listExternalCodes(ctx, h.db, id); err != nil {
 		return err
 	}
-	if d.Formulas, err = listFormulas(ctx, h.db, id); err != nil {
+	if d.Lines, err = listLines(ctx, h.db, id); err != nil {
 		return err
 	}
 	httpx.WriteJSON(w, http.StatusOK, d)
@@ -382,9 +379,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	var req activityRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
-	}
-	if req.CalcMode == "" {
-		req.CalcMode = "manual"
 	}
 	if req.Status == "" {
 		req.Status = "planned"
@@ -412,10 +406,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		insert := func() (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
-				                        owner_user_id, calc_mode, probability, assumptions)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				                        owner_user_id, probability, assumptions)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-				dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions),
+				dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions),
 			)
 		}
 		var res sql.Result
@@ -509,10 +503,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		}
 		_, err = tx.ExecContext(ctx, `
 			UPDATE activities SET unit_id = ?, code = ?, name = ?, activity_type = ?, status = ?,
-			       start_date = ?, end_date = ?, owner_user_id = ?, calc_mode = ?, probability = ?, assumptions = ?
+			       start_date = ?, end_date = ?, owner_user_id = ?, probability = ?, assumptions = ?
 			WHERE id = ?`,
 			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions), id,
+			dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions), id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この施策コードは既に使われています"})
@@ -526,8 +520,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if err := rec.Update(ctx, "activities", id, before, updated); err != nil {
 			return err
 		}
-		// 確度・算出方式が変わると計算式で算出した金額も変わる。
-		if !sameProbability(before.Probability, in.Probability) || before.CalcMode != in.CalcMode {
+		// 確度が変わると、確度（probability）を使う計算式の金額も変わる。
+		if !sameProbability(before.Probability, in.Probability) {
 			return calc.RecalculateActivity(ctx, tx, rec, id)
 		}
 		return nil
@@ -591,12 +585,12 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		formulas, err := listFormulas(ctx, tx, id)
+		lines, err := listLines(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		for _, f := range formulas {
-			if err := rec.Delete(ctx, "activity_formulas", f.ID, f); err != nil {
+		for _, l := range lines {
+			if err := rec.Delete(ctx, "activity_lines", l.ID, l); err != nil {
 				return err
 			}
 		}
@@ -618,7 +612,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		for _, table := range []string{"activity_external_codes", "activity_formulas", "activity_drivers", "activity_milestones"} {
+		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE activity_id = ?", id); err != nil {
 				return err
 			}
@@ -645,7 +639,6 @@ type activityInput struct {
 	StartDate    sql.NullString
 	EndDate      sql.NullString
 	OwnerUserID  *int64
-	CalcMode     string
 	Probability  sql.NullString // DECIMAL(5,4) の文字列表現
 	Assumptions  string
 }
@@ -660,7 +653,6 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 		ActivityType: req.ActivityType,
 		Status:       req.Status,
 		OwnerUserID:  req.OwnerUserID,
-		CalcMode:     req.CalcMode,
 		Assumptions:  v.OptionalText("assumptions", "前提条件", req.Assumptions, maxAssumptionsLen),
 	}
 	if in.UnitID <= 0 {
@@ -674,9 +666,6 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 	}
 	if !slices.Contains(statuses, in.Status) {
 		v.Add("status", "ステータスは "+strings.Join(statuses, " / ")+" のいずれかを指定してください")
-	}
-	if !slices.Contains(calcModes, in.CalcMode) {
-		v.Add("calc_mode", "算出方式は manual / formula のいずれかを指定してください")
 	}
 
 	start, startOK := parseDate(v, "start_date", "開始日", req.StartDate)
@@ -710,13 +699,12 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 	return in, v.Err()
 }
 
-// needsReason は変更理由が必須になる項目（確度・前提条件・期間・算出方式）が変わるかを返す。
+// needsReason は変更理由が必須になる項目（確度・前提条件・期間）が変わるかを返す。
 func needsReason(before activity, in activityInput) bool {
 	return !sameProbability(before.Probability, in.Probability) ||
 		before.Assumptions != in.Assumptions ||
 		!sameDate(before.StartDate, in.StartDate) ||
-		!sameDate(before.EndDate, in.EndDate) ||
-		before.CalcMode != in.CalcMode
+		!sameDate(before.EndDate, in.EndDate)
 }
 
 func sameProbability(before *json.Number, after sql.NullString) bool {
