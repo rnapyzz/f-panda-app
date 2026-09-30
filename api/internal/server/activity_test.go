@@ -31,8 +31,8 @@ func newActivityFixture(t *testing.T) *activityFixture {
 
 	seg := admin.mustCreate("/api/segments", map[string]any{"name": "XXX事業"})
 	org := admin.mustCreate("/api/organizations", map[string]any{"name": "BBB部"})
-	f.fn1 = admin.mustCreate("/api/functions", map[string]any{"name": "CCC課", "segment_id": seg, "organization_id": org, "owner_user_id": f.manager1ID})
-	f.fn2 = admin.mustCreate("/api/functions", map[string]any{"name": "DDD課", "segment_id": seg, "organization_id": org, "owner_user_id": manager2ID})
+	f.fn1 = admin.mustCreate("/api/units", map[string]any{"name": "CCC課", "segment_id": seg, "organization_id": org, "owner_user_id": f.manager1ID})
+	f.fn2 = admin.mustCreate("/api/units", map[string]any{"name": "DDD課", "segment_id": seg, "organization_id": org, "owner_user_id": manager2ID})
 
 	login := func(email string) *client {
 		c := newClient(t, env.server)
@@ -50,7 +50,7 @@ func newActivityFixture(t *testing.T) *activityFixture {
 // activityBody は施策の作成・更新リクエストを作る。overrides で項目を上書きする。
 func activityBody(fn int64, code string, overrides map[string]any) map[string]any {
 	b := map[string]any{
-		"function_id":   fn,
+		"unit_id":       fn,
 		"code":          code,
 		"name":          "施策 " + code,
 		"activity_type": "recurring",
@@ -372,18 +372,18 @@ func TestListActivities(t *testing.T) {
 		return out
 	}
 	tests := map[string]string{
-		"/api/activities":                                    "[COST-1 PRJ-1 SAAS-1]",
-		"/api/activities?activity_type=project":              "[PRJ-1]",
-		fmt.Sprintf("/api/activities?function_id=%d", f.fn2): "[COST-1]",
-		"/api/activities?q=%E5%8F%97%E8%A8%97":               "[PRJ-1]", // q=受託
-		"/api/activities?q=100%25":                           "[]",      // % は文字として扱う
+		"/api/activities":                                "[COST-1 PRJ-1 SAAS-1]",
+		"/api/activities?activity_type=project":          "[PRJ-1]",
+		fmt.Sprintf("/api/activities?unit_id=%d", f.fn2): "[COST-1]",
+		"/api/activities?q=%E5%8F%97%E8%A8%97":           "[PRJ-1]", // q=受託
+		"/api/activities?q=100%25":                       "[]",      // % は文字として扱う
 	}
 	for path, want := range tests {
 		if got := fmt.Sprint(codes(path)); got != want {
 			t.Errorf("GET %s = %s, want %s", path, got, want)
 		}
 	}
-	if status, _ := f.viewer.do("GET", "/api/activities?function_id=abc", nil); status != http.StatusBadRequest {
-		t.Errorf("不正な function_id: status = %d, want 400", status)
+	if status, _ := f.viewer.do("GET", "/api/activities?unit_id=abc", nil); status != http.StatusBadRequest {
+		t.Errorf("不正な unit_id: status = %d, want 400", status)
 	}
 }

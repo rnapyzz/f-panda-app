@@ -16,7 +16,7 @@ nginx + React.js + TailwindCSS + Go + MySQL 8。すべて Docker コンテナで
 | 画面での呼び方 | コード・DB・API での名前 |
 | -------------- | ------------------------ |
 | 施策           | `activities`             |
-| ユニット       | `functions`（`function_id`）。旧称「機能」 |
+| ユニット       | `units`（`unit_id`）。旧称「機能」（`functions` / `function_id`）。改称前の監査ログには旧名が残っている |
 | セグメント / 組織 | `segments` / `organizations` |
 | シナリオ       | `scenarios`              |
 | 変更セット / 監査ログ | `change_sets` / `audit_logs` |

@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import { activityTypeLabels, calcModeLabels, type Activity, type FunctionItem, type List, type Scenario } from '../../api/types'
+import { activityTypeLabels, calcModeLabels, type Activity, type Unit, type List, type Scenario } from '../../api/types'
 import { useReason } from '../../components/ReasonDialog'
 import { Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Table, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
@@ -14,17 +14,17 @@ export function ScenarioDetailPage({ id }: { id: string }) {
   const isAdmin = me.role === 'fpa_admin'
   const scenario = useApi<Scenario>(`/scenarios/${id}`)
   const activities = useApi<List<Activity>>('/activities')
-  const functions = useApi<List<FunctionItem>>('/functions')
-  const functionName = useMemo(() => new Map((functions.data?.items ?? []).map((f) => [f.id, f.name])), [functions.data])
+  const units = useApi<List<Unit>>('/units')
+  const unitName = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f.name])), [units.data])
   const { askReason, dialog: reasonDialog } = useReason()
   const [renaming, setRenaming] = useState(false)
   const [importing, setImporting] = useState(false)
   const [q, setQ] = useState('')
   const [actionError, setActionError] = useState<unknown>(null)
 
-  const error = scenario.error ?? activities.error ?? functions.error
+  const error = scenario.error ?? activities.error ?? units.error
   if (error) return <ErrorMessage error={error} />
-  if (!scenario.data || !activities.data || !functions.data) return <Loading />
+  if (!scenario.data || !activities.data || !units.data) return <Loading />
   const s = scenario.data
 
   const setLocked = async (locked: boolean) => {
@@ -114,7 +114,7 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                   <td className="font-mono text-xs">{a.code}</td>
                   <td className="font-medium">{a.name}</td>
                   <td className="text-slate-600">{activityTypeLabels[a.activity_type]}</td>
-                  <td className="text-slate-600">{functionName.get(a.function_id)}</td>
+                  <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-slate-600">{calcModeLabels[a.calc_mode]}</td>
                   <td className="text-right">
                     <Link to={`/scenarios/${s.id}/activities/${a.id}`} className="text-sm font-medium text-indigo-700 hover:underline">

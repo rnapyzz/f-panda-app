@@ -13,14 +13,14 @@ import (
 
 // treeHandler は階層構造を持つマスタ（組織・セグメント）の API。
 //
-// ユニット（functions）は末端ノードにのみ所属できるため、次を守る:
+// ユニット（units）は末端ノードにのみ所属できるため、次を守る:
 //   - ユニットが所属しているノードの下には子ノードを作れない（移動先にもできない）
-//   - 子ノードを持つノードにはユニットを所属させられない（functions 側で検証）
+//   - 子ノードを持つノードにはユニットを所属させられない（units 側で検証）
 type treeHandler struct {
-	db             *sql.DB
-	table          string // organizations / segments
-	label          string // 組織 / セグメント
-	functionColumn string // functions テーブルでこのマスタを参照する列
+	db         *sql.DB
+	table      string // organizations / segments
+	label      string // 組織 / セグメント
+	unitColumn string // units テーブルでこのマスタを参照する列
 }
 
 type treeNode struct {
@@ -248,7 +248,7 @@ func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 		if n > 0 {
 			return httpx.Conflict("配下に" + t.label + "があるため削除できません")
 		}
-		if n, err = dbx.Count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", id); err != nil {
+		if n, err = dbx.Count(ctx, tx, "SELECT COUNT(*) FROM units WHERE "+t.unitColumn+" = ?", id); err != nil {
 			return err
 		}
 		if n > 0 {
@@ -275,7 +275,7 @@ func (t *treeHandler) lockParent(ctx context.Context, tx *sql.Tx, parentID int64
 		}
 		return treeNode{}, err
 	}
-	n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM functions WHERE "+t.functionColumn+" = ?", parentID)
+	n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM units WHERE "+t.unitColumn+" = ?", parentID)
 	if err != nil {
 		return treeNode{}, err
 	}

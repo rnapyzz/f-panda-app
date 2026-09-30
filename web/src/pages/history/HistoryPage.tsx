@@ -279,7 +279,8 @@ const fieldLabels: Record<string, string> = {
   calc_mode: '算出方式',
   activity_type: 'タイプ',
   owner_user_id: '担当者',
-  function_id: 'ユニット',
+  unit_id: 'ユニット',
+  function_id: 'ユニット', // 改称前（function_id）の変更履歴用
   is_provisional: '仮の値',
   provisional_reason: '仮の値の理由',
   expression: '計算式',

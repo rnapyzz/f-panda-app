@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { milestoneStatusLabels, scenarioKindLabels, unitTypeLabels, type FunctionItem, type List, type PL, type RiskActivity, type RiskReport, type Scenario, type UnitType } from '../../api/types'
+import { milestoneStatusLabels, scenarioKindLabels, unitTypeLabels, type Unit, type List, type PL, type RiskActivity, type RiskReport, type Scenario, type UnitType } from '../../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { formatPercent, formatYen } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
@@ -21,7 +21,7 @@ const LOW_PROBABILITY = 0.7
 
 export function RiskPage() {
   const scenarios = useApi<List<Scenario>>('/scenarios')
-  const functions = useApi<List<FunctionItem>>('/functions')
+  const units = useApi<List<Unit>>('/units')
   const { search } = useLocation()
   const unitType = (['service', 'cost_center', 'corporate'] as const).find((t) => t === search.get('unit')) ?? ('' as UnitType | '')
 
@@ -42,9 +42,9 @@ export function RiskPage() {
 
   const report = useApi<RiskReport>(base ? `/reports/risk${query({ scenario_id: base, optimistic_id: opt, pessimistic_id: pes })}` : null)
 
-  if (scenarios.error ?? functions.error) return <ErrorMessage error={scenarios.error ?? functions.error} />
-  if (!scenarios.data || !functions.data) return <Loading />
-  const unitOf = new Map(functions.data.items.map((f) => [f.id, f.unit_type]))
+  if (scenarios.error ?? units.error) return <ErrorMessage error={scenarios.error ?? units.error} />
+  if (!scenarios.data || !units.data) return <Loading />
+  const unitOf = new Map(units.data.items.map((f) => [f.id, f.unit_type]))
 
   const options = (filter: (s: Scenario) => boolean) =>
     inYear.filter(filter).map((s) => (
@@ -110,7 +110,7 @@ export function RiskPage() {
       ) : !report.data ? (
         <Loading />
       ) : (
-        <RiskView report={{ ...report.data, activities: report.data.activities.filter((a) => !unitType || unitOf.get(a.function_id) === unitType) }} />
+        <RiskView report={{ ...report.data, activities: report.data.activities.filter((a) => !unitType || unitOf.get(a.unit_id) === unitType) }} />
       )}
     </>
   )

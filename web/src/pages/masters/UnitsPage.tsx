@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import { unitTypeLabels, type FunctionItem, type List, type TreeNode, type UnitType, type User } from '../../api/types'
+import { unitTypeLabels, type Unit, type List, type TreeNode, type UnitType, type User } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Select, Table, Textarea, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
@@ -13,11 +13,11 @@ const unitTypeTone: Record<UnitType, 'indigo' | 'amber' | 'slate'> = {
   corporate: 'slate',
 }
 
-/** ユニット（施策を束ねる単位）の管理画面。API・DB 上の名前は functions */
-export function FunctionsPage() {
+/** ユニット（施策を束ねる単位）の管理画面 */
+export function UnitsPage() {
   const user = useCurrentUser()
   const canWrite = user.role === 'fpa_admin'
-  const functions = useApi<List<FunctionItem>>('/functions')
+  const units = useApi<List<Unit>>('/units')
   const segments = useApi<List<TreeNode>>('/segments')
   const organizations = useApi<List<TreeNode>>('/organizations')
   const users = useApi<List<User>>('/users')
@@ -26,10 +26,10 @@ export function FunctionsPage() {
   const orgTree = useMemo(() => buildTree(organizations.data?.items ?? []), [organizations.data])
   const userName = useMemo(() => new Map((users.data?.items ?? []).map((u) => [u.id, u.name])), [users.data])
 
-  const [editing, setEditing] = useState<FunctionItem | 'new' | null>(null)
-  const [deleting, setDeleting] = useState<FunctionItem | null>(null)
-  const error = functions.error ?? segments.error ?? organizations.error ?? users.error
-  const ready = functions.data && segments.data && organizations.data && users.data
+  const [editing, setEditing] = useState<Unit | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<Unit | null>(null)
+  const error = units.error ?? segments.error ?? organizations.error ?? users.error
+  const ready = units.data && segments.data && organizations.data && users.data
 
   return (
     <>
@@ -43,7 +43,7 @@ export function FunctionsPage() {
           <ErrorMessage error={error} />
         ) : !ready ? (
           <Loading />
-        ) : functions.data!.items.length === 0 ? (
+        ) : units.data!.items.length === 0 ? (
           <Empty>ユニットが登録されていません</Empty>
         ) : (
           <Table>
@@ -58,7 +58,7 @@ export function FunctionsPage() {
               </tr>
             </thead>
             <tbody>
-              {functions.data!.items.map((f) => (
+              {units.data!.items.map((f) => (
                 <tr key={f.id}>
                   <td className="font-medium">{f.name}</td>
                   <td>
@@ -85,7 +85,7 @@ export function FunctionsPage() {
       </Card>
 
       {editing && ready && (
-        <FunctionDialog
+        <UnitDialog
           initial={editing === 'new' ? null : editing}
           segTree={segTree}
           orgTree={orgTree}
@@ -93,7 +93,7 @@ export function FunctionsPage() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
-            functions.reload()
+            units.reload()
           }}
         />
       )}
@@ -104,15 +104,15 @@ export function FunctionsPage() {
         reason="optional"
         onClose={() => setDeleting(null)}
         onConfirm={async (reason) => {
-          await api.del(`/functions/${deleting!.id}`, { reason })
-          await functions.reload()
+          await api.del(`/units/${deleting!.id}`, { reason })
+          await units.reload()
         }}
       />
     </>
   )
 }
 
-function FunctionDialog({
+function UnitDialog({
   initial,
   segTree,
   orgTree,
@@ -120,7 +120,7 @@ function FunctionDialog({
   onClose,
   onSaved,
 }: {
-  initial: FunctionItem | null
+  initial: Unit | null
   segTree: Tree
   orgTree: Tree
   users: User[]
@@ -149,8 +149,8 @@ function FunctionDialog({
       reason,
     }
     try {
-      if (initial) await api.put(`/functions/${initial.id}`, body)
-      else await api.post('/functions', body)
+      if (initial) await api.put(`/units/${initial.id}`, body)
+      else await api.post('/units', body)
       onSaved()
     } catch (err) {
       setError(err)
@@ -167,13 +167,13 @@ function FunctionDialog({
       footer={
         <>
           <Button onClick={onClose}>キャンセル</Button>
-          <Button variant="primary" type="submit" form="function-form" disabled={busy}>
+          <Button variant="primary" type="submit" form="unit-form" disabled={busy}>
             {busy ? '保存中…' : '保存'}
           </Button>
         </>
       }
     >
-      <form id="function-form" onSubmit={submit} className="space-y-4">
+      <form id="unit-form" onSubmit={submit} className="space-y-4">
         <Field label="名称" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="例: SaaS Aサービス、受託事業共通経費、人事部" />}
         </Field>

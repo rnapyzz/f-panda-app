@@ -67,7 +67,7 @@ func TestMasterPermissions(t *testing.T) {
 	for _, email := range []string{"viewer@example.com", "manager@example.com"} {
 		c := newClient(t, srv)
 		c.login(email)
-		for _, path := range []string{"/api/organizations", "/api/segments", "/api/functions", "/api/subjects", "/api/users"} {
+		for _, path := range []string{"/api/organizations", "/api/segments", "/api/units", "/api/subjects", "/api/users"} {
 			if status, _ := c.do("GET", path, nil); status != http.StatusOK {
 				t.Errorf("%s GET %s: status = %d, want 200", email, path, status)
 			}
@@ -144,7 +144,7 @@ func TestTreeHierarchy(t *testing.T) {
 	}
 }
 
-func TestFunctionsRequireLeafNodes(t *testing.T) {
+func TestUnitsRequireLeafNodes(t *testing.T) {
 	c, _ := adminClient(t)
 
 	segRoot := c.mustCreate("/api/segments", map[string]any{"name": "XXX事業"})
@@ -153,17 +153,17 @@ func TestFunctionsRequireLeafNodes(t *testing.T) {
 	orgLeaf := c.mustCreate("/api/organizations", map[string]any{"name": "BBB部", "parent_id": orgRoot})
 
 	// 末端でないノードには所属できない
-	status, body := c.do("POST", "/api/functions", map[string]any{"name": "CCC課", "segment_id": segRoot, "organization_id": orgLeaf})
+	status, body := c.do("POST", "/api/units", map[string]any{"name": "CCC課", "segment_id": segRoot, "organization_id": orgLeaf})
 	if status != http.StatusUnprocessableEntity || detail(body, "segment_id") == "" {
 		t.Errorf("末端でないセグメント: status = %d, body = %v", status, body)
 	}
 	// 存在しない参照
-	status, body = c.do("POST", "/api/functions", map[string]any{"name": "CCC課", "segment_id": 99999, "organization_id": orgLeaf, "owner_user_id": 99999})
+	status, body = c.do("POST", "/api/units", map[string]any{"name": "CCC課", "segment_id": 99999, "organization_id": orgLeaf, "owner_user_id": 99999})
 	if status != http.StatusUnprocessableEntity || detail(body, "segment_id") == "" || detail(body, "owner_user_id") == "" {
 		t.Errorf("存在しない参照: status = %d, body = %v", status, body)
 	}
 
-	fn := c.mustCreate("/api/functions", map[string]any{"name": "CCC課", "segment_id": segLeaf, "organization_id": orgLeaf})
+	fn := c.mustCreate("/api/units", map[string]any{"name": "CCC課", "segment_id": segLeaf, "organization_id": orgLeaf})
 
 	// ユニットが所属しているノードの下には子を作れない
 	status, body = c.do("POST", "/api/segments", map[string]any{"name": "子", "parent_id": segLeaf})
@@ -176,23 +176,23 @@ func TestFunctionsRequireLeafNodes(t *testing.T) {
 	}
 
 	// 更新
-	if status, body := c.do("PUT", fmt.Sprintf("/api/functions/%d", fn), map[string]any{"name": "CCC課（改）", "segment_id": segLeaf, "organization_id": orgLeaf}); status != http.StatusOK || body["name"] != "CCC課（改）" {
+	if status, body := c.do("PUT", fmt.Sprintf("/api/units/%d", fn), map[string]any{"name": "CCC課（改）", "segment_id": segLeaf, "organization_id": orgLeaf}); status != http.StatusOK || body["name"] != "CCC課（改）" {
 		t.Errorf("更新: status = %d, body = %v", status, body)
 	}
-	if status, _ := c.do("DELETE", fmt.Sprintf("/api/functions/%d", fn), nil); status != http.StatusNoContent {
+	if status, _ := c.do("DELETE", fmt.Sprintf("/api/units/%d", fn), nil); status != http.StatusNoContent {
 		t.Errorf("削除: status = %d, want 204", status)
 	}
 }
 
-func TestFunctionWithActivityCannotBeDeleted(t *testing.T) {
+func TestUnitWithActivityCannotBeDeleted(t *testing.T) {
 	c, env := adminClient(t)
 	seg := c.mustCreate("/api/segments", map[string]any{"name": "S"})
 	org := c.mustCreate("/api/organizations", map[string]any{"name": "O"})
-	fn := c.mustCreate("/api/functions", map[string]any{"name": "F", "segment_id": seg, "organization_id": org})
-	if _, err := env.Exec("INSERT INTO activities (function_id, code, name, activity_type, status) VALUES (?, 'ACT-1', 'a', 'project', 'active')", fn); err != nil {
+	fn := c.mustCreate("/api/units", map[string]any{"name": "F", "segment_id": seg, "organization_id": org})
+	if _, err := env.Exec("INSERT INTO activities (unit_id, code, name, activity_type, status) VALUES (?, 'ACT-1', 'a', 'project', 'active')", fn); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := c.do("DELETE", fmt.Sprintf("/api/functions/%d", fn), nil); status != http.StatusConflict {
+	if status, _ := c.do("DELETE", fmt.Sprintf("/api/units/%d", fn), nil); status != http.StatusConflict {
 		t.Errorf("施策ありの削除: status = %d, want 409", status)
 	}
 }
@@ -390,18 +390,18 @@ func TestUnitTypes(t *testing.T) {
 	}
 
 	// 省略時はサービス
-	id := c.mustCreate("/api/functions", body("SaaSサービス", ""))
-	if got := c.mustGet(fmt.Sprintf("/api/functions/%d", id))["unit_type"]; got != "service" {
+	id := c.mustCreate("/api/units", body("SaaSサービス", ""))
+	if got := c.mustGet(fmt.Sprintf("/api/units/%d", id))["unit_type"]; got != "service" {
 		t.Errorf("既定の種別 = %v, want service", got)
 	}
-	cc := c.mustCreate("/api/functions", body("事業共通経費", "cost_center"))
-	if got := c.mustGet(fmt.Sprintf("/api/functions/%d", cc))["unit_type"]; got != "cost_center" {
+	cc := c.mustCreate("/api/units", body("事業共通経費", "cost_center"))
+	if got := c.mustGet(fmt.Sprintf("/api/units/%d", cc))["unit_type"]; got != "cost_center" {
 		t.Errorf("共通費 = %v", got)
 	}
-	if status, res := c.do("POST", "/api/functions", body("x", "profit")); status != http.StatusUnprocessableEntity || detail(res, "unit_type") == "" {
+	if status, res := c.do("POST", "/api/units", body("x", "profit")); status != http.StatusUnprocessableEntity || detail(res, "unit_type") == "" {
 		t.Errorf("不正な種別: status = %d, body = %v", status, res)
 	}
-	if status, res := c.do("PUT", fmt.Sprintf("/api/functions/%d", cc), body("人事部", "corporate")); status != http.StatusOK || res["unit_type"] != "corporate" {
+	if status, res := c.do("PUT", fmt.Sprintf("/api/units/%d", cc), body("人事部", "corporate")); status != http.StatusOK || res["unit_type"] != "corporate" {
 		t.Errorf("種別の変更: status = %d, body = %v", status, res)
 	}
 }

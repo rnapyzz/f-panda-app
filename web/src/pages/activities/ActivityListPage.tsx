@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { activityStatusLabels, activityTypeLabels, calcModeLabels, type Activity, type ActivityStatus, type FunctionItem, type List, type User } from '../../api/types'
+import { activityStatusLabels, activityTypeLabels, calcModeLabels, type Activity, type ActivityStatus, type Unit, type List, type User } from '../../api/types'
 import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { formatPercent } from '../../lib/format'
@@ -17,9 +17,9 @@ export const statusTone: Record<ActivityStatus, 'slate' | 'indigo' | 'green' | '
 }
 
 /** 施策を作成できるユニット（FP&A は全ユニット、マネージャーは担当のユニット） */
-export function creatableFunctions(user: { id: number; role: string }, functions: FunctionItem[]): FunctionItem[] {
-  if (user.role === 'fpa_admin') return functions
-  if (user.role === 'manager') return functions.filter((f) => f.owner_user_id === user.id)
+export function creatableUnits(user: { id: number; role: string }, units: Unit[]): Unit[] {
+  if (user.role === 'fpa_admin') return units
+  if (user.role === 'manager') return units.filter((f) => f.owner_user_id === user.id)
   return []
 }
 
@@ -27,7 +27,7 @@ export function ActivityListPage() {
   const me = useCurrentUser()
   const { search } = useLocation()
   const filters = {
-    function_id: search.get('function_id') ?? '',
+    unit_id: search.get('unit_id') ?? '',
     activity_type: search.get('activity_type') ?? '',
     status: search.get('status') ?? '',
     owner_user_id: search.get('owner_user_id') ?? '',
@@ -36,11 +36,11 @@ export function ActivityListPage() {
   const [q, setQ] = useState(filters.q)
 
   const activities = useApi<List<Activity>>(`/activities${query(filters)}`)
-  const functions = useApi<List<FunctionItem>>('/functions')
+  const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
-  const functionName = useMemo(() => new Map((functions.data?.items ?? []).map((f) => [f.id, f.name])), [functions.data])
+  const unitName = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f.name])), [units.data])
   const userName = useMemo(() => new Map((users.data?.items ?? []).map((u) => [u.id, u.name])), [users.data])
-  const creatable = creatableFunctions(me, functions.data?.items ?? [])
+  const creatable = creatableUnits(me, units.data?.items ?? [])
   const [creating, setCreating] = useState(false)
 
   // 絞り込み条件は URL に持たせる（戻る・共有で同じ一覧を表示できるように）
@@ -49,7 +49,7 @@ export function ActivityListPage() {
     navigate(`/activities${query(next)}`, { replace: true })
   }
 
-  const error = activities.error ?? functions.error ?? users.error
+  const error = activities.error ?? units.error ?? users.error
   return (
     <>
       <PageHeader
@@ -72,8 +72,8 @@ export function ActivityListPage() {
             </label>
             <Input id="activity-q" value={q} onChange={(e) => setQ(e.target.value)} onBlur={() => q !== filters.q && setFilter('q', q)} placeholder="Enter で検索" />
           </form>
-          <FilterSelect label="ユニット" value={filters.function_id} onChange={(v) => setFilter('function_id', v)}>
-            {(functions.data?.items ?? []).map((f) => (
+          <FilterSelect label="ユニット" value={filters.unit_id} onChange={(v) => setFilter('unit_id', v)}>
+            {(units.data?.items ?? []).map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
               </option>
@@ -139,7 +139,7 @@ export function ActivityListPage() {
                   <td>
                     <Badge tone={statusTone[a.status]}>{activityStatusLabels[a.status]}</Badge>
                   </td>
-                  <td className="text-slate-600">{functionName.get(a.function_id)}</td>
+                  <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-slate-600">{a.owner_user_id ? userName.get(a.owner_user_id) : ''}</td>
                   <td className="text-right tabular-nums">{formatPercent(a.probability)}</td>
                   <td className="text-slate-600">{calcModeLabels[a.calc_mode]}</td>
@@ -150,10 +150,10 @@ export function ActivityListPage() {
         )}
       </Card>
 
-      {creating && functions.data && users.data && (
+      {creating && units.data && users.data && (
         <ActivityFormDialog
           initial={null}
-          functions={creatable}
+          units={creatable}
           users={users.data.items}
           onClose={() => setCreating(false)}
           save={async (body) => {

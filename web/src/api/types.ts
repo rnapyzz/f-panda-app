@@ -30,8 +30,8 @@ export const unitTypeLabels: Record<UnitType, string> = {
   corporate: '管理部門',
 }
 
-/** ユニット（施策を束ねる単位）。API・DB 上の名前は functions */
-export type FunctionItem = Timestamps & {
+/** ユニット（施策を束ねる単位） */
+export type Unit = Timestamps & {
   id: number
   name: string
   unit_type: UnitType
@@ -79,7 +79,7 @@ export type CalcMode = 'manual' | 'formula'
 
 export type Activity = Timestamps & {
   id: number
-  function_id: number
+  unit_id: number
   code: string
   name: string
   activity_type: ActivityType
@@ -268,7 +268,7 @@ export type ReportSeries = {
 }
 
 export type ReportRow = {
-  function_id: number
+  unit_id: number
   activity_id?: number
   subject_id: number
   month: string
@@ -316,7 +316,8 @@ export const tableLabels: Record<string, string> = {
   driver_values: 'ドライバー値',
   scenario_conditions: '想定条件',
   scenarios: 'シナリオ',
-  functions: 'ユニット',
+  units: 'ユニット',
+  functions: 'ユニット', // 改称前（functions）の変更履歴用
   segments: 'セグメント',
   organizations: '組織',
   subjects: '科目',
@@ -331,7 +332,7 @@ export type RiskActivity = {
   id: number
   code: string
   name: string
-  function_id: number
+  unit_id: number
   owner_user_id: number | null
   activity_type: ActivityType
   status: ActivityStatus
