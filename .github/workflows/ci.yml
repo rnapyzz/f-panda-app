@@ -109,31 +109,42 @@ jobs:
         run: npm run lint
       - name: build（型チェックを含む）
         run: npm run build
+      - name: 単体テスト（node:test）
+        run: npm test
 
-  compose:
-    name: Docker Compose smoke test
+  e2e:
+    name: E2E (Docker Compose + Playwright)
     runs-on: ubuntu-latest
     needs: [api, integration, web]
     steps:
       - uses: actions/checkout@v7
-      - name: build
-        run: docker compose build
-      - name: up
-        run: docker compose up -d
-      - name: /api/health が ok を返すこと
-        run: |
-          for _ in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/api/health | tee /tmp/health.json; then
-              grep -q '"database":"ok"' /tmp/health.json && exit 0
-            fi
-            sleep 2
-          done
-          exit 1
-      - name: トップページが表示されること
-        run: curl -fsS http://localhost:8080/ | grep -q "<title>F-Panda</title>"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+      - name: Playwright のブラウザをインストール
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: E2E テスト（専用のスタックを起動して実行）
+        run: scripts/e2e.sh
+        env:
+          KEEP: "1" # 失敗時にログを出すため、停止は後のステップで行う
       - name: logs
         if: failure()
-        run: docker compose logs
+        run: COMPOSE_PROJECT_NAME=fpanda-e2e docker compose logs
+      - name: Playwright のレポートを保存
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
       - name: down
         if: always()
-        run: docker compose down -v
+        run: COMPOSE_PROJECT_NAME=fpanda-e2e docker compose down -v

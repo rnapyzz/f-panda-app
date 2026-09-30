@@ -60,8 +60,10 @@ make create-user EMAIL=admin@example.com NAME=管理者 ROLE=fpa_admin
 | `make migrate-status` | マイグレーションの適用状況を表示        |
 | `make reset-db`       | DB のデータを削除して作り直す           |
 | `make create-user`    | ユーザーを作成                          |
-| `make test`           | Go のテスト、フロントの lint とビルド   |
+| `make test`           | Go のテスト、フロントの lint・ビルド・単体テスト |
 | `make test-api`       | Go のテスト（DB を使うテストを含む）    |
+| `make test-web`       | フロントの lint・ビルド・単体テスト     |
+| `make e2e`            | E2E テスト（専用のスタックで実行）      |
 
 ### マイグレーション
 
@@ -75,9 +77,17 @@ GitHub Actions（`.github/workflows/ci.yml`）で、PR と main への push ご�
 | ------------ | -------------------------------------------------------------------- |
 | `api`        | gofmt・`go mod tidy` の差分確認・`go vet`・`go test -race`           |
 | `integration` | MySQL 8.4 に対してマイグレーションを適用・再実行で変更がないこと、DB を使う統合テスト |
-| `web`        | `npm run lint`・`npm run build`（型チェックを含む）                  |
-| `compose`    | `docker compose up` で全体を起動し、`/api/health` とトップページを確認 |
+| `web`        | `npm run lint`・`npm run build`（型チェックを含む）・`npm test`      |
+| `e2e`        | 専用のスタックを起動し、Playwright で E2E テスト（失敗時はレポートを保存） |
 
 ### テスト
 
 DB を使うテストは、環境変数 `TEST_DB_HOST` が設定されているときだけ実行される（未設定ならスキップ）。テストごとに一時的なデータベースを作成・削除するため、DB を作成できるユーザー（root）で接続する。`make test-api` は compose の db に接続して実行する。
+
+### 画面のテスト
+
+- **単体テスト**（`web/src/**/*.test.ts`）: 集計・書式・ルーター・階層などのロジックを Node 標準の `node:test` で実行する（`npm test`）。追加の依存なし
+- **E2E テスト**（`web/e2e/*.spec.ts`）: Playwright で、ログイン・施策の作成と変更理由・数値入力と計算式・実績 CSV 取込・予実比較などの主要な流れを実際のブラウザで確認する
+  - `make e2e`（= `scripts/e2e.sh`）は、開発環境とは別のスタック（プロジェクト名 `fpanda-e2e`、http://localhost:18080）を起動し、テスト用の管理者を作ってからテストを実行し、終わったらデータごと削除する。開発用の DB には影響しない
+  - `KEEP=1 scripts/e2e.sh` でテスト後もスタックを残す。`scripts/e2e.sh --headed values.spec.ts` のように Playwright の引数を渡せる
+  - 初回は `cd web && npx playwright install chromium` でブラウザを入れる

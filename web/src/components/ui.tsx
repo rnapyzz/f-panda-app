@@ -194,6 +194,7 @@ export function Dialog({
   wide?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
   useEffect(() => {
     const d = ref.current
     if (!d) return
@@ -208,6 +209,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault()
         onClose()
@@ -220,7 +222,9 @@ export function Dialog({
       {open && (
         <>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-            <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+            <h2 id={titleId} className="text-base font-semibold text-slate-900">
+              {title}
+            </h2>
             <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="閉じる">
               ✕
             </button>
