@@ -32,6 +32,40 @@ export function onUnauthorized(fn: UnauthorizedListener): () => void {
   return () => unauthorizedListeners.delete(fn)
 }
 
+/** エラーレスポンスを ApiError にする。401 なら未ログインの通知も行う */
+async function toApiError(res: Response, path: string): Promise<ApiError> {
+  const text = await res.text()
+  let e: { code?: string; message?: string; details?: Record<string, string>; rows?: RowError[] } = {}
+  try {
+    e = text ? (JSON.parse(text).error ?? {}) : {}
+  } catch {
+    // JSON 以外（プロキシのエラー画面など）
+  }
+  if (res.status === 401 && path !== '/auth/login') {
+    unauthorizedListeners.forEach((fn) => fn())
+  }
+  return new ApiError(res.status, e.code ?? 'unknown', e.message ?? `エラーが発生しました（${res.status}）`, e.details, e.rows)
+}
+
+/**
+ * ファイルをダウンロードして保存する（CSV のエクスポートなど）。
+ * 失敗したときは ApiError を投げる（ブラウザの「ダウンロードできませんでした」ではなく、理由を画面に出すため）。
+ */
+export async function download(path: string): Promise<void> {
+  const res = await fetch(`/api${path}`, { credentials: 'same-origin' })
+  if (!res.ok) throw await toApiError(res, path)
+  const blob = await res.blob()
+  const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = match?.[1] ?? 'download'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function request<T>(method: string, path: string, body?: unknown, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {}
   let payload: BodyInit | undefined
@@ -46,18 +80,12 @@ async function request<T>(method: string, path: string, body?: unknown, init?: R
   if (res.status === 204) {
     return undefined as T
   }
-  const text = await res.text()
-  const data = text ? JSON.parse(text) : undefined
   if (!res.ok) {
-    const e = data?.error ?? {}
-    const err = new ApiError(res.status, e.code ?? 'unknown', e.message ?? `エラーが発生しました（${res.status}）`, e.details, e.rows)
-    // ログイン API 自体の 401 はフォームで扱う
-    if (res.status === 401 && path !== '/auth/login') {
-      unauthorizedListeners.forEach((fn) => fn())
-    }
-    throw err
+    // ログイン API 自体の 401 はフォームで扱う（toApiError は未ログインの通知をしない）
+    throw await toApiError(res, path)
   }
-  return data as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export const api = {
