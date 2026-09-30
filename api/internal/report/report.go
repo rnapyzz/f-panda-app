@@ -36,6 +36,7 @@ func NewHandler(db *sql.DB) *Handler {
 // Register はルートを登録する。参照はログインユーザー全員。
 func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/reports/comparison", requireAuth(httpx.Handle(h.comparison)))
+	mux.Handle("GET /api/reports/risk", requireAuth(httpx.Handle(h.risk)))
 }
 
 // Series は比較する系列（シナリオ、または着地見込）。
