@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, gridCell, login, seedMasters } from './helpers'
 
 test('実績 CSV を確認してから取り込める。エラーがあれば行番号付きで表示される', async ({ page }) => {
   await login(page)
@@ -38,6 +38,6 @@ test('実績 CSV を確認してから取り込める。エラーがあれば行
   await dialog.getByRole('button', { name: '閉じる' }).last().click()
 
   await page.goto(`/scenarios/${scenario.id}/activities/${activity.id}`)
-  await expect(page.getByRole('button', { name: `${f.revenueName} 9月: 1,200,000` })).toBeVisible()
+  await expect(gridCell(page, `${f.revenueName} 9月`)).toHaveAccessibleName(`${f.revenueName} 9月: 1,200,000`)
   await expect(page.getByText('実績シナリオの数値は CSV の取込で登録します')).toBeVisible()
 })
