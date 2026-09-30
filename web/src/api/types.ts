@@ -262,3 +262,43 @@ export type ComparisonReport = {
   series: ReportSeries[]
   rows: ReportRow[]
 }
+
+// --- 変更履歴 ---
+
+export type ChangeSet = {
+  id: number
+  created_at: string
+  user: { id: number; name: string }
+  scenario: { id: number; name: string } | null
+  reason: string
+  changes: number
+  tables: Record<string, number>
+  activities: { id: number; code: string; name: string }[]
+  more_activities: number
+}
+
+export type ChangeLog = {
+  id: number
+  table_name: string
+  record_id: number
+  action: 'insert' | 'update' | 'delete'
+  label: string
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+}
+
+export const tableLabels: Record<string, string> = {
+  activities: '施策',
+  activity_milestones: 'マイルストーン',
+  activity_drivers: 'ドライバー定義',
+  activity_formulas: '計算式',
+  budget_facts: '金額',
+  driver_values: 'ドライバー値',
+  scenario_conditions: '想定条件',
+  scenarios: 'シナリオ',
+  functions: '機能',
+  segments: 'セグメント',
+  organizations: '組織',
+  subjects: '科目',
+  users: 'ユーザー',
+}

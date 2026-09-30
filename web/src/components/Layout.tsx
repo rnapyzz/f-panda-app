@@ -10,6 +10,7 @@ const mainNav: NavItem[] = [
   { to: '/activities', label: '施策' },
   { to: '/scenarios', label: 'シナリオ' },
   { to: '/reports', label: '予実比較' },
+  { to: '/history', label: '変更履歴' },
 ]
 
 const masterNav: NavItem[] = [

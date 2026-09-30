@@ -45,6 +45,7 @@ make create-user EMAIL=admin@example.com NAME=管理者 ROLE=fpa_admin
 | `/scenarios/{id}`                     | シナリオの詳細（ロック・実績 CSV 取込・施策の一覧）          |
 | `/scenarios/{id}/activities/{aid}`    | 数値の入力（月別のドライバー値・金額・想定条件）             |
 | `/reports`                            | 予実比較（シナリオ・着地見込の比較、階層でのドリルダウン）   |
+| `/history`                            | 変更履歴（誰が・いつ・なぜ・何を変えたか）                   |
 | `/masters/...`                        | マスタ管理（組織・セグメント・機能・勘定科目・ユーザー）     |
 
 ### よく使うコマンド
