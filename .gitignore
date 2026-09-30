@@ -1,0 +1,31 @@
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# 環境変数
+.env
+.env.*
+!.env.example
+
+# Go
+api/bin/
+*.test
+*.out
+coverage.*
+
+# Node / フロントエンド
+node_modules/
+web/dist/
+web/dist-ssr/
+*.local
+*.tsbuildinfo
+npm-debug.log*
+
+# ログ
+logs/
+*.log

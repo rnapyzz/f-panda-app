@@ -5,9 +5,9 @@
 | レイヤー       | 技術                                                                 |
 | -------------- | -------------------------------------------------------------------- |
 | リバースプロキシ | nginx                                                                |
-| フロントエンド | React.js + TailwindCSS（Vite でビルド）                               |
+| フロントエンド | React.js + TypeScript + TailwindCSS（Vite でビルド）                  |
 | バックエンド   | Go（標準パッケージ中心）                                              |
-| データベース   | MySQL 8                                                              |
+| データベース   | MySQL 8.4                                                            |
 | 実行環境       | Docker / Docker Compose                                              |
 
 基本方針: **できるだけ標準パッケージ・標準ライブラリで実装する。** 外部ライブラリの追加は必要最小限にとどめ、追加する場合は理由を残す。
@@ -30,7 +30,7 @@
 | サービス | 役割                                                                       |
 | -------- | -------------------------------------------------------------------------- |
 | `nginx`  | React のビルド成果物を配信し、`/api` を `api` コンテナに転送する            |
-| `web`    | React アプリのビルド（開発時は Vite dev server）                            |
+| `web`    | React アプリ（開発時は Vite dev server）                            |
 | `api`    | Go の API サーバー                                                          |
 | `db`     | MySQL 8。データはボリュームに永続化する                                     |
 
@@ -41,12 +41,12 @@
 - JSON: `encoding/json`
 - ログ: `log/slog`
 - テスト: `testing`
-- マイグレーション: 連番付きの SQL ファイルを管理し、起動時またはコマンドで適用する
+- マイグレーション: `api/migrations/<連番>_<説明>.sql` を `embed` で埋め込み、自前のランナー（`api/internal/migrate`）で適用する。適用済みバージョンは `schema_migrations` に記録する。compose の `migrate` サービスが起動時に適用する
 - 計算式の評価: ドライバー式（四則演算・括弧・数値・ドライバー code 参照）は自前の簡易パーサで評価する
 
 ## フロントエンド（React）
 
-- React + TailwindCSS、ビルドは Vite
+- React + TypeScript + TailwindCSS v4、ビルドは Vite
 - API 呼び出しは `fetch`
 - ライブラリの追加は必要最小限（ルーティング・グラフ描画などは必要になった時点で検討する）
 
@@ -54,7 +54,7 @@
 
 ```
 .
-├── docker-compose.yml
+├── compose.yaml
 ├── nginx/
 │   └── default.conf
 ├── api/                  # Go
