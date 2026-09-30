@@ -16,7 +16,6 @@ import (
 	"errors"
 	"math/big"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
+	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -70,8 +70,6 @@ var (
 	statuses      = []string{"planned", "in_progress", "completed", "on_hold", "cancelled"}
 	calcModes     = []string{"manual", "formula"}
 )
-
-var codePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,50}$`)
 
 const (
 	maxNameLen        = 200
@@ -664,7 +662,7 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 	if in.UnitID <= 0 {
 		v.Add("unit_id", "ユニットを選択してください")
 	}
-	if !(allowEmptyCode && in.Code == "") && !codePattern.MatchString(in.Code) {
+	if !(allowEmptyCode && in.Code == "") && !codes.Pattern.MatchString(in.Code) {
 		v.Add("code", "施策コードは半角英数字・ハイフン・アンダースコアの50文字以内で入力してください")
 	}
 	if !slices.Contains(activityTypes, in.ActivityType) {

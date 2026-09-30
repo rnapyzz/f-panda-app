@@ -49,6 +49,7 @@ export function UnitsPage() {
           <Table>
             <thead>
               <tr>
+                <th className="w-28">コード</th>
                 <th>名称</th>
                 <th>種別</th>
                 <th>セグメント</th>
@@ -60,6 +61,7 @@ export function UnitsPage() {
             <tbody>
               {units.data!.items.map((f) => (
                 <tr key={f.id}>
+                  <td className="font-mono text-xs">{f.code}</td>
                   <td className="font-medium">{f.name}</td>
                   <td>
                     <Badge tone={unitTypeTone[f.unit_type]}>{unitTypeLabels[f.unit_type]}</Badge>
@@ -128,6 +130,7 @@ function UnitDialog({
   onSaved: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
+  const [code, setCode] = useState(initial?.code ?? '')
   const [unitType, setUnitType] = useState<UnitType>(initial?.unit_type ?? 'service')
   const [segmentId, setSegmentId] = useState(initial ? String(initial.segment_id) : '')
   const [organizationId, setOrganizationId] = useState(initial ? String(initial.organization_id) : '')
@@ -141,6 +144,7 @@ function UnitDialog({
     setBusy(true)
     setError(null)
     const body = {
+      code,
       name,
       unit_type: unitType,
       segment_id: Number(segmentId) || 0,
@@ -174,6 +178,9 @@ function UnitDialog({
       }
     >
       <form id="unit-form" onSubmit={submit} className="space-y-4">
+        <Field label="コード" error={fieldError(error, 'code')} hint={initial ? 'CSV の取込で使います（英数字・-・_）' : '空欄なら自動で採番します（UNIT-0001 形式）'}>
+          {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" placeholder={initial ? undefined : '自動採番'} />}
+        </Field>
         <Field label="名称" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="例: SaaS Aサービス、受託事業共通経費、人事部" />}
         </Field>
@@ -207,7 +214,7 @@ function UnitDialog({
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['name', 'unit_type', 'segment_id', 'organization_id', 'owner_user_id', 'reason']} />
+        <FormError error={error} fields={['code', 'name', 'unit_type', 'segment_id', 'organization_id', 'owner_user_id', 'reason']} />
       </form>
     </Dialog>
   )

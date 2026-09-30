@@ -8,10 +8,12 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
+	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -27,8 +29,8 @@ type Handler struct {
 func NewHandler(db *sql.DB) *Handler {
 	return &Handler{
 		db:            db,
-		organizations: &treeHandler{db: db, table: "organizations", label: "組織", unitColumn: "organization_id"},
-		segments:      &treeHandler{db: db, table: "segments", label: "セグメント", unitColumn: "segment_id"},
+		organizations: &treeHandler{db: db, table: "organizations", label: "組織", unitColumn: "organization_id", codePrefix: "ORG-"},
+		segments:      &treeHandler{db: db, table: "segments", label: "セグメント", unitColumn: "segment_id", codePrefix: "SEG-"},
 	}
 }
 
@@ -76,6 +78,18 @@ func inTx(ctx context.Context, db *sql.DB, r *http.Request, reason string, fn fu
 		return httpx.Unauthorized("ログインしてください")
 	}
 	return audit.InTx(ctx, db, u.ID, nil, reason, fn)
+}
+
+// validateCode はコードを検証する。allowEmpty なら空欄を許す（自動採番する）。
+func validateCode(v httpx.Validator, code string, allowEmpty bool) string {
+	code = strings.TrimSpace(code)
+	if code == "" && allowEmpty {
+		return ""
+	}
+	if !codes.Pattern.MatchString(code) {
+		v.Add("code", codes.PatternMessage)
+	}
+	return code
 }
 
 // deleteError は削除時の MySQL エラーを API エラーに変換する。

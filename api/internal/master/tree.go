@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -21,11 +22,13 @@ type treeHandler struct {
 	table      string // organizations / segments
 	label      string // 組織 / セグメント
 	unitColumn string // units テーブルでこのマスタを参照する列
+	codePrefix string // 自動採番するコードの接頭辞（ORG- / SEG-）
 }
 
 type treeNode struct {
 	ID        int64  `json:"id"`
 	ParentID  *int64 `json:"parent_id"`
+	Code      string `json:"code"`
 	Name      string `json:"name"`
 	Level     int    `json:"level"`
 	SortOrder int    `json:"sort_order"`
@@ -34,6 +37,7 @@ type treeNode struct {
 
 type treeRequest struct {
 	ParentID  *int64 `json:"parent_id"`
+	Code      string `json:"code"` // 作成時は空なら自動採番、更新時は空なら変更しない
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
 	reasonRequest
@@ -42,13 +46,13 @@ type treeRequest struct {
 const maxNameLen = 100
 
 func (t *treeHandler) selectSQL() string {
-	return "SELECT id, parent_id, name, level, sort_order, created_at, updated_at FROM " + t.table
+	return "SELECT id, parent_id, code, name, level, sort_order, created_at, updated_at FROM " + t.table
 }
 
 func scanTreeNode(row interface{ Scan(...any) error }) (treeNode, error) {
 	var n treeNode
 	var parent sql.NullInt64
-	err := row.Scan(&n.ID, &parent, &n.Name, &n.Level, &n.SortOrder, &n.CreatedAt, &n.UpdatedAt)
+	err := row.Scan(&n.ID, &parent, &n.Code, &n.Name, &n.Level, &n.SortOrder, &n.CreatedAt, &n.UpdatedAt)
 	n.ParentID = dbx.PtrInt64(parent)
 	return n, err
 }
@@ -106,6 +110,7 @@ func (t *treeHandler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 	v := httpx.Validator{}
 	name := v.Text("name", "名称", req.Name, maxNameLen)
+	code := validateCode(v, req.Code, true)
 	if err := v.Err(); err != nil {
 		return err
 	}
@@ -122,10 +127,20 @@ func (t *treeHandler) create(w http.ResponseWriter, r *http.Request) error {
 			level = parent.Level + 1
 		}
 
+		if code == "" {
+			next, err := codes.Next(ctx, tx, t.table, t.codePrefix, nil)
+			if err != nil {
+				return err
+			}
+			code = next
+		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO "+t.table+" (parent_id, name, level, sort_order) VALUES (?, ?, ?, ?)",
-			dbx.NullInt64(req.ParentID), name, level, req.SortOrder,
+			"INSERT INTO "+t.table+" (parent_id, code, name, level, sort_order) VALUES (?, ?, ?, ?, ?)",
+			dbx.NullInt64(req.ParentID), code, name, level, req.SortOrder,
 		)
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
+			return httpx.Validation(map[string]string{"code": "このコードは既に使われています"})
+		}
 		if err != nil {
 			return err
 		}
@@ -157,6 +172,7 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	v := httpx.Validator{}
 	name := v.Text("name", "名称", req.Name, maxNameLen)
+	code := validateCode(v, req.Code, true) // 空なら今のコードのまま
 	if req.ParentID != nil && *req.ParentID == id {
 		v.Add("parent_id", "自分自身を親にはできません")
 	}
@@ -191,10 +207,17 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE "+t.table+" SET parent_id = ?, name = ?, sort_order = ?, level = ? WHERE id = ?",
-			dbx.NullInt64(req.ParentID), name, req.SortOrder, level, id,
-		); err != nil {
+		if code == "" {
+			code = before.Code
+		}
+		_, err = tx.ExecContext(ctx,
+			"UPDATE "+t.table+" SET parent_id = ?, code = ?, name = ?, sort_order = ?, level = ? WHERE id = ?",
+			dbx.NullInt64(req.ParentID), code, name, req.SortOrder, level, id,
+		)
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
+			return httpx.Validation(map[string]string{"code": "このコードは既に使われています"})
+		}
+		if err != nil {
 			return err
 		}
 		// 移動した場合は配下のノードの階層レベルも合わせてずらす。
