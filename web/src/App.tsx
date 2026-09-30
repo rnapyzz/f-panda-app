@@ -3,6 +3,8 @@ import { Layout } from './components/Layout'
 import { Card, Loading, PageHeader } from './components/ui'
 import { AuthProvider, useAuth } from './lib/auth'
 import { matchPath, Redirect, useLocation } from './lib/router'
+import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
+import { ActivityListPage } from './pages/activities/ActivityListPage'
 import { LoginPage } from './pages/LoginPage'
 import { FunctionsPage } from './pages/masters/FunctionsPage'
 import { SubjectsPage } from './pages/masters/SubjectsPage'
@@ -13,7 +15,8 @@ type Route = { path: string; render: (params: Record<string, string>) => ReactNo
 
 const routes: Route[] = [
   { path: '/', render: () => <Redirect to="/activities" /> },
-  { path: '/activities', render: () => <ComingSoon title="施策" /> },
+  { path: '/activities', render: () => <ActivityListPage /> },
+  { path: '/activities/:id', render: (p) => <ActivityDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios', render: () => <ComingSoon title="シナリオ" /> },
   { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },
   { path: '/masters/segments', render: () => <TreeMasterPage key="segments" resource="segments" /> },

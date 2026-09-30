@@ -5,10 +5,8 @@ import {
   useId,
   useRef,
   type ButtonHTMLAttributes,
-  type InputHTMLAttributes,
+  type ComponentProps,
   type ReactNode,
-  type SelectHTMLAttributes,
-  type TextareaHTMLAttributes,
 } from 'react'
 import { ApiError } from '../api/client'
 
@@ -49,15 +47,15 @@ const inputClass =
   'placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none ' +
   'disabled:bg-slate-100 disabled:text-slate-500 aria-invalid:border-red-400'
 
-export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...rest }: ComponentProps<'input'>) {
   return <input className={cx(inputClass, className)} {...rest} />
 }
 
-export function Select({ className, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, ...rest }: ComponentProps<'select'>) {
   return <select className={cx(inputClass, 'pr-8', className)} {...rest} />
 }
 
-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {
   return <textarea className={cx(inputClass, 'min-h-20', className)} {...rest} />
 }
 
