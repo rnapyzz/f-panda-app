@@ -302,3 +302,34 @@ export const tableLabels: Record<string, string> = {
   subjects: '科目',
   users: 'ユーザー',
 }
+
+// --- リスク ---
+
+export type PL = { revenue: string; expense: string }
+
+export type RiskActivity = {
+  id: number
+  code: string
+  name: string
+  function_id: number
+  owner_user_id: number | null
+  activity_type: ActivityType
+  status: ActivityStatus
+  probability: number | null
+  assumptions: string
+  base: PL
+  optimistic: PL | null
+  pessimistic: PL | null
+  provisional: { count: number; revenue: string; expense: string; reasons: string[] }
+  milestones: { name: string; due_date: string; status: MilestoneStatus; risk: 'overdue' | 'delayed' | 'upcoming' }[]
+  conditions: Partial<Record<'base' | 'optimistic' | 'pessimistic', string>>
+}
+
+export type RiskReport = {
+  fiscal_year: number
+  today: string
+  base: { id: number; name: string; scenario_kind: ScenarioKind }
+  optimistic: { id: number; name: string; scenario_kind: ScenarioKind } | null
+  pessimistic: { id: number; name: string; scenario_kind: ScenarioKind } | null
+  activities: RiskActivity[]
+}
