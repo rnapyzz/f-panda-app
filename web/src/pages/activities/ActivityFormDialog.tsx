@@ -110,7 +110,7 @@ export function ActivityFormDialog({
         >
           {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" placeholder={initial ? undefined : '自動採番'} />}
         </Field>
-        <Field label="機能" required error={fieldError(error, 'function_id')}>
+        <Field label="ユニット" required error={fieldError(error, 'function_id')}>
           {(p) => (
             <Select {...p} value={functionId} onChange={(e) => setFunctionId(e.target.value)}>
               <option value="">選択してください</option>

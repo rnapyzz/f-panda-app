@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { api, createActivity, login, seedMasters } from './helpers'
 
-test('予実比較で、基準との差異をセグメント → 機能 → 施策とたどれる', async ({ page }) => {
+test('予実比較で、基準との差異をセグメント → ユニット → 施策とたどれる', async ({ page }) => {
   await login(page)
   const f = await seedMasters(page)
   const a = api(page)

@@ -1,13 +1,19 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import type { FunctionItem, List, TreeNode, User } from '../../api/types'
+import { unitTypeLabels, type FunctionItem, type List, type TreeNode, type UnitType, type User } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Select, Table, Textarea, fieldError } from '../../components/ui'
+import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Select, Table, Textarea, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { buildTree, isLeaf, pathName, type Tree } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
 
-/** 機能（課・チームなど、施策を束ねる単位）の管理画面 */
+const unitTypeTone: Record<UnitType, 'indigo' | 'amber' | 'slate'> = {
+  service: 'indigo',
+  cost_center: 'amber',
+  corporate: 'slate',
+}
+
+/** ユニット（施策を束ねる単位）の管理画面。API・DB 上の名前は functions */
 export function FunctionsPage() {
   const user = useCurrentUser()
   const canWrite = user.role === 'fpa_admin'
@@ -28,9 +34,9 @@ export function FunctionsPage() {
   return (
     <>
       <PageHeader
-        title="機能"
-        description="施策を束ねる単位（課・グループ・チームなど）です。末端のセグメントと末端の組織に1つずつ所属します。担当者は、配下の施策を作成・編集できるマネージャーです。"
-        actions={canWrite && <Button variant="primary" onClick={() => setEditing('new')}>＋ 機能を追加</Button>}
+        title="ユニット"
+        description="施策を束ねる単位です。サービスのほか、共通経費や管理部門の箱もユニットとして登録し、種別で区別します。末端のセグメントと末端の組織に1つずつ所属します。担当者は、配下の施策を作成・編集できるマネージャーです。"
+        actions={canWrite && <Button variant="primary" onClick={() => setEditing('new')}>＋ ユニットを追加</Button>}
       />
       <Card>
         {error ? (
@@ -38,12 +44,13 @@ export function FunctionsPage() {
         ) : !ready ? (
           <Loading />
         ) : functions.data!.items.length === 0 ? (
-          <Empty>機能が登録されていません</Empty>
+          <Empty>ユニットが登録されていません</Empty>
         ) : (
           <Table>
             <thead>
               <tr>
                 <th>名称</th>
+                <th>種別</th>
                 <th>セグメント</th>
                 <th>組織</th>
                 <th>担当者</th>
@@ -54,6 +61,9 @@ export function FunctionsPage() {
               {functions.data!.items.map((f) => (
                 <tr key={f.id}>
                   <td className="font-medium">{f.name}</td>
+                  <td>
+                    <Badge tone={unitTypeTone[f.unit_type]}>{unitTypeLabels[f.unit_type]}</Badge>
+                  </td>
                   <td className="text-slate-600">{pathName(segTree, f.segment_id)}</td>
                   <td className="text-slate-600">{pathName(orgTree, f.organization_id)}</td>
                   <td>{f.owner_user_id ? userName.get(f.owner_user_id) : <span className="text-slate-400">未設定</span>}</td>
@@ -89,7 +99,7 @@ export function FunctionsPage() {
       )}
       <ConfirmDialog
         open={deleting !== null}
-        title="機能の削除"
+        title="ユニットの削除"
         message={<>「{deleting?.name}」を削除します。施策が所属している場合は削除できません。</>}
         reason="optional"
         onClose={() => setDeleting(null)}
@@ -118,6 +128,7 @@ function FunctionDialog({
   onSaved: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
+  const [unitType, setUnitType] = useState<UnitType>(initial?.unit_type ?? 'service')
   const [segmentId, setSegmentId] = useState(initial ? String(initial.segment_id) : '')
   const [organizationId, setOrganizationId] = useState(initial ? String(initial.organization_id) : '')
   const [ownerId, setOwnerId] = useState(initial?.owner_user_id ? String(initial.owner_user_id) : '')
@@ -131,6 +142,7 @@ function FunctionDialog({
     setError(null)
     const body = {
       name,
+      unit_type: unitType,
       segment_id: Number(segmentId) || 0,
       organization_id: Number(organizationId) || 0,
       owner_user_id: ownerId ? Number(ownerId) : null,
@@ -150,7 +162,7 @@ function FunctionDialog({
   return (
     <Dialog
       open
-      title={initial ? '機能の編集' : '機能の追加'}
+      title={initial ? 'ユニットの編集' : 'ユニットの追加'}
       onClose={onClose}
       footer={
         <>
@@ -163,11 +175,22 @@ function FunctionDialog({
     >
       <form id="function-form" onSubmit={submit} className="space-y-4">
         <Field label="名称" required error={fieldError(error, 'name')}>
-          {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} />}
+          {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="例: SaaS Aサービス、受託事業共通経費、人事部" />}
+        </Field>
+        <Field label="種別" required error={fieldError(error, 'unit_type')} hint="サービス = 収益を生むユニット、共通費 = 事業の共通経費、管理部門 = 人事・経理など">
+          {(p) => (
+            <Select {...p} value={unitType} onChange={(e) => setUnitType(e.target.value as UnitType)}>
+              {Object.entries(unitTypeLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+          )}
         </Field>
         <LeafSelect label="セグメント" tree={segTree} value={segmentId} onChange={setSegmentId} error={fieldError(error, 'segment_id')} />
         <LeafSelect label="組織" tree={orgTree} value={organizationId} onChange={setOrganizationId} error={fieldError(error, 'organization_id')} />
-        <Field label="担当者（マネージャー）" error={fieldError(error, 'owner_user_id')} hint="担当者は、この機能の配下の施策を作成・編集できます（ロールがマネージャーの場合）">
+        <Field label="担当者（マネージャー）" error={fieldError(error, 'owner_user_id')} hint="担当者は、このユニットの配下の施策を作成・編集できます（ロールがマネージャーの場合）">
           {(p) => (
             <Select {...p} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               <option value="">（未設定）</option>
@@ -184,7 +207,7 @@ function FunctionDialog({
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['name', 'segment_id', 'organization_id', 'owner_user_id', 'reason']} />
+        <FormError error={error} fields={['name', 'unit_type', 'segment_id', 'organization_id', 'owner_user_id', 'reason']} />
       </form>
     </Dialog>
   )

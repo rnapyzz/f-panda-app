@@ -11,6 +11,18 @@
 
 nginx + React.js + TailwindCSS + Go + MySQL 8。すべて Docker コンテナで動かす。
 
+## 用語（画面とコードの対応）
+
+| 画面での呼び方 | コード・DB・API での名前 |
+| -------------- | ------------------------ |
+| 施策           | `activities`             |
+| ユニット       | `functions`（`function_id`）。旧称「機能」 |
+| セグメント / 組織 | `segments` / `organizations` |
+| シナリオ       | `scenarios`              |
+| 変更セット / 監査ログ | `change_sets` / `audit_logs` |
+
+画面の文言では「ユニット」を使い、「機能」とは書かない。
+
 ## よく使うコマンド
 
 - 起動: `make up`（http://localhost:8080）／停止: `make down`

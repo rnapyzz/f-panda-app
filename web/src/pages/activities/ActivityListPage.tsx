@@ -16,7 +16,7 @@ export const statusTone: Record<ActivityStatus, 'slate' | 'indigo' | 'green' | '
   cancelled: 'red',
 }
 
-/** 施策を作成できる機能（FP&A は全機能、マネージャーは担当の機能） */
+/** 施策を作成できるユニット（FP&A は全ユニット、マネージャーは担当のユニット） */
 export function creatableFunctions(user: { id: number; role: string }, functions: FunctionItem[]): FunctionItem[] {
   if (user.role === 'fpa_admin') return functions
   if (user.role === 'manager') return functions.filter((f) => f.owner_user_id === user.id)
@@ -72,7 +72,7 @@ export function ActivityListPage() {
             </label>
             <Input id="activity-q" value={q} onChange={(e) => setQ(e.target.value)} onBlur={() => q !== filters.q && setFilter('q', q)} placeholder="Enter で検索" />
           </form>
-          <FilterSelect label="機能" value={filters.function_id} onChange={(v) => setFilter('function_id', v)}>
+          <FilterSelect label="ユニット" value={filters.function_id} onChange={(v) => setFilter('function_id', v)}>
             {(functions.data?.items ?? []).map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
@@ -120,7 +120,7 @@ export function ActivityListPage() {
                 <th>施策名</th>
                 <th>タイプ</th>
                 <th>ステータス</th>
-                <th>機能</th>
+                <th>ユニット</th>
                 <th>担当者</th>
                 <th className="text-right">確度</th>
                 <th>算出方式</th>

@@ -103,7 +103,7 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                 <th className="w-32">コード</th>
                 <th>施策名</th>
                 <th>タイプ</th>
-                <th>機能</th>
+                <th>ユニット</th>
                 <th>算出方式</th>
                 <th />
               </tr>

@@ -21,9 +21,20 @@ export type TreeNode = Timestamps & {
   sort_order: number
 }
 
+/** ユニットの種別。service = サービス（プロフィットセンター）、cost_center = 共通費、corporate = 管理部門 */
+export type UnitType = 'service' | 'cost_center' | 'corporate'
+
+export const unitTypeLabels: Record<UnitType, string> = {
+  service: 'サービス',
+  cost_center: '共通費',
+  corporate: '管理部門',
+}
+
+/** ユニット（施策を束ねる単位）。API・DB 上の名前は functions */
 export type FunctionItem = Timestamps & {
   id: number
   name: string
+  unit_type: UnitType
   segment_id: number
   organization_id: number
   owner_user_id: number | null
@@ -305,7 +316,7 @@ export const tableLabels: Record<string, string> = {
   driver_values: 'ドライバー値',
   scenario_conditions: '想定条件',
   scenarios: 'シナリオ',
-  functions: '機能',
+  functions: 'ユニット',
   segments: 'セグメント',
   organizations: '組織',
   subjects: '科目',

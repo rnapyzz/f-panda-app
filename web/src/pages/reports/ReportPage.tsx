@@ -12,6 +12,8 @@ import {
   type Scenario,
   type Subject,
   type TreeNode,
+  type UnitType,
+  unitTypeLabels,
 } from '../../api/types'
 import { Button, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
 import { aggregate, isFavorable, measureLabels, measureOf, varianceRate, type Measure, type Totals } from '../../lib/aggregate'
@@ -22,7 +24,7 @@ import { useApi } from '../../lib/useApi'
 
 type Axis = 'segment' | 'organization'
 
-/** 表の1行（階層ノード・機能・施策） */
+/** 表の1行（階層ノード・ユニット・施策） */
 type Node = {
   key: string
   type: 'tree' | 'function' | 'activity'
@@ -31,7 +33,7 @@ type Node = {
   depth: number
   children: Node[]
   include: (row: ReportRow) => boolean
-  /** 施策の行は、機能ごとに取得した施策別の行から集計する */
+  /** 施策の行は、ユニットごとに取得した施策別の行から集計する */
   source: 'function' | 'activity'
 }
 
@@ -43,6 +45,8 @@ type Settings = {
   axis: Axis
   measure: Measure
   period: string
+  /** ユニットの種別で絞り込む（空ならすべて） */
+  unitType: UnitType | ''
 }
 
 export function ReportPage() {
@@ -87,6 +91,7 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
     axis: search.get('axis') === 'organization' ? 'organization' : 'segment',
     measure: (['profit', 'revenue', 'expense'] as const).find((m) => m === search.get('measure')) ?? 'profit',
     period: search.get('period') ?? 'year',
+    unitType: (['service', 'cost_center', 'corporate'] as const).find((t) => t === search.get('unit')) ?? '',
   }
   const update = (patch: Partial<Settings>) => {
     const s = { ...settings, ...patch }
@@ -101,6 +106,7 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
         axis: s.axis,
         measure: s.measure,
         period: s.period,
+        unit: s.unitType,
       })}`,
       { replace: true },
     )
@@ -140,7 +146,7 @@ function ReportView({
       : null
   const report = useApi<ComparisonReport>(reportQuery ? `/reports/comparison${reportQuery}` : null)
 
-  // 展開した機能の施策別データ（機能 ID → 行）
+  // 展開したユニットの施策別データ（ユニット ID → 行）
   const [activityRows, setActivityRows] = useState<Map<number, ReportRow[]>>(new Map())
   const [loadedFor, setLoadedFor] = useState(reportQuery)
   if (loadedFor !== reportQuery) {
@@ -162,10 +168,14 @@ function ReportView({
   const months = useMemo(() => data?.months ?? [], [data])
   const periodMonths = useMemo(() => new Set(periodToMonths(settings.period, months)), [settings.period, months])
 
-  const roots = useMemo(() => buildNodes(tree, settings.axis, functions, activities, activityRows), [tree, settings.axis, functions, activities, activityRows])
+  // ユニットの種別で絞り込む（表の行と、集計の対象の両方）
+  const shownFunctions = useMemo(() => functions.filter((f) => !settings.unitType || f.unit_type === settings.unitType), [functions, settings.unitType])
+  const shownFunctionIds = useMemo(() => new Set(shownFunctions.map((f) => f.id)), [shownFunctions])
+  const reportRows = useMemo(() => (data?.rows ?? []).filter((r) => shownFunctionIds.has(r.function_id)), [data, shownFunctionIds])
+  const roots = useMemo(() => buildNodes(tree, settings.axis, shownFunctions, activities, activityRows), [tree, settings.axis, shownFunctions, activities, activityRows])
 
   const totalsOf = (n: Node): Map<string, Totals> => {
-    const rows = n.source === 'activity' ? activityRows.get(functionOfActivity(n, activities)) ?? [] : data?.rows ?? []
+    const rows = n.source === 'activity' ? activityRows.get(functionOfActivity(n, activities)) ?? [] : reportRows
     return aggregate(rows, seriesKeys, categoryOf, n.include, periodMonths)
   }
 
@@ -193,7 +203,7 @@ function ReportView({
   const forecasts = inYear.filter((s) => s.scenario_kind !== 'actual')
 
   // 全体（ルートの合計）
-  const allTotals = data ? aggregate(data.rows, seriesKeys, categoryOf, () => true, periodMonths) : null
+  const allTotals = data ? aggregate(reportRows, seriesKeys, categoryOf, () => true, periodMonths) : null
 
   return (
     <>
@@ -297,6 +307,16 @@ function ReportView({
         <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
           <Segmented label="集計軸" value={settings.axis} options={{ segment: 'セグメント', organization: '組織' }} onChange={(v) => update({ axis: v as Axis })} />
           <Segmented label="指標" value={settings.measure} options={measureLabels} onChange={(v) => update({ measure: v as Measure })} />
+          <Control label="ユニットの種別">
+            <Select value={settings.unitType} onChange={(e) => update({ unitType: e.target.value as UnitType | '' })} className="w-36">
+              <option value="">すべて</option>
+              {Object.entries(unitTypeLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}のみ
+                </option>
+              ))}
+            </Select>
+          </Control>
           <Control label="期間">
             <Select value={settings.period} onChange={(e) => update({ period: e.target.value })} className="w-36">
               <option value="year">年間</option>
@@ -337,7 +357,7 @@ function ReportView({
                 <thead>
                   <tr className="text-xs text-slate-500">
                     <th className="sticky left-0 z-10 min-w-64 border-b border-slate-200 bg-white px-3 py-2 text-left font-semibold">
-                      {settings.axis === 'segment' ? 'セグメント' : '組織'} / 機能 / 施策
+                      {settings.axis === 'segment' ? 'セグメント' : '組織'} / ユニット / 施策
                     </th>
                     {data.series.map((s, i) => (
                       <SeriesHeaders key={s.key} series={s} isBase={i === 0} />
@@ -452,7 +472,7 @@ function NodeRows({
                   ) : (
                     <span className="w-5" />
                   )}
-                  {n.type === 'function' && <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] whitespace-nowrap text-indigo-700">機能</span>}
+                  {n.type === 'function' && <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] whitespace-nowrap text-indigo-700">ユニット</span>}
                   {n.type === 'activity' && <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] whitespace-nowrap text-slate-600">施策</span>}
                   <span className={cx(n.type === 'tree' && 'font-medium', empty && 'text-slate-400')}>{n.name}</span>
                 </span>
@@ -755,7 +775,7 @@ function functionOfActivity(n: Node, activities: Activity[]): number {
   return activities.find((a) => a.id === n.id)?.function_id ?? 0
 }
 
-/** 階層ノード → 機能 → 施策 の木を作る */
+/** 階層ノード → ユニット → 施策 の木を作る */
 function buildNodes(tree: Tree, axis: Axis, functions: FunctionItem[], activities: Activity[], activityRows: Map<number, ReportRow[]>): Node[] {
   const column = axis === 'segment' ? 'segment_id' : 'organization_id'
   const fnByNode = new Map<number, FunctionItem[]>()

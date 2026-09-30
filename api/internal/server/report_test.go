@@ -41,7 +41,7 @@ func TestComparisonReport(t *testing.T) {
 	amounts(f.budget, f.manualAct, amt(f.sales, "2026-04", 1000), amt(f.sales, "2026-10", 2000), amt(f.cost, "2026-04", 300))
 	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	amounts(forecast, f.manualAct, amt(f.sales, "2026-10", 2500))
-	// 同じ機能の別施策にも金額を入れ、機能単位では合算されることを確認する
+	// 同じユニットの別施策にも金額を入れ、ユニット単位では合算されることを確認する
 	amounts(f.budget, f.formulaAct, amt(f.cost, "2026-04", 50))
 
 	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "実績", "scenario_kind": "actual", "fiscal_year": 2026})
@@ -65,7 +65,7 @@ func TestComparisonReport(t *testing.T) {
 	}{
 		{"予算 4月 売上", f.sales, "2026-04", "s1", "1000"},
 		{"見込 10月 売上", f.sales, "2026-10", "s2", "2500"},
-		{"機能単位で2施策の費用を合算", f.cost, "2026-04", "s1", "350"},
+		{"ユニット単位で2施策の費用を合算", f.cost, "2026-04", "s1", "350"},
 		{"着地見込: 9月までは実績", f.sales, "2026-04", "landing", "900"},
 		{"着地見込: 10月以降は見込（実績の10月は使わない）", f.sales, "2026-10", "landing", "2500"},
 		{"着地見込: 実績にない費用は含まない", f.cost, "2026-04", "landing", ""},
@@ -76,7 +76,7 @@ func TestComparisonReport(t *testing.T) {
 		}
 	}
 
-	// 機能を指定すると施策ごとに集計する
+	// ユニットを指定すると施策ごとに集計する
 	body = f.viewer.mustGet(fmt.Sprintf("/api/reports/comparison?scenario_ids=%d&function_id=%d", f.budget, f.fn1))
 	if got := reportValue(body, f.fn1, f.manualAct, f.cost, "2026-04", "s1"); got != "300" {
 		t.Errorf("施策別の費用 = %q, want 300", got)

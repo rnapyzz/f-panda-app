@@ -17,7 +17,7 @@ const mainNav: NavItem[] = [
 const masterNav: NavItem[] = [
   { to: '/masters/organizations', label: '組織' },
   { to: '/masters/segments', label: 'セグメント' },
-  { to: '/masters/functions', label: '機能' },
+  { to: '/masters/units', label: 'ユニット' },
   { to: '/masters/subjects', label: '勘定科目' },
   { to: '/masters/users', label: 'ユーザー' },
 ]

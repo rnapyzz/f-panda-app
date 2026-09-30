@@ -165,14 +165,14 @@ func TestFunctionsRequireLeafNodes(t *testing.T) {
 
 	fn := c.mustCreate("/api/functions", map[string]any{"name": "CCC課", "segment_id": segLeaf, "organization_id": orgLeaf})
 
-	// 機能が所属しているノードの下には子を作れない
+	// ユニットが所属しているノードの下には子を作れない
 	status, body = c.do("POST", "/api/segments", map[string]any{"name": "子", "parent_id": segLeaf})
 	if status != http.StatusUnprocessableEntity || detail(body, "parent_id") == "" {
-		t.Errorf("機能ありノードへの子追加: status = %d, body = %v", status, body)
+		t.Errorf("ユニットありノードへの子追加: status = %d, body = %v", status, body)
 	}
-	// 機能が所属しているノードは削除できない
+	// ユニットが所属しているノードは削除できない
 	if status, _ := c.do("DELETE", fmt.Sprintf("/api/organizations/%d", orgLeaf), nil); status != http.StatusConflict {
-		t.Errorf("機能ありノードの削除: status = %d, want 409", status)
+		t.Errorf("ユニットありノードの削除: status = %d, want 409", status)
 	}
 
 	// 更新
@@ -374,5 +374,34 @@ func TestMasterRejectsMalformedJSON(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Errorf("未知のフィールド: status = %d, want 400", res.StatusCode)
+	}
+}
+
+func TestUnitTypes(t *testing.T) {
+	c, _ := adminClient(t)
+	seg := c.mustCreate("/api/segments", map[string]any{"name": "S"})
+	org := c.mustCreate("/api/organizations", map[string]any{"name": "O"})
+	body := func(name, unitType string) map[string]any {
+		b := map[string]any{"name": name, "segment_id": seg, "organization_id": org}
+		if unitType != "" {
+			b["unit_type"] = unitType
+		}
+		return b
+	}
+
+	// 省略時はサービス
+	id := c.mustCreate("/api/functions", body("SaaSサービス", ""))
+	if got := c.mustGet(fmt.Sprintf("/api/functions/%d", id))["unit_type"]; got != "service" {
+		t.Errorf("既定の種別 = %v, want service", got)
+	}
+	cc := c.mustCreate("/api/functions", body("事業共通経費", "cost_center"))
+	if got := c.mustGet(fmt.Sprintf("/api/functions/%d", cc))["unit_type"]; got != "cost_center" {
+		t.Errorf("共通費 = %v", got)
+	}
+	if status, res := c.do("POST", "/api/functions", body("x", "profit")); status != http.StatusUnprocessableEntity || detail(res, "unit_type") == "" {
+		t.Errorf("不正な種別: status = %d, body = %v", status, res)
+	}
+	if status, res := c.do("PUT", fmt.Sprintf("/api/functions/%d", cc), body("人事部", "corporate")); status != http.StatusOK || res["unit_type"] != "corporate" {
+		t.Errorf("種別の変更: status = %d, body = %v", status, res)
 	}
 }

@@ -13,9 +13,9 @@ import (
 
 // treeHandler は階層構造を持つマスタ（組織・セグメント）の API。
 //
-// 機能（functions）は末端ノードにのみ所属できるため、次を守る:
-//   - 機能が所属しているノードの下には子ノードを作れない（移動先にもできない）
-//   - 子ノードを持つノードには機能を所属させられない（functions 側で検証）
+// ユニット（functions）は末端ノードにのみ所属できるため、次を守る:
+//   - ユニットが所属しているノードの下には子ノードを作れない（移動先にもできない）
+//   - 子ノードを持つノードにはユニットを所属させられない（functions 側で検証）
 type treeHandler struct {
 	db             *sql.DB
 	table          string // organizations / segments
@@ -224,7 +224,7 @@ func (t *treeHandler) update(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// delete は DELETE /api/{organizations|segments}/{id}。子ノードや機能から参照されている場合は削除できない。
+// delete は DELETE /api/{organizations|segments}/{id}。子ノードやユニットから参照されている場合は削除できない。
 func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 	id, err := httpx.PathID(r, "id")
 	if err != nil {
@@ -252,7 +252,7 @@ func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if n > 0 {
-			return httpx.Conflict("機能が所属しているため削除できません")
+			return httpx.Conflict("ユニットが所属しているため削除できません")
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t.table+" WHERE id = ?", id); err != nil {
 			return deleteError(err, t.label)
@@ -266,7 +266,7 @@ func (t *treeHandler) delete(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// lockParent は親にするノードを行ロック付きで取得し、機能が所属していないことを確認する。
+// lockParent は親にするノードを行ロック付きで取得し、ユニットが所属していないことを確認する。
 func (t *treeHandler) lockParent(ctx context.Context, tx *sql.Tx, parentID int64) (treeNode, error) {
 	parent, err := t.find(ctx, tx, parentID, " FOR UPDATE")
 	if err != nil {
@@ -280,7 +280,7 @@ func (t *treeHandler) lockParent(ctx context.Context, tx *sql.Tx, parentID int64
 		return treeNode{}, err
 	}
 	if n > 0 {
-		return treeNode{}, httpx.Validation(map[string]string{"parent_id": "機能が所属している" + t.label + "の下には追加できません"})
+		return treeNode{}, httpx.Validation(map[string]string{"parent_id": "ユニットが所属している" + t.label + "の下には追加できません"})
 	}
 	return parent, nil
 }

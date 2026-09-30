@@ -2,7 +2,7 @@
 //
 // 権限:
 //   - 参照: ログインユーザー全員
-//   - 作成・削除: FP&A（全機能）、マネージャー（担当者になっている機能の配下）
+//   - 作成・削除: FP&A（全ユニット）、マネージャー（担当者になっているユニットの配下）
 //   - 編集: 上記に加え、施策の担当者（manager / member）
 //
 // 変更は変更セット・監査ログに記録する。確度・前提条件・期間・算出方式の変更、計算式の変更、
@@ -39,7 +39,7 @@ func NewHandler(db *sql.DB) *Handler {
 	return &Handler{db: db}
 }
 
-// Register はルートを登録する。権限は各ハンドラーの中で施策・機能ごとに判定する。
+// Register はルートを登録する。権限は各ハンドラーの中で施策・ユニットごとに判定する。
 func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	handle := func(pattern string, f httpx.HandlerFunc) { mux.Handle(pattern, requireAuth(httpx.Handle(f))) }
 
@@ -100,7 +100,7 @@ type activity struct {
 	Assumptions  string       `json:"assumptions"`
 	timestamps
 
-	// functionOwnerID は所属する機能の担当者。権限判定に使う。
+	// functionOwnerID は所属するユニットの担当者。権限判定に使う。
 	functionOwnerID *int64
 }
 
@@ -175,7 +175,7 @@ func findActivity(ctx context.Context, q dbx.Querier, id int64, lock string) (ac
 
 // --- 権限 ---
 
-// canManageFunction は機能の配下で施策を作成・削除できるかを返す。
+// canManageFunction はユニットの配下で施策を作成・削除できるかを返す。
 func canManageFunction(u auth.User, functionOwnerID *int64) bool {
 	switch u.Role {
 	case auth.RoleFPAAdmin:
@@ -215,12 +215,12 @@ func lockEditable(ctx context.Context, tx *sql.Tx, u auth.User, id int64) (activ
 	return a, nil
 }
 
-// lockFunction は機能を行ロック付きで取得し、担当者を返す。
+// lockFunction はユニットを行ロック付きで取得し、担当者を返す。
 func lockFunction(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err error) {
 	var o sql.NullInt64
 	err = tx.QueryRowContext(ctx, "SELECT owner_user_id FROM functions WHERE id = ? FOR SHARE", id).Scan(&o)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, httpx.Validation(map[string]string{"function_id": "機能が見つかりません"})
+		return nil, httpx.Validation(map[string]string{"function_id": "ユニットが見つかりません"})
 	}
 	return dbx.PtrInt64(o), err
 }
@@ -482,7 +482,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		// 別の機能へ移す場合は、移動先の機能で施策を作成できる権限が必要。
+		// 別のユニットへ移す場合は、移動先のユニットで施策を作成できる権限が必要。
 		if in.FunctionID != before.FunctionID {
 			fnOwner, err := lockFunction(ctx, tx, in.FunctionID)
 			if err != nil {
@@ -662,7 +662,7 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 		Assumptions:  v.OptionalText("assumptions", "前提条件", req.Assumptions, maxAssumptionsLen),
 	}
 	if in.FunctionID <= 0 {
-		v.Add("function_id", "機能を選択してください")
+		v.Add("function_id", "ユニットを選択してください")
 	}
 	if !(allowEmptyCode && in.Code == "") && !codePattern.MatchString(in.Code) {
 		v.Add("code", "施策コードは半角英数字・ハイフン・アンダースコアの50文字以内で入力してください")

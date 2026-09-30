@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { milestoneStatusLabels, scenarioKindLabels, type List, type PL, type RiskActivity, type RiskReport, type Scenario } from '../../api/types'
+import { milestoneStatusLabels, scenarioKindLabels, unitTypeLabels, type FunctionItem, type List, type PL, type RiskActivity, type RiskReport, type Scenario, type UnitType } from '../../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { formatPercent, formatYen } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
@@ -21,7 +21,9 @@ const LOW_PROBABILITY = 0.7
 
 export function RiskPage() {
   const scenarios = useApi<List<Scenario>>('/scenarios')
+  const functions = useApi<List<FunctionItem>>('/functions')
   const { search } = useLocation()
+  const unitType = (['service', 'cost_center', 'corporate'] as const).find((t) => t === search.get('unit')) ?? ('' as UnitType | '')
 
   const all = scenarios.data?.items ?? []
   const years = [...new Set(all.map((s) => s.fiscal_year))].sort((a, b) => b - a)
@@ -34,14 +36,15 @@ export function RiskPage() {
   const opt = pick('opt', latest('optimistic'))
   const pes = pick('pes', latest('pessimistic'))
 
-  const update = (patch: Record<string, number | undefined>) => {
-    navigate(`/risks${query({ fy, base, opt: opt ?? '', pes: pes ?? '', ...patch })}`, { replace: true })
+  const update = (patch: Record<string, number | string | undefined>) => {
+    navigate(`/risks${query({ fy, base, opt: opt ?? '', pes: pes ?? '', unit: unitType, ...patch })}`, { replace: true })
   }
 
   const report = useApi<RiskReport>(base ? `/reports/risk${query({ scenario_id: base, optimistic_id: opt, pessimistic_id: pes })}` : null)
 
-  if (scenarios.error) return <ErrorMessage error={scenarios.error} />
-  if (!scenarios.data) return <Loading />
+  if (scenarios.error ?? functions.error) return <ErrorMessage error={scenarios.error ?? functions.error} />
+  if (!scenarios.data || !functions.data) return <Loading />
+  const unitOf = new Map(functions.data.items.map((f) => [f.id, f.unit_type]))
 
   const options = (filter: (s: Scenario) => boolean) =>
     inYear.filter(filter).map((s) => (
@@ -57,7 +60,7 @@ export function RiskPage() {
         description="見込の確からしさを、確度・仮の値・楽観/悲観の振れ幅・マイルストーンの状況から確認します。"
       />
       <Card className="mb-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <Control label="年度">
             <Select value={fy} onChange={(e) => navigate(`/risks${query({ fy: e.target.value })}`, { replace: true })}>
               {years.map((y) => (
@@ -85,6 +88,16 @@ export function RiskPage() {
               {options((s) => s.scenario_kind !== 'actual' && s.id !== base)}
             </Select>
           </Control>
+          <Control label="ユニットの種別">
+            <Select value={unitType} onChange={(e) => update({ unit: e.target.value })}>
+              <option value="">すべて</option>
+              {Object.entries(unitTypeLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}のみ
+                </option>
+              ))}
+            </Select>
+          </Control>
         </div>
       </Card>
 
@@ -97,7 +110,7 @@ export function RiskPage() {
       ) : !report.data ? (
         <Loading />
       ) : (
-        <RiskView report={report.data} />
+        <RiskView report={{ ...report.data, activities: report.data.activities.filter((a) => !unitType || unitOf.get(a.function_id) === unitType) }} />
       )}
     </>
   )

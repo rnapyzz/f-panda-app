@@ -1,7 +1,7 @@
 // Package report は予実比較・集計の API を提供する。
 //
 // GET /api/reports/comparison は、複数のシナリオ（と着地見込）の金額を、
-// 機能×科目×月（または機能内の施策×科目×月）で集計して返す。
+// ユニット×科目×月（またはユニット内の施策×科目×月）で集計して返す。
 // 階層（セグメント・組織）での集計や利益の計算は画面側で行う。
 package report
 
@@ -51,7 +51,7 @@ type Series struct {
 	ActualThrough      string `json:"actual_through,omitempty"`
 }
 
-// Row は1つの集計単位（機能または施策）× 科目 × 月の金額。Values は系列の Key → 金額（円、文字列）。
+// Row は1つの集計単位（ユニットまたは施策）× 科目 × 月の金額。Values は系列の Key → 金額（円、文字列）。
 type Row struct {
 	FunctionID int64             `json:"function_id"`
 	ActivityID *int64            `json:"activity_id,omitempty"`
@@ -80,7 +80,7 @@ type scenarioInfo struct {
 //   - scenario_ids: 比較するシナリオ ID（カンマ区切り、最大4つ）。先頭が差異の基準
 //   - landing_actual_id / landing_forecast_id / landing_through（YYYY-MM）:
 //     着地見込を系列に加える。landing_through までの月は実績、それ以降の月は見込を使う
-//   - function_id: 指定すると、その機能の施策ごとに集計する（指定しなければ機能ごと）
+//   - function_id: 指定すると、そのユニットの施策ごとに集計する（指定しなければユニットごと）
 //
 // すべての系列は同じ年度のシナリオでなければならない。
 func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
@@ -272,14 +272,14 @@ type rowKey struct {
 	month                             string
 }
 
-// loadAmounts はシナリオごとに、機能（functionID 指定時は施策）×科目×月の合計を返す。
+// loadAmounts はシナリオごとに、ユニット（functionID 指定時は施策）×科目×月の合計を返す。
 func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, functionID *int64) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
 	for _, id := range scenarioIDs {
 		args = append(args, id)
 	}
-	// 機能単位では施策 ID を 0 とし、グループ化にも含めない
+	// ユニット単位では施策 ID を 0 とし、グループ化にも含めない
 	activityCol, groupActivity, where := "0", "", ""
 	if functionID != nil {
 		activityCol, groupActivity = "a.id", "a.id, "
