@@ -27,6 +27,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
+        <img src="/favicon.svg" alt="" width={64} height={64} className="mx-auto mb-3" />
         <h1 className="text-center text-2xl font-bold text-indigo-700">F-Panda</h1>
         <p className="mt-1 text-center text-sm text-slate-500">活動ベース予実管理 / ローリングフォアキャスト</p>
         <form onSubmit={submit} className="mt-8 space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-xs">
