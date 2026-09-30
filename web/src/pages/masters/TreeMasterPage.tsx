@@ -46,6 +46,7 @@ export function TreeMasterPage({ resource }: { resource: Resource }) {
               <li key={node.id} className="group flex items-center gap-2 py-2" style={{ paddingLeft: depth * 24 }}>
                 <span className="text-slate-300">{depth > 0 ? '└' : '■'}</span>
                 <span className="font-medium text-slate-800">{node.name}</span>
+                <span className="font-mono text-xs text-slate-400">{node.code}</span>
                 <span className="text-xs text-slate-400">第{node.level}階層</span>
                 {canWrite && (
                   <span className="ml-auto flex gap-1 opacity-60 group-hover:opacity-100">
@@ -111,6 +112,7 @@ function TreeNodeDialog({
 }) {
   const initial = editing.mode === 'edit' ? editing.node : null
   const [name, setName] = useState(initial?.name ?? '')
+  const [code, setCode] = useState(initial?.code ?? '')
   const [parentId, setParentId] = useState<number | null>(initial ? initial.parent_id : editing.mode === 'create' ? editing.parentId : null)
   const [sortOrder, setSortOrder] = useState(String(initial?.sort_order ?? 0))
   const [reason, setReason] = useState('')
@@ -124,7 +126,7 @@ function TreeNodeDialog({
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const body = { name, parent_id: parentId, sort_order: Number(sortOrder) || 0, reason }
+    const body = { code, name, parent_id: parentId, sort_order: Number(sortOrder) || 0, reason }
     try {
       if (initial) await api.put(`/${resource}/${initial.id}`, body)
       else await api.post(`/${resource}`, body)
@@ -151,6 +153,9 @@ function TreeNodeDialog({
       }
     >
       <form id="tree-node-form" onSubmit={submit} className="space-y-4">
+        <Field label="コード" error={fieldError(error, 'code')} hint={initial ? 'CSV の取込で使います（英数字・-・_）' : `空欄なら自動で採番します（${resource === 'organizations' ? 'ORG-' : 'SEG-'}0001 形式）`}>
+          {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" placeholder={initial ? undefined : '自動採番'} />}
+        </Field>
         <Field label="名称" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
@@ -175,7 +180,7 @@ function TreeNodeDialog({
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['name', 'parent_id', 'sort_order', 'reason']} />
+        <FormError error={error} fields={['code', 'name', 'parent_id', 'sort_order', 'reason']} />
       </form>
     </Dialog>
   )

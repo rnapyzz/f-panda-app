@@ -232,6 +232,7 @@ erDiagram
     segments {
         bigint id PK
         bigint parent_id FK
+        varchar code "一意"
         varchar name
         int level
         int sort_order
@@ -239,6 +240,7 @@ erDiagram
     organizations {
         bigint id PK
         bigint parent_id FK
+        varchar code "一意"
         varchar name
         int level
         int sort_order
@@ -246,6 +248,7 @@ erDiagram
     units {
         enum unit_type "service / cost_center / corporate"
         bigint id PK
+        varchar code "一意"
         varchar name
         bigint segment_id FK
         bigint organization_id FK
@@ -358,6 +361,7 @@ erDiagram
 - `budget_facts`: (scenario_id, activity_id, subject_id, target_month) で一意
 - `driver_values`: (activity_driver_id, scenario_id, target_month) で一意
 - `activities`: code で一意
+- `organizations` / `segments` / `units`: code で一意（作成時に空なら ORG-0001 / SEG-0001 / UNIT-0001 形式で自動採番。CSV の取込で行を結びつけるキー）
 - `subjects`: code で一意
 - `activity_drivers`: (activity_id, code) で一意
 - `activity_formulas`: (activity_id, subject_id) で一意

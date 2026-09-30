@@ -405,3 +405,42 @@ func TestUnitTypes(t *testing.T) {
 		t.Errorf("種別の変更: status = %d, body = %v", status, res)
 	}
 }
+
+func TestMasterCodes(t *testing.T) {
+	c, _ := adminClient(t)
+	// 組織・セグメント・ユニットのコードは、空なら自動採番、指定もできる
+	org := c.mustCreate("/api/organizations", map[string]any{"name": "本部"})
+	if got := c.mustGet(fmt.Sprintf("/api/organizations/%d", org))["code"]; got != "ORG-0001" {
+		t.Errorf("組織コード = %v, want ORG-0001", got)
+	}
+	c.mustCreate("/api/organizations", map[string]any{"name": "HR", "code": "HR-100"})
+	seg := c.mustCreate("/api/segments", map[string]any{"name": "事業"})
+	if got := c.mustGet(fmt.Sprintf("/api/segments/%d", seg))["code"]; got != "SEG-0001" {
+		t.Errorf("セグメントコード = %v, want SEG-0001", got)
+	}
+	unit := c.mustCreate("/api/units", map[string]any{"name": "U", "segment_id": seg, "organization_id": org})
+	if got := c.mustGet(fmt.Sprintf("/api/units/%d", unit))["code"]; got != "UNIT-0001" {
+		t.Errorf("ユニットコード = %v, want UNIT-0001", got)
+	}
+
+	for name, tc := range map[string]struct {
+		path string
+		body map[string]any
+	}{
+		"組織コードの重複":   {"/api/organizations", map[string]any{"name": "x", "code": "HR-100"}},
+		"組織コードの形式":   {"/api/organizations", map[string]any{"name": "x", "code": "人事"}},
+		"ユニットコードの重複": {"/api/units", map[string]any{"name": "x", "code": "UNIT-0001", "segment_id": seg, "organization_id": org}},
+	} {
+		if status, body := c.do("POST", tc.path, tc.body); status != http.StatusUnprocessableEntity || detail(body, "code") == "" {
+			t.Errorf("%s: status = %d, body = %v", name, status, body)
+		}
+	}
+
+	// 更新でコードを省略すると今のコードのまま、指定すると変わる
+	if status, body := c.do("PUT", fmt.Sprintf("/api/organizations/%d", org), map[string]any{"name": "本部（改）"}); status != http.StatusOK || body["code"] != "ORG-0001" {
+		t.Errorf("コード省略の更新: status = %d, body = %v", status, body)
+	}
+	if status, body := c.do("PUT", fmt.Sprintf("/api/units/%d", unit), map[string]any{"name": "U", "code": "SAAS", "segment_id": seg, "organization_id": org}); status != http.StatusOK || body["code"] != "SAAS" {
+		t.Errorf("コードの変更: status = %d, body = %v", status, body)
+	}
+}

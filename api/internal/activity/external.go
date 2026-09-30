@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -54,26 +55,12 @@ func listExternalCodes(ctx context.Context, q querier, activityID int64) ([]exte
 }
 
 // nextActivityCode は自動採番の次の施策コード（ACT-0001, ACT-0002, ...）を返す。
+// 外部コードと同じ値は避ける（CSV で施策を特定できなくなるため）。
 func nextActivityCode(ctx context.Context, tx *sql.Tx) (string, error) {
-	var maxNo sql.NullInt64
-	err := tx.QueryRowContext(ctx,
-		"SELECT MAX(CAST(SUBSTRING(code, ?) AS UNSIGNED)) FROM activities WHERE code REGEXP ?",
-		len(autoCodePrefix)+1, "^"+autoCodePrefix+"[0-9]+$",
-	).Scan(&maxNo)
-	if err != nil {
-		return "", err
-	}
-	for n := maxNo.Int64 + 1; ; n++ {
-		code := fmt.Sprintf("%s%04d", autoCodePrefix, n)
-		// 外部コードと同じ値は避ける（CSV で施策を特定できなくなるため）
-		taken, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM activity_external_codes WHERE code = ?", code)
-		if err != nil {
-			return "", err
-		}
-		if taken == 0 {
-			return code, nil
-		}
-	}
+	return codes.Next(ctx, tx, "activities", autoCodePrefix, func(code string) (bool, error) {
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM activity_external_codes WHERE code = ?", code)
+		return n > 0, err
+	})
 }
 
 // checkCodeNotExternal は施策コードが既存の外部コードと重ならないことを確認する。

@@ -16,6 +16,7 @@ type Timestamps = { created_at: string; updated_at: string }
 export type TreeNode = Timestamps & {
   id: number
   parent_id: number | null
+  code: string
   name: string
   level: number
   sort_order: number
@@ -33,6 +34,7 @@ export const unitTypeLabels: Record<UnitType, string> = {
 /** ユニット（施策を束ねる単位） */
 export type Unit = Timestamps & {
   id: number
+  code: string
   name: string
   unit_type: UnitType
   segment_id: number

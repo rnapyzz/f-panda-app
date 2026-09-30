@@ -8,9 +8,13 @@ import (
 	"slices"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
+
+// unitCodePrefix は自動採番するユニットコードの接頭辞（UNIT-0001 の形式）。
+const unitCodePrefix = "UNIT-"
 
 // unitTypes はユニットの種別。service = サービス（プロフィットセンター）、cost_center = 共通費、corporate = 管理部門。
 var unitTypes = []string{"service", "cost_center", "corporate"}
@@ -18,6 +22,7 @@ var unitTypes = []string{"service", "cost_center", "corporate"}
 // unit はユニット（施策を束ねる単位）。セグメントと組織の末端ノードに1つずつ所属する。
 type unit struct {
 	ID             int64  `json:"id"`
+	Code           string `json:"code"`
 	Name           string `json:"name"`
 	UnitType       string `json:"unit_type"`
 	SegmentID      int64  `json:"segment_id"`
@@ -27,6 +32,7 @@ type unit struct {
 }
 
 type unitRequest struct {
+	Code           string `json:"code"` // 作成時は空なら自動採番、更新時は空なら変更しない
 	Name           string `json:"name"`
 	UnitType       string `json:"unit_type"` // 省略時は service
 	SegmentID      int64  `json:"segment_id"`
@@ -35,12 +41,12 @@ type unitRequest struct {
 	reasonRequest
 }
 
-const unitSelect = "SELECT id, name, unit_type, segment_id, organization_id, owner_user_id, created_at, updated_at FROM units"
+const unitSelect = "SELECT id, code, name, unit_type, segment_id, organization_id, owner_user_id, created_at, updated_at FROM units"
 
 func scanUnit(row interface{ Scan(...any) error }) (unit, error) {
 	var f unit
 	var owner sql.NullInt64
-	err := row.Scan(&f.ID, &f.Name, &f.UnitType, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Code, &f.Name, &f.UnitType, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
 	f.OwnerUserID = dbx.PtrInt64(owner)
 	return f, err
 }
@@ -96,7 +102,7 @@ func (h *Handler) createUnit(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	name, err := validateUnitRequest(&req)
+	name, err := validateUnitRequest(&req, true)
 	if err != nil {
 		return err
 	}
@@ -107,10 +113,20 @@ func (h *Handler) createUnit(w http.ResponseWriter, r *http.Request) error {
 		if err := h.checkUnitRefs(ctx, tx, req); err != nil {
 			return err
 		}
+		if req.Code == "" {
+			next, err := codes.Next(ctx, tx, "units", unitCodePrefix, nil)
+			if err != nil {
+				return err
+			}
+			req.Code = next
+		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO units (name, unit_type, segment_id, organization_id, owner_user_id) VALUES (?, ?, ?, ?, ?)",
-			name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID),
+			"INSERT INTO units (code, name, unit_type, segment_id, organization_id, owner_user_id) VALUES (?, ?, ?, ?, ?, ?)",
+			req.Code, name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID),
 		)
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
+			return httpx.Validation(map[string]string{"code": "このコードは既に使われています"})
+		}
 		if err != nil {
 			return err
 		}
@@ -140,7 +156,7 @@ func (h *Handler) updateUnit(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	name, err := validateUnitRequest(&req)
+	name, err := validateUnitRequest(&req, true) // 空なら今のコードのまま
 	if err != nil {
 		return err
 	}
@@ -155,10 +171,17 @@ func (h *Handler) updateUnit(w http.ResponseWriter, r *http.Request) error {
 		if err := h.checkUnitRefs(ctx, tx, req); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE units SET name = ?, unit_type = ?, segment_id = ?, organization_id = ?, owner_user_id = ? WHERE id = ?",
-			name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID), id,
-		); err != nil {
+		if req.Code == "" {
+			req.Code = before.Code
+		}
+		_, err = tx.ExecContext(ctx,
+			"UPDATE units SET code = ?, name = ?, unit_type = ?, segment_id = ?, organization_id = ?, owner_user_id = ? WHERE id = ?",
+			req.Code, name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID), id,
+		)
+		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
+			return httpx.Validation(map[string]string{"code": "このコードは既に使われています"})
+		}
+		if err != nil {
 			return err
 		}
 		if updated, err = findUnit(ctx, tx, id, ""); err != nil {
@@ -209,9 +232,11 @@ func (h *Handler) deleteUnit(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func validateUnitRequest(req *unitRequest) (string, error) {
+// validateUnitRequest はユニットの入力を検証する。allowEmptyCode なら空のコードを許す（自動採番する）。
+func validateUnitRequest(req *unitRequest, allowEmptyCode bool) (string, error) {
 	v := httpx.Validator{}
 	name := v.Text("name", "名称", req.Name, maxNameLen)
+	req.Code = validateCode(v, req.Code, allowEmptyCode)
 	if req.UnitType == "" {
 		req.UnitType = "service"
 	}

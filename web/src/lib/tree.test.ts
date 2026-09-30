@@ -6,6 +6,7 @@ import { buildTree, isLeaf, pathName, subtreeIds } from './tree.ts'
 const node = (id: number, parent_id: number | null, name: string, sort_order = 0): TreeNode => ({
   id,
   parent_id,
+  code: `N-${id}`,
   name,
   level: 0,
   sort_order,
