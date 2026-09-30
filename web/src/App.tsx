@@ -1,40 +1,60 @@
-import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Layout } from './components/Layout'
+import { Card, Loading, PageHeader } from './components/ui'
+import { AuthProvider, useAuth } from './lib/auth'
+import { matchPath, Redirect, useLocation } from './lib/router'
+import { LoginPage } from './pages/LoginPage'
+import { FunctionsPage } from './pages/masters/FunctionsPage'
+import { SubjectsPage } from './pages/masters/SubjectsPage'
+import { TreeMasterPage } from './pages/masters/TreeMasterPage'
+import { UsersPage } from './pages/masters/UsersPage'
 
-type Health = { status: string; database: string }
+type Route = { path: string; render: (params: Record<string, string>) => ReactNode }
 
-function App() {
-  const [health, setHealth] = useState<Health | null>(null)
-  const [error, setError] = useState<string | null>(null)
+const routes: Route[] = [
+  { path: '/', render: () => <Redirect to="/activities" /> },
+  { path: '/activities', render: () => <ComingSoon title="施策" /> },
+  { path: '/scenarios', render: () => <ComingSoon title="シナリオ" /> },
+  { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },
+  { path: '/masters/segments', render: () => <TreeMasterPage key="segments" resource="segments" /> },
+  { path: '/masters/functions', render: () => <FunctionsPage /> },
+  { path: '/masters/subjects', render: () => <SubjectsPage /> },
+  { path: '/masters/users', render: () => <UsersPage /> },
+]
 
-  useEffect(() => {
-    fetch('/api/health')
-      .then(async (res) => {
-        const body = (await res.json()) as Health
-        setHealth(body)
-      })
-      .catch((err: unknown) => setError(String(err)))
-  }, [])
-
+export default function App() {
   return (
-    <main className="min-h-screen bg-slate-50 p-8 text-slate-800">
-      <h1 className="text-2xl font-bold">F-Panda</h1>
-      <p className="mt-1 text-sm text-slate-500">活動ベース予実管理 / ローリングフォアキャスト</p>
-
-      <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold">API ステータス</h2>
-        {error && <p className="mt-2 text-sm text-red-600">接続エラー: {error}</p>}
-        {!error && !health && <p className="mt-2 text-sm text-slate-500">確認中…</p>}
-        {health && (
-          <dl className="mt-2 grid grid-cols-[8rem_1fr] gap-y-1 text-sm">
-            <dt className="text-slate-500">API</dt>
-            <dd>{health.status}</dd>
-            <dt className="text-slate-500">データベース</dt>
-            <dd>{health.database}</dd>
-          </dl>
-        )}
-      </section>
-    </main>
+    <AuthProvider>
+      <Screen />
+    </AuthProvider>
   )
 }
 
-export default App
+function Screen() {
+  const { user } = useAuth()
+  const { pathname } = useLocation()
+
+  if (user === undefined) return <Loading />
+  if (user === null) return <LoginPage />
+
+  for (const r of routes) {
+    const params = matchPath(r.path, pathname)
+    if (params) return <Layout>{r.render(params)}</Layout>
+  }
+  return (
+    <Layout>
+      <PageHeader title="ページが見つかりません" description="URL を確認してください。" />
+    </Layout>
+  )
+}
+
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <>
+      <PageHeader title={title} />
+      <Card>
+        <p className="text-sm text-slate-500">この画面は準備中です。</p>
+      </Card>
+    </>
+  )
+}
