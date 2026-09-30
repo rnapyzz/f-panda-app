@@ -376,7 +376,7 @@ erDiagram
 ```csv
 target_month,activity_code,subject_code,amount
 2026-09,ACT-0001,4110,1200000
-2026-09,ACT-0001,8110,-350000
+2026-09,ACT-0001,8110,350000
 ```
 
 | 列              | 内容                                   | 規則                                   |
@@ -384,7 +384,7 @@ target_month,activity_code,subject_code,amount
 | `target_month`  | 対象年月                               | `YYYY-MM` 形式                         |
 | `activity_code` | 施策コード（`activities.code`）        | 登録済みのコードであること             |
 | `subject_code`  | 科目コード（`subjects.code`）          | 登録済みのコードであること             |
-| `amount`        | 金額（円）                             | 整数。マイナス可                       |
+| `amount`        | 金額（円）                             | 整数。収益・費用ともプラスで入力する（マイナスは戻し・訂正など） |
 
 - 文字コードは UTF-8（BOM 付きも可）、1行目はヘッダー行とする。
 - 取込先は実績シナリオ（`scenario_kind = 'actual'`）で、取込時に選択する。
@@ -404,6 +404,7 @@ target_month,activity_code,subject_code,amount
 | 承認ワークフロー | 持たない。見込の確定は FP&A によるシナリオのロックで行う                                                    |
 | 会計年度         | 4月開始。`fiscal_year = 2026` は 2026-04〜2027-03 を指す                                                    |
 | 通貨             | 日本円のみ                                                                                                  |
+| 金額の符号       | 収益・費用ともプラスで登録する。利益 = 収益 − 費用（科目の区分で判定）。マイナスは戻し・訂正などに使う |
 | 金額単位         | 円単位で保持・表示する。`budget_facts.amount` は `DECIMAL(18,0)`。式で算出した金額は円未満を四捨五入する |
 | 認証             | メールアドレス＋パスワード（パスワードはハッシュ化して保存）。将来 SSO に対応する。詳細は architecture.md   |
 

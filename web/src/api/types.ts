@@ -235,3 +235,30 @@ export type ImportResult = {
   unchanged: number
   totals: { month: string; revenue: string; expense: string }[]
 }
+
+// --- 予実比較 ---
+
+export type ReportSeries = {
+  key: string
+  label: string
+  kind: 'scenario' | 'landing'
+  scenario_id?: number
+  actual_scenario_id?: number
+  forecast_scenario_id?: number
+  actual_through?: string
+}
+
+export type ReportRow = {
+  function_id: number
+  activity_id?: number
+  subject_id: number
+  month: string
+  values: Record<string, string>
+}
+
+export type ComparisonReport = {
+  fiscal_year: number
+  months: string[]
+  series: ReportSeries[]
+  rows: ReportRow[]
+}
