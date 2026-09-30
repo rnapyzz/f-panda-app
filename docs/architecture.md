@@ -63,12 +63,12 @@
 
 ## マスタ管理 API
 
-組織・セグメント・機能・勘定科目・ユーザーの CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
+組織・セグメント・ユニット・勘定科目・ユーザーの CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
 
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
-| 機能                           | `GET/POST /api/functions`、`GET/PUT/DELETE /api/functions/{id}`     |
+| ユニット（API 上は functions） | `GET/POST /api/functions`、`GET/PUT/DELETE /api/functions/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
 
@@ -78,8 +78,8 @@
 - 階層（組織・セグメント）
   - `level` はサーバーが親から計算する。親を変更（移動）すると配下の `level` も更新する
   - 自分自身や配下のノードを親にはできない
-  - 機能が所属しているノードの下には子を作れない。機能は子を持たない末端ノードにのみ所属できる
-  - 子ノードや機能が残っているノードは削除できない（409）
+  - ユニットが所属しているノードの下には子を作れない。ユニットは子を持たない末端ノードにのみ所属できる
+  - 子ノードやユニットが残っているノードは削除できない（409）
 - 勘定科目: コードは一意。親科目は同じ区分（収益/費用）のみ。子科目がある科目は削除・区分変更できない
 - ユーザー: 削除はせず `is_active` で無効化する（無効化するとセッションも削除）。自分自身のロール変更・無効化はできない。パスワード再設定で対象ユーザーのセッションを削除する
 - エラー: 入力エラーは 422（`details` にフィールドごとのメッセージ）、存在しない場合は 404、参照中などの矛盾は 409。ファイル取込の行ごとのエラーは `rows`（`line`・`message`）で返す
@@ -144,8 +144,8 @@
 
 - `scenario_ids`: 比較するシナリオ（カンマ区切り、最大4つ）。先頭が差異の基準
 - `landing_actual_id` / `landing_forecast_id` / `landing_through`（YYYY-MM）: 着地見込を系列に加える。`landing_through` までの月は実績シナリオ、それ以降の月は見込シナリオの金額を使う
-- `function_id`: 指定するとその機能の施策ごと、指定しなければ機能ごとに集計する
-- レスポンス: 系列（`series`）と、機能（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
+- `function_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
+- レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
 

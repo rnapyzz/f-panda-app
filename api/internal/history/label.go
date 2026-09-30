@@ -51,7 +51,7 @@ func (h *Handler) newLabeler(ctx context.Context) (*labeler, error) {
 
 var tableNouns = map[string]string{
 	"scenarios":     "シナリオ",
-	"functions":     "機能",
+	"functions":     "ユニット",
 	"segments":      "セグメント",
 	"organizations": "組織",
 	"subjects":      "科目",

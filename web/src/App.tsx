@@ -31,7 +31,9 @@ const routes: Route[] = [
   { path: '/risks', render: () => <RiskPage /> },
   { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },
   { path: '/masters/segments', render: () => <TreeMasterPage key="segments" resource="segments" /> },
-  { path: '/masters/functions', render: () => <FunctionsPage /> },
+  { path: '/masters/units', render: () => <FunctionsPage /> },
+  // 旧 URL（「機能」だった頃）
+  { path: '/masters/functions', render: () => <Redirect to="/masters/units" /> },
   { path: '/masters/subjects', render: () => <SubjectsPage /> },
   { path: '/masters/users', render: () => <UsersPage /> },
 ]

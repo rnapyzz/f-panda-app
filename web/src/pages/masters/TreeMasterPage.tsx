@@ -10,8 +10,8 @@ import { useApi } from '../../lib/useApi'
 type Resource = 'organizations' | 'segments'
 
 const labels: Record<Resource, { title: string; noun: string; description: string }> = {
-  organizations: { title: '組織', noun: '組織', description: '本部・部などの組織の階層です。機能（課・チーム）は末端の組織に所属します。' },
-  segments: { title: 'セグメント', noun: 'セグメント', description: '事業ポートフォリオの階層です。機能は末端のセグメントに所属します。' },
+  organizations: { title: '組織', noun: '組織', description: '本部・部などの組織の階層です。ユニット（課・チーム）は末端の組織に所属します。' },
+  segments: { title: 'セグメント', noun: 'セグメント', description: '事業ポートフォリオの階層です。ユニットは末端のセグメントに所属します。' },
 }
 
 type Editing = { mode: 'create'; parentId: number | null } | { mode: 'edit'; node: TreeNode }
@@ -82,7 +82,7 @@ export function TreeMasterPage({ resource }: { resource: Resource }) {
       <ConfirmDialog
         open={deleting !== null}
         title={`${l.noun}の削除`}
-        message={<>「{deleting?.name}」を削除します。配下の{l.noun}や所属する機能がある場合は削除できません。</>}
+        message={<>「{deleting?.name}」を削除します。配下の{l.noun}や所属するユニットがある場合は削除できません。</>}
         reason="optional"
         onClose={() => setDeleting(null)}
         onConfirm={async (reason) => {
@@ -154,7 +154,7 @@ function TreeNodeDialog({
         <Field label="名称" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} autoFocus value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
-        <Field label={`親の${noun}`} error={fieldError(error, 'parent_id')} hint="機能が所属している末端の階層の下には追加できません">
+        <Field label={`親の${noun}`} error={fieldError(error, 'parent_id')} hint="ユニットが所属している末端の階層の下には追加できません">
           {(p) => (
             <Select {...p} value={parentId ?? ''} onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}>
               <option value="">（最上位）</option>

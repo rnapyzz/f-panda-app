@@ -8,7 +8,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 )
 
-// activityFixture は施策のテストに使う機能とユーザー。
+// activityFixture は施策のテストに使うユニットとユーザー。
 type activityFixture struct {
 	env                     *testEnv
 	admin                   *client
@@ -66,12 +66,12 @@ func activityBody(fn int64, code string, overrides map[string]any) map[string]an
 func TestActivityPermissions(t *testing.T) {
 	f := newActivityFixture(t)
 
-	// 作成: FP&A はどこでも、マネージャーは担当機能のみ、担当者・閲覧者は不可
+	// 作成: FP&A はどこでも、マネージャーは担当ユニットのみ、担当者・閲覧者は不可
 	f.admin.mustCreate("/api/activities", activityBody(f.fn2, "ACT-ADMIN", nil))
 	id := f.manager1.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"owner_user_id": f.memberID}))
-	for name, c := range map[string]*client{"他機能のマネージャー": f.manager1, "担当者": f.member, "閲覧者": f.viewer} {
+	for name, c := range map[string]*client{"他ユニットのマネージャー": f.manager1, "担当者": f.member, "閲覧者": f.viewer} {
 		fn := f.fn1
-		if name == "他機能のマネージャー" {
+		if name == "他ユニットのマネージャー" {
 			fn = f.fn2
 		}
 		if status, _ := c.do("POST", "/api/activities", activityBody(fn, "ACT-X", nil)); status != http.StatusForbidden {
@@ -82,13 +82,13 @@ func TestActivityPermissions(t *testing.T) {
 	path := fmt.Sprintf("/api/activities/%d", id)
 	update := activityBody(f.fn1, "ACT-1", map[string]any{"owner_user_id": f.memberID, "name": "更新後"})
 
-	// 編集: 担当機能のマネージャー・施策の担当者は可、それ以外は不可
-	for name, c := range map[string]*client{"担当機能のマネージャー": f.manager1, "施策の担当者": f.member} {
+	// 編集: 担当ユニットのマネージャー・施策の担当者は可、それ以外は不可
+	for name, c := range map[string]*client{"担当ユニットのマネージャー": f.manager1, "施策の担当者": f.member} {
 		if status, body := c.do("PUT", path, update); status != http.StatusOK {
 			t.Errorf("%s の編集: status = %d, body = %v", name, status, body)
 		}
 	}
-	for name, c := range map[string]*client{"他機能のマネージャー": f.manager2, "担当外の担当者": f.member2, "閲覧者": f.viewer} {
+	for name, c := range map[string]*client{"他ユニットのマネージャー": f.manager2, "担当外の担当者": f.member2, "閲覧者": f.viewer} {
 		if status, _ := c.do("PUT", path, update); status != http.StatusForbidden {
 			t.Errorf("%s の編集: status = %d, want 403", name, status)
 		}
@@ -102,15 +102,15 @@ func TestActivityPermissions(t *testing.T) {
 		t.Errorf("担当外から見た can_edit = %v, want false", got)
 	}
 
-	// 別の機能への移動は、移動先で作成できる権限が必要
+	// 別のユニットへの移動は、移動先で作成できる権限が必要
 	moved := activityBody(f.fn2, "ACT-1", map[string]any{"owner_user_id": f.memberID})
 	for name, c := range map[string]*client{"マネージャー": f.manager1, "担当者": f.member} {
 		if status, _ := c.do("PUT", path, moved); status != http.StatusForbidden {
-			t.Errorf("%s による他機能への移動: status = %d, want 403", name, status)
+			t.Errorf("%s による他ユニットへの移動: status = %d, want 403", name, status)
 		}
 	}
 
-	// 削除: 担当者は不可、担当機能のマネージャーは可
+	// 削除: 担当者は不可、担当ユニットのマネージャーは可
 	del := map[string]any{"reason": "施策の中止"}
 	if status, _ := f.member.do("DELETE", path, del); status != http.StatusForbidden {
 		t.Errorf("担当者の削除: status = %d, want 403", status)

@@ -57,7 +57,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
   const canEdit = a.can_edit
   const creatable = creatableFunctions(me, functions.data.items)
   const canDelete = creatable.some((f) => f.id === a.function_id)
-  // 編集ダイアログで選べる機能: 移動できる機能＋現在の機能
+  // 編集ダイアログで選べるユニット: 移動できるユニット＋現在のユニット
   const editableFunctions = creatable.some((f) => f.id === a.function_id) ? creatable : [functionById.get(a.function_id)!, ...creatable]
   const base = `/activities/${a.id}`
   const reload = () => activity.reload()
@@ -149,7 +149,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <Card title="基本情報">
             <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
               <Info label="タイプ">{activityTypeLabels[a.activity_type]}</Info>
-              <Info label="機能">{functionById.get(a.function_id)?.name}</Info>
+              <Info label="ユニット">{functionById.get(a.function_id)?.name}</Info>
               <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
               <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
               <Info label="確度">{formatPercent(a.probability)}</Info>

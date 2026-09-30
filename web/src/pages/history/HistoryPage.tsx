@@ -10,6 +10,7 @@ import {
   roleLabels,
   scenarioKindLabels,
   tableLabels,
+  unitTypeLabels,
   type Activity,
   type ChangeLog,
   type ChangeSet,
@@ -278,7 +279,7 @@ const fieldLabels: Record<string, string> = {
   calc_mode: '算出方式',
   activity_type: 'タイプ',
   owner_user_id: '担当者',
-  function_id: '機能',
+  function_id: 'ユニット',
   is_provisional: '仮の値',
   provisional_reason: '仮の値の理由',
   expression: '計算式',
@@ -304,6 +305,7 @@ const fieldLabels: Record<string, string> = {
   password_changed: 'パスワード',
   copied: '複製した件数',
   note: 'メモ',
+  unit_type: '種別',
 }
 
 const valueLabels: Record<string, Record<string, string>> = {
@@ -315,6 +317,7 @@ const valueLabels: Record<string, Record<string, string>> = {
   category: categoryLabels,
   scenario_kind: scenarioKindLabels,
   source: { manual: '直接入力', formula: '計算式', import: '取込' },
+  unit_type: unitTypeLabels,
 }
 
 function formatField(key: string, v: unknown): string {

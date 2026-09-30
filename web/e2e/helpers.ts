@@ -40,7 +40,7 @@ export type Fixture = {
   revenueName: string
 }
 
-/** セグメント・組織・機能・科目（収益・費用）を作る */
+/** セグメント・組織・ユニット・科目（収益・費用）を作る */
 export async function seedMasters(page: Page): Promise<Fixture> {
   const a = api(page)
   const run = uniq()

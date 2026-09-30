@@ -5,16 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
-// function は機能（施策を束ねる単位）。セグメントと組織の末端ノードに1つずつ所属する。
+// unitTypes はユニットの種別。service = サービス（プロフィットセンター）、cost_center = 共通費、corporate = 管理部門。
+var unitTypes = []string{"service", "cost_center", "corporate"}
+
+// function はユニット（施策を束ねる単位）。セグメントと組織の末端ノードに1つずつ所属する。
+// DB・API 上の名前は functions のまま。
 type function struct {
 	ID             int64  `json:"id"`
 	Name           string `json:"name"`
+	UnitType       string `json:"unit_type"`
 	SegmentID      int64  `json:"segment_id"`
 	OrganizationID int64  `json:"organization_id"`
 	OwnerUserID    *int64 `json:"owner_user_id"`
@@ -23,18 +29,19 @@ type function struct {
 
 type functionRequest struct {
 	Name           string `json:"name"`
+	UnitType       string `json:"unit_type"` // 省略時は service
 	SegmentID      int64  `json:"segment_id"`
 	OrganizationID int64  `json:"organization_id"`
 	OwnerUserID    *int64 `json:"owner_user_id"`
 	reasonRequest
 }
 
-const functionSelect = "SELECT id, name, segment_id, organization_id, owner_user_id, created_at, updated_at FROM functions"
+const functionSelect = "SELECT id, name, unit_type, segment_id, organization_id, owner_user_id, created_at, updated_at FROM functions"
 
 func scanFunction(row interface{ Scan(...any) error }) (function, error) {
 	var f function
 	var owner sql.NullInt64
-	err := row.Scan(&f.ID, &f.Name, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Name, &f.UnitType, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
 	f.OwnerUserID = dbx.PtrInt64(owner)
 	return f, err
 }
@@ -42,7 +49,7 @@ func scanFunction(row interface{ Scan(...any) error }) (function, error) {
 func findFunction(ctx context.Context, q dbx.Querier, id int64, lock string) (function, error) {
 	f, err := scanFunction(q.QueryRowContext(ctx, functionSelect+" WHERE id = ?"+lock, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return function{}, notFound("機能")
+		return function{}, notFound("ユニット")
 	}
 	return f, err
 }
@@ -90,7 +97,7 @@ func (h *Handler) createFunction(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	name, err := validateFunctionRequest(req)
+	name, err := validateFunctionRequest(&req)
 	if err != nil {
 		return err
 	}
@@ -102,8 +109,8 @@ func (h *Handler) createFunction(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO functions (name, segment_id, organization_id, owner_user_id) VALUES (?, ?, ?, ?)",
-			name, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID),
+			"INSERT INTO functions (name, unit_type, segment_id, organization_id, owner_user_id) VALUES (?, ?, ?, ?, ?)",
+			name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID),
 		)
 		if err != nil {
 			return err
@@ -134,7 +141,7 @@ func (h *Handler) updateFunction(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
-	name, err := validateFunctionRequest(req)
+	name, err := validateFunctionRequest(&req)
 	if err != nil {
 		return err
 	}
@@ -150,8 +157,8 @@ func (h *Handler) updateFunction(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			"UPDATE functions SET name = ?, segment_id = ?, organization_id = ?, owner_user_id = ? WHERE id = ?",
-			name, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID), id,
+			"UPDATE functions SET name = ?, unit_type = ?, segment_id = ?, organization_id = ?, owner_user_id = ? WHERE id = ?",
+			name, req.UnitType, req.SegmentID, req.OrganizationID, dbx.NullInt64(req.OwnerUserID), id,
 		); err != nil {
 			return err
 		}
@@ -192,7 +199,7 @@ func (h *Handler) deleteFunction(w http.ResponseWriter, r *http.Request) error {
 			return httpx.Conflict("施策が所属しているため削除できません")
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM functions WHERE id = ?", id); err != nil {
-			return deleteError(err, "機能")
+			return deleteError(err, "ユニット")
 		}
 		return rec.Delete(ctx, "functions", id, before)
 	})
@@ -203,9 +210,15 @@ func (h *Handler) deleteFunction(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func validateFunctionRequest(req functionRequest) (string, error) {
+func validateFunctionRequest(req *functionRequest) (string, error) {
 	v := httpx.Validator{}
 	name := v.Text("name", "名称", req.Name, maxNameLen)
+	if req.UnitType == "" {
+		req.UnitType = "service"
+	}
+	if !slices.Contains(unitTypes, req.UnitType) {
+		v.Add("unit_type", "種別は service（サービス）/ cost_center（共通費）/ corporate（管理部門）のいずれかを指定してください")
+	}
 	if req.SegmentID <= 0 {
 		v.Add("segment_id", "セグメントを選択してください")
 	}
