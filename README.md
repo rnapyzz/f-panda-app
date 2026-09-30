@@ -1,5 +1,7 @@
 # F-Panda
 
+[![CI](https://github.com/rnapyzz/f-panda-app/actions/workflows/ci.yml/badge.svg)](https://github.com/rnapyzz/f-panda-app/actions/workflows/ci.yml)
+
 活動（施策）ベースの予実管理・ローリングフォアキャスト支援アプリ。
 
 ## 構成
@@ -40,3 +42,14 @@ make up                # docker compose up --build -d
 ### マイグレーション
 
 `api/migrations/` に `<4桁の連番>_<説明>.sql` の形式で追加する。適用済みのファイルは変更せず、変更は新しいファイルで行う。
+
+## CI
+
+GitHub Actions（`.github/workflows/ci.yml`）で、PR と main への push ごとに以下を実行する。
+
+| ジョブ       | 内容                                                                 |
+| ------------ | -------------------------------------------------------------------- |
+| `api`        | gofmt・`go mod tidy` の差分確認・`go vet`・`go test -race`           |
+| `migrations` | MySQL 8.4 に対してマイグレーションを適用し、再実行で変更がないこと   |
+| `web`        | `npm run lint`・`npm run build`（型チェックを含む）                  |
+| `compose`    | `docker compose up` で全体を起動し、`/api/health` とトップページを確認 |
