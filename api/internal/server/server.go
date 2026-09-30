@@ -12,6 +12,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/master"
+	"github.com/rnapyzz/f-panda-app/api/internal/scenario"
 )
 
 // Deps はハンドラーが依存するもの。
@@ -36,6 +37,7 @@ func NewHandler(d Deps) http.Handler {
 
 	master.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	activity.NewHandler(d.DB).Register(mux, requireAuth)
+	scenario.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 
 	// 未定義の /api パスは JSON で 404 を返す。
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
