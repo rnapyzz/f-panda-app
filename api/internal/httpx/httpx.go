@@ -25,6 +25,14 @@ type Error struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
 	Details map[string]string `json:"details,omitempty"`
+	// Rows はファイル取込などで、行ごとのエラーを返すときに使う。
+	Rows []RowError `json:"rows,omitempty"`
+}
+
+// RowError は取込ファイルの行ごとのエラー。Line は1始まりの行番号（ヘッダー行を含む）。
+type RowError struct {
+	Line    int    `json:"line"`
+	Message string `json:"message"`
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
