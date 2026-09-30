@@ -147,3 +147,91 @@ export const driverKindLabels: Record<DriverKind, string> = {
   cost: 'コストドライバー',
   kpi: 'KPI',
 }
+
+// --- シナリオ ---
+
+export type ScenarioKind = 'budget' | 'forecast' | 'actual' | 'optimistic' | 'pessimistic' | 'other'
+
+export type Scenario = Timestamps & {
+  id: number
+  name: string
+  scenario_kind: ScenarioKind
+  fiscal_year: number
+  base_scenario_id: number | null
+  is_locked: boolean
+  created_by: number
+}
+
+export const scenarioKindLabels: Record<ScenarioKind, string> = {
+  budget: '予算',
+  forecast: '見込',
+  actual: '実績',
+  optimistic: '楽観',
+  pessimistic: '悲観',
+  other: 'その他',
+}
+
+export type ValueCell = {
+  target_month: string
+  value: number | string
+  is_provisional: boolean
+  provisional_reason: string
+}
+
+export type DriverRow = {
+  id: number
+  code: string
+  name: string
+  driver_kind: DriverKind
+  unit: string
+  values: ValueCell[]
+}
+
+export type AmountCell = {
+  target_month: string
+  amount: number | string
+  source: 'manual' | 'formula' | 'import'
+  is_provisional: boolean
+  provisional_reason: string
+}
+
+export type AmountRow = {
+  subject_id: number
+  code: string
+  name: string
+  category: SubjectCategory
+  has_formula: boolean
+  values: AmountCell[]
+}
+
+export type ActivitySummary = {
+  id: number
+  code: string
+  name: string
+  calc_mode: CalcMode
+  probability: number | null
+  can_edit: boolean
+}
+
+/** GET /scenarios/{id}/activities/{aid} */
+export type ValuesView = {
+  scenario: Scenario
+  activity: ActivitySummary
+  months: string[]
+  editable: boolean
+  drivers: DriverRow[]
+  amounts: AmountRow[]
+  condition: string | null
+}
+
+export type ImportResult = {
+  dry_run: boolean
+  months: string[]
+  rows: number
+  facts: number
+  inserted: number
+  updated: number
+  deleted: number
+  unchanged: number
+  totals: { month: string; revenue: string; expense: string }[]
+}
