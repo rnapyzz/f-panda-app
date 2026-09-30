@@ -5,7 +5,7 @@ import { aggregate, isFavorable, measureOf, varianceRate } from './aggregate.ts'
 
 // 科目 1 = 収益、2 = 費用
 const categoryOf = (id: number): SubjectCategory | undefined => (id === 1 ? 'revenue' : id === 2 ? 'expense' : undefined)
-const row = (function_id: number, subject_id: number, month: string, values: Record<string, string>): ReportRow => ({ function_id, subject_id, month, values })
+const row = (unit_id: number, subject_id: number, month: string, values: Record<string, string>): ReportRow => ({ unit_id, subject_id, month, values })
 
 const rows = [
   row(10, 1, '2026-04', { s1: '1000', s2: '1200' }),
@@ -17,7 +17,7 @@ const rows = [
 
 test('aggregate: 系列ごとに収益・費用・科目別・月別を集計する', () => {
   const all = new Set(['2026-04', '2026-10'])
-  const t = aggregate(rows, ['s1', 's2'], categoryOf, (r) => r.function_id === 10, all)
+  const t = aggregate(rows, ['s1', 's2'], categoryOf, (r) => r.unit_id === 10, all)
   const s1 = t.get('s1')!
   assert.equal(s1.revenue, 3000n)
   assert.equal(s1.expense, 300n)
@@ -28,7 +28,7 @@ test('aggregate: 系列ごとに収益・費用・科目別・月別を集計す
 })
 
 test('aggregate: 期間の絞り込みは合計にだけ効き、月別は全月を持つ', () => {
-  const t = aggregate(rows, ['s1'], categoryOf, (r) => r.function_id === 10, new Set(['2026-10']))
+  const t = aggregate(rows, ['s1'], categoryOf, (r) => r.unit_id === 10, new Set(['2026-10']))
   const s1 = t.get('s1')!
   assert.equal(s1.revenue, 2000n)
   assert.equal(s1.expense, 0n)

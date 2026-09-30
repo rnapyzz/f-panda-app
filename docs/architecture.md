@@ -68,7 +68,7 @@
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
-| ユニット（API 上は functions） | `GET/POST /api/functions`、`GET/PUT/DELETE /api/functions/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
+| ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
 
@@ -94,7 +94,7 @@
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 計算式         | `PUT/DELETE /api/activities/{id}/formulas/{subject_id}`（科目ごとに1つ、PUT で登録・更新） |
 
-- 一覧は `function_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
+- 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
 - 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・計算式を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
 - 権限は施策ごとに判定する（docs/plan.md「4. ロール」）
 - 値の形式
@@ -144,7 +144,7 @@
 
 - `scenario_ids`: 比較するシナリオ（カンマ区切り、最大4つ）。先頭が差異の基準
 - `landing_actual_id` / `landing_forecast_id` / `landing_through`（YYYY-MM）: 着地見込を系列に加える。`landing_through` までの月は実績シナリオ、それ以降の月は見込シナリオの金額を使う
-- `function_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
+- `unit_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
 - レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う

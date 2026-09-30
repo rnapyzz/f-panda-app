@@ -6,7 +6,7 @@ import { matchPath, Redirect, useLocation } from './lib/router'
 import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
 import { ActivityListPage } from './pages/activities/ActivityListPage'
 import { LoginPage } from './pages/LoginPage'
-import { FunctionsPage } from './pages/masters/FunctionsPage'
+import { UnitsPage } from './pages/masters/UnitsPage'
 import { SubjectsPage } from './pages/masters/SubjectsPage'
 import { TreeMasterPage } from './pages/masters/TreeMasterPage'
 import { UsersPage } from './pages/masters/UsersPage'
@@ -31,7 +31,7 @@ const routes: Route[] = [
   { path: '/risks', render: () => <RiskPage /> },
   { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },
   { path: '/masters/segments', render: () => <TreeMasterPage key="segments" resource="segments" /> },
-  { path: '/masters/units', render: () => <FunctionsPage /> },
+  { path: '/masters/units', render: () => <UnitsPage /> },
   // 旧 URL（「機能」だった頃）
   { path: '/masters/functions', render: () => <Redirect to="/masters/units" /> },
   { path: '/masters/subjects', render: () => <SubjectsPage /> },

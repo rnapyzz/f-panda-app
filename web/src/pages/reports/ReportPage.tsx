@@ -5,7 +5,7 @@ import {
   scenarioKindLabels,
   type Activity,
   type ComparisonReport,
-  type FunctionItem,
+  type Unit,
   type List,
   type ReportRow,
   type ReportSeries,
@@ -27,14 +27,14 @@ type Axis = 'segment' | 'organization'
 /** 表の1行（階層ノード・ユニット・施策） */
 type Node = {
   key: string
-  type: 'tree' | 'function' | 'activity'
+  type: 'tree' | 'unit' | 'activity'
   id: number
   name: string
   depth: number
   children: Node[]
   include: (row: ReportRow) => boolean
   /** 施策の行は、ユニットごとに取得した施策別の行から集計する */
-  source: 'function' | 'activity'
+  source: 'unit' | 'activity'
 }
 
 type Settings = {
@@ -53,20 +53,20 @@ export function ReportPage() {
   const scenarios = useApi<List<Scenario>>('/scenarios')
   const segments = useApi<List<TreeNode>>('/segments')
   const organizations = useApi<List<TreeNode>>('/organizations')
-  const functions = useApi<List<FunctionItem>>('/functions')
+  const units = useApi<List<Unit>>('/units')
   const subjects = useApi<List<Subject>>('/subjects')
   const activities = useApi<List<Activity>>('/activities')
 
-  const error = scenarios.error ?? segments.error ?? organizations.error ?? functions.error ?? subjects.error ?? activities.error
+  const error = scenarios.error ?? segments.error ?? organizations.error ?? units.error ?? subjects.error ?? activities.error
   if (error) return <ErrorMessage error={error} />
-  if (!scenarios.data || !segments.data || !organizations.data || !functions.data || !subjects.data || !activities.data) return <Loading />
+  if (!scenarios.data || !segments.data || !organizations.data || !units.data || !subjects.data || !activities.data) return <Loading />
 
   return (
     <ReportView
       scenarios={scenarios.data.items}
       segments={segments.data.items}
       organizations={organizations.data.items}
-      functions={functions.data.items}
+      units={units.data.items}
       subjects={subjects.data.items}
       activities={activities.data.items}
     />
@@ -118,14 +118,14 @@ function ReportView({
   scenarios,
   segments,
   organizations,
-  functions,
+  units,
   subjects,
   activities,
 }: {
   scenarios: Scenario[]
   segments: TreeNode[]
   organizations: TreeNode[]
-  functions: FunctionItem[]
+  units: Unit[]
   subjects: Subject[]
   activities: Activity[]
 }) {
@@ -169,13 +169,13 @@ function ReportView({
   const periodMonths = useMemo(() => new Set(periodToMonths(settings.period, months)), [settings.period, months])
 
   // ユニットの種別で絞り込む（表の行と、集計の対象の両方）
-  const shownFunctions = useMemo(() => functions.filter((f) => !settings.unitType || f.unit_type === settings.unitType), [functions, settings.unitType])
-  const shownFunctionIds = useMemo(() => new Set(shownFunctions.map((f) => f.id)), [shownFunctions])
-  const reportRows = useMemo(() => (data?.rows ?? []).filter((r) => shownFunctionIds.has(r.function_id)), [data, shownFunctionIds])
-  const roots = useMemo(() => buildNodes(tree, settings.axis, shownFunctions, activities, activityRows), [tree, settings.axis, shownFunctions, activities, activityRows])
+  const shownUnits = useMemo(() => units.filter((f) => !settings.unitType || f.unit_type === settings.unitType), [units, settings.unitType])
+  const shownUnitIds = useMemo(() => new Set(shownUnits.map((f) => f.id)), [shownUnits])
+  const reportRows = useMemo(() => (data?.rows ?? []).filter((r) => shownUnitIds.has(r.unit_id)), [data, shownUnitIds])
+  const roots = useMemo(() => buildNodes(tree, settings.axis, shownUnits, activities, activityRows), [tree, settings.axis, shownUnits, activities, activityRows])
 
   const totalsOf = (n: Node): Map<string, Totals> => {
-    const rows = n.source === 'activity' ? activityRows.get(functionOfActivity(n, activities)) ?? [] : reportRows
+    const rows = n.source === 'activity' ? activityRows.get(unitOfActivity(n, activities)) ?? [] : reportRows
     return aggregate(rows, seriesKeys, categoryOf, n.include, periodMonths)
   }
 
@@ -185,9 +185,9 @@ function ReportView({
       next.delete(n.key)
     } else {
       next.add(n.key)
-      if (n.type === 'function' && !activityRows.has(n.id) && reportQuery) {
+      if (n.type === 'unit' && !activityRows.has(n.id) && reportQuery) {
         try {
-          const res = await api.get<ComparisonReport>(`/reports/comparison${reportQuery}&function_id=${n.id}`)
+          const res = await api.get<ComparisonReport>(`/reports/comparison${reportQuery}&unit_id=${n.id}`)
           setActivityRows((prev) => new Map(prev).set(n.id, res.rows))
         } catch (err) {
           setDrillError(err)
@@ -449,7 +449,7 @@ function NodeRows({
         const empty = [...totals.values()].every((t) => t.revenue === 0n && t.expense === 0n)
         if (hideEmpty && empty && n.type !== 'tree') return null
         if (hideEmpty && empty && n.type === 'tree' && !hasFunctions(n)) return null
-        const expandable = n.type !== 'activity' && (n.children.length > 0 || n.type === 'function')
+        const expandable = n.type !== 'activity' && (n.children.length > 0 || n.type === 'unit')
         const isOpen = expanded.has(n.key)
         return (
           <Fragment key={n.key}>
@@ -472,7 +472,7 @@ function NodeRows({
                   ) : (
                     <span className="w-5" />
                   )}
-                  {n.type === 'function' && <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] whitespace-nowrap text-indigo-700">ユニット</span>}
+                  {n.type === 'unit' && <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] whitespace-nowrap text-indigo-700">ユニット</span>}
                   {n.type === 'activity' && <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] whitespace-nowrap text-slate-600">施策</span>}
                   <span className={cx(n.type === 'tree' && 'font-medium', empty && 'text-slate-400')}>{n.name}</span>
                 </span>
@@ -505,7 +505,7 @@ function NodeRows({
 }
 
 function hasFunctions(n: Node): boolean {
-  return n.children.some((c) => c.type === 'function' || hasFunctions(c))
+  return n.children.some((c) => c.type === 'unit' || hasFunctions(c))
 }
 
 function ValueRow({
@@ -771,30 +771,30 @@ function periodLabel(period: string): string {
   return `${Number(period.slice(5))}月`
 }
 
-function functionOfActivity(n: Node, activities: Activity[]): number {
-  return activities.find((a) => a.id === n.id)?.function_id ?? 0
+function unitOfActivity(n: Node, activities: Activity[]): number {
+  return activities.find((a) => a.id === n.id)?.unit_id ?? 0
 }
 
 /** 階層ノード → ユニット → 施策 の木を作る */
-function buildNodes(tree: Tree, axis: Axis, functions: FunctionItem[], activities: Activity[], activityRows: Map<number, ReportRow[]>): Node[] {
+function buildNodes(tree: Tree, axis: Axis, units: Unit[], activities: Activity[], activityRows: Map<number, ReportRow[]>): Node[] {
   const column = axis === 'segment' ? 'segment_id' : 'organization_id'
-  const fnByNode = new Map<number, FunctionItem[]>()
-  for (const f of functions) {
+  const fnByNode = new Map<number, Unit[]>()
+  for (const f of units) {
     const list = fnByNode.get(f[column]) ?? []
     list.push(f)
     fnByNode.set(f[column], list)
   }
 
-  const functionNode = (f: FunctionItem, depth: number): Node => {
-    const acts = activityRows.has(f.id) ? activities.filter((a) => a.function_id === f.id) : []
+  const unitNode = (f: Unit, depth: number): Node => {
+    const acts = activityRows.has(f.id) ? activities.filter((a) => a.unit_id === f.id) : []
     return {
       key: `f:${f.id}`,
-      type: 'function',
+      type: 'unit',
       id: f.id,
       name: f.name,
       depth,
-      source: 'function',
-      include: (row) => row.function_id === f.id,
+      source: 'unit',
+      include: (row) => row.unit_id === f.id,
       children: acts.map((a) => ({
         key: `a:${a.id}`,
         type: 'activity',
@@ -810,16 +810,16 @@ function buildNodes(tree: Tree, axis: Axis, functions: FunctionItem[], activitie
 
   const treeNode = (t: TreeNode, depth: number): Node => {
     const ids = subtreeIds(tree, t.id)
-    const fnIds = new Set(functions.filter((f) => ids.has(f[column])).map((f) => f.id))
+    const fnIds = new Set(units.filter((f) => ids.has(f[column])).map((f) => f.id))
     return {
       key: `t:${t.id}`,
       type: 'tree',
       id: t.id,
       name: t.name,
       depth,
-      source: 'function',
-      include: (row) => fnIds.has(row.function_id),
-      children: [...(tree.children.get(t.id) ?? []).map((c) => treeNode(c, depth + 1)), ...(fnByNode.get(t.id) ?? []).map((f) => functionNode(f, depth + 1))],
+      source: 'unit',
+      include: (row) => fnIds.has(row.unit_id),
+      children: [...(tree.children.get(t.id) ?? []).map((c) => treeNode(c, depth + 1)), ...(fnByNode.get(t.id) ?? []).map((f) => unitNode(f, depth + 1))],
     }
   }
 

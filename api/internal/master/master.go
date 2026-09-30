@@ -27,8 +27,8 @@ type Handler struct {
 func NewHandler(db *sql.DB) *Handler {
 	return &Handler{
 		db:            db,
-		organizations: &treeHandler{db: db, table: "organizations", label: "組織", functionColumn: "organization_id"},
-		segments:      &treeHandler{db: db, table: "segments", label: "セグメント", functionColumn: "segment_id"},
+		organizations: &treeHandler{db: db, table: "organizations", label: "組織", unitColumn: "organization_id"},
+		segments:      &treeHandler{db: db, table: "segments", label: "セグメント", unitColumn: "segment_id"},
 	}
 }
 
@@ -45,11 +45,11 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 		mux.Handle("DELETE /api/"+path+"/{id}", write(t.delete))
 	}
 
-	mux.Handle("GET /api/functions", read(h.listFunctions))
-	mux.Handle("POST /api/functions", write(h.createFunction))
-	mux.Handle("GET /api/functions/{id}", read(h.getFunction))
-	mux.Handle("PUT /api/functions/{id}", write(h.updateFunction))
-	mux.Handle("DELETE /api/functions/{id}", write(h.deleteFunction))
+	mux.Handle("GET /api/units", read(h.listUnits))
+	mux.Handle("POST /api/units", write(h.createUnit))
+	mux.Handle("GET /api/units/{id}", read(h.getUnit))
+	mux.Handle("PUT /api/units/{id}", write(h.updateUnit))
+	mux.Handle("DELETE /api/units/{id}", write(h.deleteUnit))
 
 	mux.Handle("GET /api/subjects", read(h.listSubjects))
 	mux.Handle("POST /api/subjects", write(h.createSubject))

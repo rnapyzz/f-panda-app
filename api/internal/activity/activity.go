@@ -87,7 +87,7 @@ type timestamps struct {
 // activity は施策。
 type activity struct {
 	ID           int64        `json:"id"`
-	FunctionID   int64        `json:"function_id"`
+	UnitID       int64        `json:"unit_id"`
 	Code         string       `json:"code"`
 	Name         string       `json:"name"`
 	ActivityType string       `json:"activity_type"`
@@ -100,8 +100,8 @@ type activity struct {
 	Assumptions  string       `json:"assumptions"`
 	timestamps
 
-	// functionOwnerID は所属するユニットの担当者。権限判定に使う。
-	functionOwnerID *int64
+	// unitOwnerID は所属するユニットの担当者。権限判定に使う。
+	unitOwnerID *int64
 }
 
 // activityView はレスポンス用。ログインユーザーが編集できるかを含める。
@@ -120,7 +120,7 @@ type activityDetail struct {
 }
 
 type activityRequest struct {
-	FunctionID   int64        `json:"function_id"`
+	UnitID       int64        `json:"unit_id"`
 	Code         string       `json:"code"`
 	Name         string       `json:"name"`
 	ActivityType string       `json:"activity_type"`
@@ -139,17 +139,17 @@ type reasonRequest struct {
 }
 
 const activitySelect = `
-	SELECT a.id, a.function_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
+	SELECT a.id, a.unit_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
 	       a.owner_user_id, a.calc_mode, a.probability, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
-	       f.owner_user_id
-	FROM activities a JOIN functions f ON f.id = a.function_id`
+	       un.owner_user_id
+	FROM activities a JOIN units un ON un.id = a.unit_id`
 
 func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	var a activity
 	var start, end sql.NullTime
 	var owner, fnOwner sql.NullInt64
 	var prob sql.NullString
-	err := row.Scan(&a.ID, &a.FunctionID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
+	err := row.Scan(&a.ID, &a.UnitID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
 		&owner, &a.CalcMode, &prob, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
 	if err != nil {
 		return a, err
@@ -157,7 +157,7 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	a.StartDate = formatDate(start)
 	a.EndDate = formatDate(end)
 	a.OwnerUserID = dbx.PtrInt64(owner)
-	a.functionOwnerID = dbx.PtrInt64(fnOwner)
+	a.unitOwnerID = dbx.PtrInt64(fnOwner)
 	if prob.Valid {
 		n := json.Number(prob.String)
 		a.Probability = &n
@@ -175,20 +175,20 @@ func findActivity(ctx context.Context, q dbx.Querier, id int64, lock string) (ac
 
 // --- 権限 ---
 
-// canManageFunction はユニットの配下で施策を作成・削除できるかを返す。
-func canManageFunction(u auth.User, functionOwnerID *int64) bool {
+// canManageUnit はユニットの配下で施策を作成・削除できるかを返す。
+func canManageUnit(u auth.User, unitOwnerID *int64) bool {
 	switch u.Role {
 	case auth.RoleFPAAdmin:
 		return true
 	case auth.RoleManager:
-		return functionOwnerID != nil && *functionOwnerID == u.ID
+		return unitOwnerID != nil && *unitOwnerID == u.ID
 	}
 	return false
 }
 
 // canEdit は施策を編集できるかを返す。
 func canEdit(u auth.User, a activity) bool {
-	if canManageFunction(u, a.functionOwnerID) {
+	if canManageUnit(u, a.unitOwnerID) {
 		return true
 	}
 	isOwner := a.OwnerUserID != nil && *a.OwnerUserID == u.ID
@@ -215,12 +215,12 @@ func lockEditable(ctx context.Context, tx *sql.Tx, u auth.User, id int64) (activ
 	return a, nil
 }
 
-// lockFunction はユニットを行ロック付きで取得し、担当者を返す。
-func lockFunction(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err error) {
+// lockUnit はユニットを行ロック付きで取得し、担当者を返す。
+func lockUnit(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err error) {
 	var o sql.NullInt64
-	err = tx.QueryRowContext(ctx, "SELECT owner_user_id FROM functions WHERE id = ? FOR SHARE", id).Scan(&o)
+	err = tx.QueryRowContext(ctx, "SELECT owner_user_id FROM units WHERE id = ? FOR SHARE", id).Scan(&o)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, httpx.Validation(map[string]string{"function_id": "ユニットが見つかりません"})
+		return nil, httpx.Validation(map[string]string{"unit_id": "ユニットが見つかりません"})
 	}
 	return dbx.PtrInt64(o), err
 }
@@ -280,7 +280,7 @@ func inTx(r *http.Request, db *sql.DB, u auth.User, reason string, fn func(tx *s
 // --- 施策 ---
 
 // list は GET /api/activities。
-// クエリパラメーター function_id / owner_user_id / activity_type / status / q（コード・名称の部分一致）で絞り込める。
+// クエリパラメーター unit_id / owner_user_id / activity_type / status / q（コード・名称の部分一致）で絞り込める。
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
 	if err != nil {
@@ -289,7 +289,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
 	var where []string
 	var args []any
-	for _, f := range []string{"function_id", "owner_user_id"} {
+	for _, f := range []string{"unit_id", "owner_user_id"} {
 		if s := q.Get(f); s != "" {
 			id, err := strconv.ParseInt(s, 10, 64)
 			if err != nil {
@@ -397,11 +397,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	var created activity
 	err = inTx(r, h.db, u, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
-		fnOwner, err := lockFunction(ctx, tx, in.FunctionID)
+		fnOwner, err := lockUnit(ctx, tx, in.UnitID)
 		if err != nil {
 			return err
 		}
-		if !canManageFunction(u, fnOwner) {
+		if !canManageUnit(u, fnOwner) {
 			return httpx.Forbidden()
 		}
 		if err := checkOwner(ctx, tx, in.OwnerUserID); err != nil {
@@ -409,10 +409,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		}
 		insert := func() (sql.Result, error) {
 			return tx.ExecContext(ctx, `
-				INSERT INTO activities (function_id, code, name, activity_type, status, start_date, end_date,
+				INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
 				                        owner_user_id, calc_mode, probability, assumptions)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				in.FunctionID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
+				in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
 				dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions),
 			)
 		}
@@ -483,12 +483,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		// 別のユニットへ移す場合は、移動先のユニットで施策を作成できる権限が必要。
-		if in.FunctionID != before.FunctionID {
-			fnOwner, err := lockFunction(ctx, tx, in.FunctionID)
+		if in.UnitID != before.UnitID {
+			fnOwner, err := lockUnit(ctx, tx, in.UnitID)
 			if err != nil {
 				return err
 			}
-			if !canManageFunction(u, fnOwner) {
+			if !canManageUnit(u, fnOwner) {
 				return httpx.Forbidden()
 			}
 		}
@@ -506,10 +506,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `
-			UPDATE activities SET function_id = ?, code = ?, name = ?, activity_type = ?, status = ?,
+			UPDATE activities SET unit_id = ?, code = ?, name = ?, activity_type = ?, status = ?,
 			       start_date = ?, end_date = ?, owner_user_id = ?, calc_mode = ?, probability = ?, assumptions = ?
 			WHERE id = ?`,
-			in.FunctionID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
+			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
 			dbx.NullInt64(in.OwnerUserID), in.CalcMode, in.Probability, dbx.NullString(in.Assumptions), id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
@@ -563,7 +563,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		if !canManageFunction(u, before.functionOwnerID) {
+		if !canManageUnit(u, before.unitOwnerID) {
 			return httpx.Forbidden()
 		}
 		for _, check := range []struct{ query, msg string }{
@@ -635,7 +635,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 
 // activityInput は検証・正規化済みの入力。
 type activityInput struct {
-	FunctionID   int64
+	UnitID       int64
 	Code         string
 	Name         string
 	ActivityType string
@@ -652,7 +652,7 @@ type activityInput struct {
 func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, error) {
 	v := httpx.Validator{}
 	in := activityInput{
-		FunctionID:   req.FunctionID,
+		UnitID:       req.UnitID,
 		Code:         strings.TrimSpace(req.Code),
 		Name:         v.Text("name", "施策名", req.Name, maxNameLen),
 		ActivityType: req.ActivityType,
@@ -661,8 +661,8 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 		CalcMode:     req.CalcMode,
 		Assumptions:  v.OptionalText("assumptions", "前提条件", req.Assumptions, maxAssumptionsLen),
 	}
-	if in.FunctionID <= 0 {
-		v.Add("function_id", "ユニットを選択してください")
+	if in.UnitID <= 0 {
+		v.Add("unit_id", "ユニットを選択してください")
 	}
 	if !(allowEmptyCode && in.Code == "") && !codePattern.MatchString(in.Code) {
 		v.Add("code", "施策コードは半角英数字・ハイフン・アンダースコアの50文字以内で入力してください")

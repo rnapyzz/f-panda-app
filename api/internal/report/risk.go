@@ -46,7 +46,7 @@ type RiskActivity struct {
 	ID           int64        `json:"id"`
 	Code         string       `json:"code"`
 	Name         string       `json:"name"`
-	FunctionID   int64        `json:"function_id"`
+	UnitID       int64        `json:"unit_id"`
 	OwnerUserID  *int64       `json:"owner_user_id"`
 	ActivityType string       `json:"activity_type"`
 	Status       string       `json:"status"`
@@ -226,7 +226,7 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 
 func loadRiskActivities(ctx context.Context, db *sql.DB) ([]RiskActivity, map[int64]*RiskActivity, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, code, name, function_id, owner_user_id, activity_type, status, probability, COALESCE(assumptions, '')
+		SELECT id, code, name, unit_id, owner_user_id, activity_type, status, probability, COALESCE(assumptions, '')
 		FROM activities ORDER BY code`)
 	if err != nil {
 		return nil, nil, err
@@ -237,7 +237,7 @@ func loadRiskActivities(ctx context.Context, db *sql.DB) ([]RiskActivity, map[in
 		var a RiskActivity
 		var owner sql.NullInt64
 		var prob sql.NullString
-		if err := rows.Scan(&a.ID, &a.Code, &a.Name, &a.FunctionID, &owner, &a.ActivityType, &a.Status, &prob, &a.Assumptions); err != nil {
+		if err := rows.Scan(&a.ID, &a.Code, &a.Name, &a.UnitID, &owner, &a.ActivityType, &a.Status, &prob, &a.Assumptions); err != nil {
 			return nil, nil, err
 		}
 		if owner.Valid {

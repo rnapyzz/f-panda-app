@@ -121,7 +121,7 @@
 
 | エンティティ          | 説明                                                                                                  |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `activities`          | 施策マスタ。施策コード・タイプ・期間・確度・前提条件・算出方式を持つ。1つのユニット（`function`）に所属する。 |
+| `activities`          | 施策マスタ。施策コード・タイプ・期間・確度・前提条件・算出方式を持つ。1つのユニット（`unit`）に所属する。 |
 | `activity_external_codes` | 施策の外部コード（会計・基幹システムの案件番号など）。施策に0個以上。                             |
 | `activity_milestones` | 施策のマイルストーン。                                                                                |
 | `activity_drivers`    | 施策のドライバー定義（バリュードライバー / コストドライバー / KPI）。                                 |
@@ -130,7 +130,7 @@
 | `budget_facts`        | 金額データのファクトテーブル。年月（target_month）・科目（subject）・施策（activity）・金額（amount）と `scenario` を持つ。 |
 | `scenarios`           | シナリオマスタ。予算・見込の版、楽観/悲観、実績を含む。                                               |
 | `scenario_conditions` | シナリオ × 施策ごとの想定内容と発生条件（楽観/悲観の根拠）。                                           |
-| `functions`           | ユニットマスタ。施策を束ねる単位。種別（サービス／共通費／管理部門）を持つ。セグメントと組織の末端ノードに1つずつ所属する。 |
+| `units`           | ユニットマスタ。施策を束ねる単位。種別（サービス／共通費／管理部門）を持つ。セグメントと組織の末端ノードに1つずつ所属する。 |
 | `segments`            | 事業マスタ。ポートフォリオ管理のための階層構造を表現した集計軸。ツリー構造（parent_id）を持つ。        |
 | `organizations`       | 組織マスタ。ツリー構造（parent_id）および階層レベルを持つ。                                           |
 | `subjects`            | 勘定科目マスタ。P/Lを構成する営業収益・営業費用のカテゴリを持つ。                                      |
@@ -141,7 +141,7 @@
 
 ### 3.2 階層構造
 
-施策（`activity`）を束ねる単位を、本アプリでは**ユニット**と呼びます（DB・API 上の名前は `functions`）。
+施策（`activity`）を束ねる単位を、本アプリでは**ユニット**（`unit`）と呼びます。当初は「機能」（`function`）と呼んでいましたが改称しました。
 ユニットは基本的に「サービス」ですが、「○○事業共通経費」のようなプロフィットセンターではない箱や、「人事部」のような組織名そのままの箱もあり得るため、種別で区別します。
 
 | 種別（`unit_type`） | 意味 | 例 |
@@ -161,11 +161,11 @@ segment（セグメント）
   └ ...
     └ ...
       └ ...
-        └ function（ユニット）
+        └ unit（ユニット）
           └ activity（施策）
 例)
 XXX事業 (segment)
-  └YYYサービス (function)
+  └YYYサービス (unit)
     └ 施策 (activity)
 
 * 組織軸での階層
@@ -173,12 +173,12 @@ organization（組織）
   └ ...
     └ ...
       └ ...
-        └ function（ユニット）
+        └ unit（ユニット）
           └ activity（施策）
 例)
 AAA本部 (organization)
   └BBB部 (organization)
-    └CCC課 (function)
+    └CCC課 (unit)
       └ 施策 (activity)
 ```
 
@@ -188,10 +188,10 @@ AAA本部 (organization)
 erDiagram
     segments ||--o{ segments : "parent"
     organizations ||--o{ organizations : "parent"
-    segments ||--o{ functions : "has"
-    organizations ||--o{ functions : "has"
-    functions ||--o{ activities : "has"
-    users ||--o{ functions : "owns"
+    segments ||--o{ units : "has"
+    organizations ||--o{ units : "has"
+    units ||--o{ activities : "has"
+    users ||--o{ units : "owns"
     users ||--o{ activities : "owns"
 
     activities ||--o{ activity_external_codes : "has"
@@ -243,7 +243,7 @@ erDiagram
         int level
         int sort_order
     }
-    functions {
+    units {
         enum unit_type "service / cost_center / corporate"
         bigint id PK
         varchar name
@@ -253,7 +253,7 @@ erDiagram
     }
     activities {
         bigint id PK
-        bigint function_id FK
+        bigint unit_id FK
         varchar code "施策コード（CSV取込で使用）"
         varchar name
         enum activity_type "project / recurring / cost_pool"
@@ -364,7 +364,7 @@ erDiagram
 - `scenario_conditions`: (scenario_id, activity_id) で一意
 - `target_month` は月初日（例: `2026-10-01`）で保持する
 - `users.email` は一意
-- `functions.segment_id` / `organization_id` は末端ノード（子を持たないノード）のみ指定可（アプリ側で検証する）
+- `units.segment_id` / `organization_id` は末端ノード（子を持たないノード）のみ指定可（アプリ側で検証する）
 
 ## 4. ロール
 
@@ -378,7 +378,7 @@ erDiagram
 | 見込・ドライバーの入力             | ○（全施策）        | ○（所管ユニット配下）      | ○（担当施策）       | －                            |
 | 閲覧・シナリオ間比較               | ○                  | ○                            | ○                   | ○                             |
 
-- 「所管ユニット」は、`functions.owner_user_id` が自分であるユニット。「担当施策」は、`activities.owner_user_id` が自分である施策。
+- 「所管ユニット」は、`units.owner_user_id` が自分であるユニット。「担当施策」は、`activities.owner_user_id` が自分である施策。
 - 施策を別のユニットへ移すには、移動先のユニットで施策を作成できる権限が必要。
 - 現場担当・現場マネージャー: 施策の見込・ドライバー・前提条件を入力し、変更理由を記録する。
 - FP&A（経営企画・経営管理）: シナリオとマスタを管理し、ローリングフォアキャストのサイクルを回す。

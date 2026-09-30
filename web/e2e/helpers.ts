@@ -34,7 +34,7 @@ export function api(page: Page) {
 export type Fixture = {
   run: string
   segmentId: number
-  functionId: number
+  unitId: number
   revenueId: number
   expenseId: number
   revenueName: string
@@ -46,16 +46,16 @@ export async function seedMasters(page: Page): Promise<Fixture> {
   const run = uniq()
   const seg = await a.post('/segments', { name: `E2E事業 ${run}` })
   const org = await a.post('/organizations', { name: `E2E部 ${run}` })
-  const fn = await a.post('/functions', { name: `E2E課 ${run}`, segment_id: seg.id, organization_id: org.id })
+  const fn = await a.post('/units', { name: `E2E課 ${run}`, segment_id: seg.id, organization_id: org.id })
   const revenueName = `E2E売上 ${run}`
   const rev = await a.post('/subjects', { code: `R${run}`, name: revenueName, category: 'revenue' })
   const exp = await a.post('/subjects', { code: `E${run}`, name: `E2E外注費 ${run}`, category: 'expense' })
-  return { run, segmentId: seg.id, functionId: fn.id, revenueId: rev.id, expenseId: exp.id, revenueName }
+  return { run, segmentId: seg.id, unitId: fn.id, revenueId: rev.id, expenseId: exp.id, revenueName }
 }
 
 export async function createActivity(page: Page, f: Fixture, extra: Record<string, unknown> = {}) {
   return api(page).post<{ id: number; code: string; name: string }>('/activities', {
-    function_id: f.functionId,
+    unit_id: f.unitId,
     code: `ACT-${f.run}`,
     name: `E2E施策 ${f.run}`,
     activity_type: 'recurring',

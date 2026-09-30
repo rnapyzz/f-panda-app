@@ -7,10 +7,10 @@ import (
 )
 
 // reportValue は comparison のレスポンスから、指定した行・系列の金額を取り出す。
-func reportValue(body map[string]any, functionID, activityID, subjectID int64, month, series string) string {
+func reportValue(body map[string]any, unitID, activityID, subjectID int64, month, series string) string {
 	for _, r := range body["rows"].([]any) {
 		row := r.(map[string]any)
-		if int64(row["function_id"].(float64)) != functionID || int64(row["subject_id"].(float64)) != subjectID || row["month"] != month {
+		if int64(row["unit_id"].(float64)) != unitID || int64(row["subject_id"].(float64)) != subjectID || row["month"] != month {
 			continue
 		}
 		if activityID != 0 {
@@ -77,7 +77,7 @@ func TestComparisonReport(t *testing.T) {
 	}
 
 	// ユニットを指定すると施策ごとに集計する
-	body = f.viewer.mustGet(fmt.Sprintf("/api/reports/comparison?scenario_ids=%d&function_id=%d", f.budget, f.fn1))
+	body = f.viewer.mustGet(fmt.Sprintf("/api/reports/comparison?scenario_ids=%d&unit_id=%d", f.budget, f.fn1))
 	if got := reportValue(body, f.fn1, f.manualAct, f.cost, "2026-04", "s1"); got != "300" {
 		t.Errorf("施策別の費用 = %q, want 300", got)
 	}

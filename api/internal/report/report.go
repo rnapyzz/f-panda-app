@@ -53,7 +53,7 @@ type Series struct {
 
 // Row は1つの集計単位（ユニットまたは施策）× 科目 × 月の金額。Values は系列の Key → 金額（円、文字列）。
 type Row struct {
-	FunctionID int64             `json:"function_id"`
+	UnitID     int64             `json:"unit_id"`
 	ActivityID *int64            `json:"activity_id,omitempty"`
 	SubjectID  int64             `json:"subject_id"`
 	Month      string            `json:"month"`
@@ -80,7 +80,7 @@ type scenarioInfo struct {
 //   - scenario_ids: 比較するシナリオ ID（カンマ区切り、最大4つ）。先頭が差異の基準
 //   - landing_actual_id / landing_forecast_id / landing_through（YYYY-MM）:
 //     着地見込を系列に加える。landing_through までの月は実績、それ以降の月は見込を使う
-//   - function_id: 指定すると、そのユニットの施策ごとに集計する（指定しなければユニットごと）
+//   - unit_id: 指定すると、そのユニットの施策ごとに集計する（指定しなければユニットごと）
 //
 // すべての系列は同じ年度のシナリオでなければならない。
 func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
@@ -101,13 +101,13 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	if len(scenarioIDs) > maxScenarios {
 		return httpx.Validation(map[string]string{"scenario_ids": fmt.Sprintf("比較できるシナリオは%dつまでです", maxScenarios)})
 	}
-	var functionID *int64
-	if s := q.Get("function_id"); s != "" {
+	var unitID *int64
+	if s := q.Get("unit_id"); s != "" {
 		id, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return httpx.BadRequest("function_id は数値で指定してください")
+			return httpx.BadRequest("unit_id は数値で指定してください")
 		}
-		functionID = &id
+		unitID = &id
 	}
 
 	// 使うシナリオをまとめて読み込み、年度をそろえる
@@ -152,7 +152,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
-	amounts, err := loadAmounts(ctx, h.db, needed, functionID)
+	amounts, err := loadAmounts(ctx, h.db, needed, unitID)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	put := func(k rowKey, series string, v *big.Int) {
 		row, ok := rows[k]
 		if !ok {
-			row = &Row{FunctionID: k.functionID, SubjectID: k.subjectID, Month: k.month, Values: map[string]string{}}
+			row = &Row{UnitID: k.unitID, SubjectID: k.subjectID, Month: k.month, Values: map[string]string{}}
 			if k.activityID != 0 {
 				a := k.activityID
 				row.ActivityID = &a
@@ -194,8 +194,8 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	}
 	sort.Slice(resp.Rows, func(i, j int) bool {
 		a, b := resp.Rows[i], resp.Rows[j]
-		if a.FunctionID != b.FunctionID {
-			return a.FunctionID < b.FunctionID
+		if a.UnitID != b.UnitID {
+			return a.UnitID < b.UnitID
 		}
 		if aid, bid := derefOr0(a.ActivityID), derefOr0(b.ActivityID); aid != bid {
 			return aid < bid
@@ -268,12 +268,12 @@ func loadScenarios(ctx context.Context, db *sql.DB, ids []int64) (map[int64]scen
 }
 
 type rowKey struct {
-	functionID, activityID, subjectID int64
-	month                             string
+	unitID, activityID, subjectID int64
+	month                         string
 }
 
-// loadAmounts はシナリオごとに、ユニット（functionID 指定時は施策）×科目×月の合計を返す。
-func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, functionID *int64) (map[int64]map[rowKey]*big.Int, error) {
+// loadAmounts はシナリオごとに、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
+func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *int64) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
 	for _, id := range scenarioIDs {
@@ -281,16 +281,16 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, functionI
 	}
 	// ユニット単位では施策 ID を 0 とし、グループ化にも含めない
 	activityCol, groupActivity, where := "0", "", ""
-	if functionID != nil {
+	if unitID != nil {
 		activityCol, groupActivity = "a.id", "a.id, "
-		where = " AND a.function_id = ?"
-		args = append(args, *functionID)
+		where = " AND a.unit_id = ?"
+		args = append(args, *unitID)
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT b.scenario_id, a.function_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), CAST(SUM(b.amount) AS CHAR)
+		SELECT b.scenario_id, a.unit_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), CAST(SUM(b.amount) AS CHAR)
 		FROM budget_facts b JOIN activities a ON a.id = b.activity_id
 		WHERE b.scenario_id IN (`+placeholders+`)`+where+`
-		GROUP BY b.scenario_id, a.function_id, `+groupActivity+`b.subject_id, b.target_month`, args...)
+		GROUP BY b.scenario_id, a.unit_id, `+groupActivity+`b.subject_id, b.target_month`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +300,7 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, functionI
 		var scenarioID int64
 		var k rowKey
 		var amount string
-		if err := rows.Scan(&scenarioID, &k.functionID, &k.activityID, &k.subjectID, &k.month, &amount); err != nil {
+		if err := rows.Scan(&scenarioID, &k.unitID, &k.activityID, &k.subjectID, &k.month, &amount); err != nil {
 			return nil, err
 		}
 		v, ok := new(big.Int).SetString(amount, 10)

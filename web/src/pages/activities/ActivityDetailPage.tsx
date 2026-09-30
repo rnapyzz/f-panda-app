@@ -10,7 +10,7 @@ import {
   type ActivityDetail,
   type Driver,
   type Formula,
-  type FunctionItem,
+  type Unit,
   type List,
   type Milestone,
   type Subject,
@@ -24,7 +24,7 @@ import { formatPercent } from '../../lib/format'
 import { Link, navigate } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { ActivityFormDialog } from './ActivityFormDialog'
-import { creatableFunctions, statusTone } from './ActivityListPage'
+import { creatableUnits, statusTone } from './ActivityListPage'
 import { DriverDialog, FormulaDialog, MilestoneDialog } from './ActivityDialogs'
 import { ExternalCodesCard } from './ExternalCodesCard'
 
@@ -33,7 +33,7 @@ const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 
 export function ActivityDetailPage({ id }: { id: string }) {
   const me = useCurrentUser()
   const activity = useApi<ActivityDetail>(`/activities/${id}`)
-  const functions = useApi<List<FunctionItem>>('/functions')
+  const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
   const subjects = useApi<List<Subject>>('/subjects')
   const { withReason, askReason, dialog: reasonDialog } = useReason()
@@ -45,20 +45,20 @@ export function ActivityDetailPage({ id }: { id: string }) {
   const [deletingDriver, setDeletingDriver] = useState<Driver | null>(null)
   const [actionError, setActionError] = useState<unknown>(null)
 
-  const functionById = useMemo(() => new Map((functions.data?.items ?? []).map((f) => [f.id, f])), [functions.data])
+  const unitById = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f])), [units.data])
   const userName = useMemo(() => new Map((users.data?.items ?? []).map((u) => [u.id, u.name])), [users.data])
   const subjectById = useMemo(() => new Map((subjects.data?.items ?? []).map((s) => [s.id, s])), [subjects.data])
 
-  const error = activity.error ?? functions.error ?? users.error ?? subjects.error
+  const error = activity.error ?? units.error ?? users.error ?? subjects.error
   if (error) return <ErrorMessage error={error} />
-  if (!activity.data || !functions.data || !users.data || !subjects.data) return <Loading />
+  if (!activity.data || !units.data || !users.data || !subjects.data) return <Loading />
 
   const a = activity.data
   const canEdit = a.can_edit
-  const creatable = creatableFunctions(me, functions.data.items)
-  const canDelete = creatable.some((f) => f.id === a.function_id)
+  const creatable = creatableUnits(me, units.data.items)
+  const canDelete = creatable.some((f) => f.id === a.unit_id)
   // 編集ダイアログで選べるユニット: 移動できるユニット＋現在のユニット
-  const editableFunctions = creatable.some((f) => f.id === a.function_id) ? creatable : [functionById.get(a.function_id)!, ...creatable]
+  const editableUnits = creatable.some((f) => f.id === a.unit_id) ? creatable : [unitById.get(a.unit_id)!, ...creatable]
   const base = `/activities/${a.id}`
   const reload = () => activity.reload()
 
@@ -149,7 +149,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <Card title="基本情報">
             <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
               <Info label="タイプ">{activityTypeLabels[a.activity_type]}</Info>
-              <Info label="ユニット">{functionById.get(a.function_id)?.name}</Info>
+              <Info label="ユニット">{unitById.get(a.unit_id)?.name}</Info>
               <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
               <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
               <Info label="確度">{formatPercent(a.probability)}</Info>
@@ -291,7 +291,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
       {editing && (
         <ActivityFormDialog
           initial={a}
-          functions={editableFunctions}
+          units={editableUnits}
           users={users.data.items}
           onClose={() => setEditing(false)}
           save={async (body) => {

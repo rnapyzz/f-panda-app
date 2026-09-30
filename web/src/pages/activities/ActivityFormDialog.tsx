@@ -8,12 +8,12 @@ import {
   type ActivityStatus,
   type ActivityType,
   type CalcMode,
-  type FunctionItem,
+  type Unit,
   type User,
 } from '../../api/types'
 import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError } from '../../components/ui'
 
-const fields = ['function_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'calc_mode', 'probability', 'assumptions']
+const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'calc_mode', 'probability', 'assumptions']
 
 /** 確度（0〜1）→ パーセントの入力値 */
 function toPercent(p: number | null): string {
@@ -33,18 +33,18 @@ function fromPercent(s: string): string | null {
  */
 export function ActivityFormDialog({
   initial,
-  functions,
+  units,
   users,
   onClose,
   save,
 }: {
   initial: Activity | null
-  functions: FunctionItem[]
+  units: Unit[]
   users: User[]
   onClose: () => void
   save: (body: Record<string, unknown>) => Promise<void>
 }) {
-  const [functionId, setFunctionId] = useState(initial ? String(initial.function_id) : functions.length === 1 ? String(functions[0].id) : '')
+  const [unitId, setUnitId] = useState(initial ? String(initial.unit_id) : units.length === 1 ? String(units[0].id) : '')
   const [code, setCode] = useState(initial?.code ?? '')
   const [name, setName] = useState(initial?.name ?? '')
   const [activityType, setActivityType] = useState<ActivityType>(initial?.activity_type ?? 'recurring')
@@ -64,7 +64,7 @@ export function ActivityFormDialog({
     setError(null)
     try {
       await save({
-        function_id: Number(functionId) || 0,
+        unit_id: Number(unitId) || 0,
         code,
         name,
         activity_type: activityType,
@@ -110,11 +110,11 @@ export function ActivityFormDialog({
         >
           {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" placeholder={initial ? undefined : '自動採番'} />}
         </Field>
-        <Field label="ユニット" required error={fieldError(error, 'function_id')}>
+        <Field label="ユニット" required error={fieldError(error, 'unit_id')}>
           {(p) => (
-            <Select {...p} value={functionId} onChange={(e) => setFunctionId(e.target.value)}>
+            <Select {...p} value={unitId} onChange={(e) => setUnitId(e.target.value)}>
               <option value="">選択してください</option>
-              {functions.map((f) => (
+              {units.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
                 </option>
