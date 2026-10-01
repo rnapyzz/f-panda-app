@@ -18,6 +18,7 @@ import {
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useReason } from '../../components/ReasonDialog'
 import { Badge, Button, Card, Empty, ErrorMessage, Loading, PageHeader, Table } from '../../components/ui'
+import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
 import { formatPercent } from '../../lib/format'
 import { Link, navigate } from '../../lib/router'
@@ -32,6 +33,7 @@ const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 
 
 export function ActivityDetailPage({ id }: { id: string }) {
   const me = useCurrentUser()
+  const { active } = useActiveScenario()
   const activity = useApi<ActivityDetail>(`/activities/${id}`)
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
@@ -118,7 +120,8 @@ export function ActivityDetailPage({ id }: { id: string }) {
         actions={
           <>
             <Link
-              to={`/scenarios?activity_id=${a.id}`}
+              to={active ? `/scenarios/${active.id}/activities/${a.id}` : `/scenarios?activity_id=${a.id}`}
+              title={active ? `作成中のシナリオ「${active.name}」で開きます` : undefined}
               className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               数値を見る・入力する

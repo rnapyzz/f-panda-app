@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PlanRole } from '../api/types.ts'
-import { actualThroughLabel, defaultScenarios, scenarioLabel } from './scenario.ts'
+import { actualThroughLabel, currentFiscalYear, defaultScenarios, fiscalMonths, scenarioLabel } from './scenario.ts'
 
 const s = (id: number, plan_role: PlanRole | null = null, is_active = false) => ({ id, name: `S${id}`, plan_role, is_active })
 
@@ -25,4 +25,10 @@ test('defaultScenarios: エイリアスがなければ、作成中・新しい�
   assert.deepEqual(defaultScenarios([s(1), s(5), s(3)]), { base: s(1), latest: s(5) })
   assert.deepEqual(defaultScenarios([s(1)]), { base: s(1), latest: s(1) })
   assert.deepEqual(defaultScenarios([]), { base: undefined, latest: undefined })
+})
+
+test('currentFiscalYear・fiscalMonths: 4月始まり', () => {
+  assert.equal(currentFiscalYear(new Date(2026, 3, 1)), 2026)
+  assert.equal(currentFiscalYear(new Date(2027, 2, 31)), 2026)
+  assert.deepEqual([fiscalMonths(2026)[0], fiscalMonths(2026)[9], fiscalMonths(2026)[11]], ['2026-04', '2027-01', '2027-03'])
 })

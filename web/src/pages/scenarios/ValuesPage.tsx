@@ -4,6 +4,7 @@ import { categoryLabels, type AmountRow, type List, type Scenario, type Subject,
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatPercent, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
+import { useActiveScenario } from '../../lib/activeScenario'
 import { Link, navigate } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { ScenarioBadges } from './ScenarioListPage'
@@ -63,6 +64,7 @@ function ValuesEditor({
   setData: (v: ValuesView) => void
   reload: () => void
 }) {
+  const { active } = useActiveScenario()
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
   const [extraSubjects, setExtraSubjects] = useState<number[]>([])
   const [selected, setSelected] = useState<CellKey | null>(null)
@@ -343,6 +345,14 @@ function ValuesEditor({
         }
       />
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
+      {active && active.id !== v.scenario.id && (
+        <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
+          このシナリオは作成中ではありません。
+          <Link to={`/scenarios/${active.id}/activities/${v.activity.id}`} className="ml-1 font-medium underline">
+            作成中のシナリオ「{active.name}」で開く →
+          </Link>
+        </p>
+      )}
       {editable && (
         <details className="mb-4 text-xs text-slate-500">
           <summary className="cursor-pointer select-none">スプレッドシートと同じように入力できます（操作方法）</summary>
