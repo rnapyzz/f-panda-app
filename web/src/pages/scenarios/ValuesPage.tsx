@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
 import { categoryLabels, type AmountRow, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
+import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatPercent, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { Link, navigate } from '../../lib/router'
@@ -28,6 +29,40 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
   const subjects = useApi<List<Subject>>('/subjects')
   const scenarios = useApi<List<Scenario>>('/scenarios')
 
+  const error = view.error ?? subjects.error ?? scenarios.error
+  if (error) return <ErrorMessage error={error} />
+  if (!view.data || !subjects.data || !scenarios.data) return <Loading />
+  return (
+    <ValuesEditor
+      key={path}
+      path={path}
+      v={view.data}
+      subjects={subjects.data.items}
+      scenarios={scenarios.data.items}
+      setData={view.setData}
+      reload={view.reload}
+    />
+  )
+}
+
+/** 金額の行（スプレッドシートの1行）。lineId 0 は科目への直接入力 */
+type SheetLine = { row: AmountRow; lineId: number; label: string; title: ReactNode; sub: string; editable: boolean; indent: boolean }
+
+function ValuesEditor({
+  path,
+  v,
+  subjects,
+  scenarios,
+  setData,
+  reload,
+}: {
+  path: string
+  v: ValuesView
+  subjects: Subject[]
+  scenarios: Scenario[]
+  setData: (v: ValuesView) => void
+  reload: () => void
+}) {
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
   const [extraSubjects, setExtraSubjects] = useState<number[]>([])
   const [selected, setSelected] = useState<CellKey | null>(null)
@@ -37,15 +72,17 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
   const [saving, setSaving] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
 
-  const v = view.data
+  // 元に戻す・やり直すための、編集内容の履歴
+  const past = useRef<Map<CellKey, CellEdit>[]>([])
+  const future = useRef<Map<CellKey, CellEdit>[]>([])
 
   // サーバーの値を（キー → 値）で引けるようにする
   const server = useMemo(() => {
     const m = new Map<CellKey, ServerCell>()
-    for (const d of v?.drivers ?? []) {
+    for (const d of v.drivers) {
       for (const c of d.values) m.set(`d:${d.id}:${c.target_month}`, { value: String(c.value), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason })
     }
-    for (const a of v?.amounts ?? []) {
+    for (const a of v.amounts) {
       for (const [lineId, values] of [[0, a.values] as const, ...a.lines.map((l) => [l.id, l.values] as const)]) {
         for (const c of values) {
           m.set(`a:${a.subject_id}:${lineId}:${c.target_month}`, { value: String(c.amount), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason, source: c.source })
@@ -74,18 +111,35 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [dirty])
 
-  const error = view.error ?? subjects.error ?? scenarios.error
-  if (error) return <ErrorMessage error={error} />
-  if (!v || !subjects.data || !scenarios.data) return <Loading />
-
   const editable = v.editable
   const update = (k: CellKey, patch: Partial<CellEdit>) => {
     setEdits((prev) => new Map(prev).set(k, { ...cell(k), ...patch }))
     setSavedMessage('')
   }
+  /** グリッドからの値の変更（まとめて1回の操作として、元に戻せるようにする） */
+  const setValues = (entries: [CellKey, string][]) => {
+    const next = new Map(edits)
+    for (const [k, value] of entries) next.set(k, { ...cell(k), value })
+    past.current = [...past.current.slice(-99), edits]
+    future.current = []
+    setEdits(next)
+    setSavedMessage('')
+  }
+  const undo = () => {
+    const prev = past.current.pop()
+    if (!prev) return
+    future.current.push(edits)
+    setEdits(prev)
+  }
+  const redo = () => {
+    const next = future.current.pop()
+    if (!next) return
+    past.current.push(edits)
+    setEdits(next)
+  }
 
   // 金額の行: 既存の行＋追加した行。収益 → 費用の順
-  const subjectById = new Map(subjects.data.items.map((s) => [s.id, s]))
+  const subjectById = new Map(subjects.map((s) => [s.id, s]))
   const amountRows: AmountRow[] = [
     ...v.amounts,
     ...extraSubjects
@@ -95,7 +149,7 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         return { subject_id: id, code: s.code, name: s.name, category: s.category, values: [], lines: [] }
       }),
   ].sort((a, b) => (a.category === b.category ? 0 : a.category === 'revenue' ? -1 : 1))
-  const addableSubjects = subjects.data.items.filter((s) => !amountRows.some((r) => r.subject_id === s.id))
+  const addableSubjects = subjects.filter((s) => !amountRows.some((r) => r.subject_id === s.id))
   const hasFormulaLines = amountRows.some((r) => r.lines.some((l) => l.formula_enabled))
 
   /** 科目の月の金額（内訳と科目への直接入力の合計） */
@@ -104,29 +158,62 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
   const rowTotal = (subjectId: number, lineId: number) => v.months.reduce((sum, m) => sum + toBigInt(cell(`a:${subjectId}:${lineId}:${m}`).value), 0n)
   const subjectTotal = (r: AmountRow) => v.months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
 
+  // スプレッドシートの行。内訳のない科目は直接入力の1行、内訳のある科目は内訳の行と「その他」の行
+  const sheetLines: SheetLine[] = amountRows.flatMap((r): SheetLine[] => {
+    const sub = `${r.code} ${categoryLabels[r.category]}`
+    if (r.lines.length === 0) return [{ row: r, lineId: 0, label: r.name, title: r.name, sub, editable: true, indent: false }]
+    return [
+      ...r.lines.map((l) => ({
+        row: r,
+        lineId: l.id,
+        label: `${r.name} ${l.name}`,
+        title: (
+          <>
+            {l.formula_enabled && <span className="mr-1 rounded bg-indigo-50 px-1 font-mono text-xs text-indigo-700">fx</span>}
+            {l.name}
+          </>
+        ),
+        sub: l.formula_enabled ? l.expression : '直接入力',
+        editable: !l.formula_enabled,
+        indent: true,
+      })),
+      { row: r, lineId: 0, label: `${r.name} その他`, title: 'その他', sub: '科目への直接入力', editable: true, indent: true },
+    ]
+  })
+  const readonlyKeys = new Set<CellKey>(sheetLines.filter((l) => !l.editable).flatMap((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)))
+  const sheetOptions = {
+    isEditable: (k: CellKey) => editable && !readonlyKeys.has(k),
+    rawValue: (k: CellKey) => normalize(cell(k).value),
+    setValues,
+    onActivate: (k: CellKey) => setSelected(k),
+    onUndo: undo,
+    onRedo: redo,
+  }
+  const driverSheet = useSheet<CellKey>({ ...sheetOptions, grid: v.drivers.map((d) => v.months.map((m) => `d:${d.id}:${m}` as CellKey)) })
+  const amountSheet = useSheet<CellKey>({ ...sheetOptions, grid: sheetLines.map((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)) })
+
   /** 金額を入力・表示する1行 */
-  const amountLine = (r: AmountRow, lineId: number, label: string, title: ReactNode, sub: string, lineEditable: boolean, indent: boolean) => (
-    <tr key={`${r.subject_id}:${lineId}`}>
-      <RowHeader title={title} sub={sub} indent={indent} />
-      {v.months.map((m) => {
-        const k: CellKey = `a:${r.subject_id}:${lineId}:${m}`
+  const amountLine = (l: SheetLine, index: number) => (
+    <tr key={`${l.row.subject_id}:${l.lineId}`}>
+      <RowHeader title={l.title} sub={l.sub} indent={l.indent} />
+      {v.months.map((m, c) => {
+        const k: CellKey = `a:${l.row.subject_id}:${l.lineId}:${m}`
         return (
-          <CellInput
+          <SheetCell
             key={m}
-            label={`${label} ${monthLabel(m)}`}
-            value={cell(k).value}
+            sheet={amountSheet}
+            r={index}
+            c={c}
+            label={`${l.label} ${monthLabel(m)}`}
             display={formatYen(cell(k).value)}
-            editable={editable && lineEditable}
+            editable={editable && l.editable}
             provisional={cell(k).is_provisional}
             changed={isChanged(k)}
             error={cellErrors.get(k)}
-            selected={selected === k}
-            onFocus={() => setSelected(k)}
-            onChange={(value) => update(k, { value })}
           />
         )
       })}
-      <td className="border-b border-slate-100 bg-slate-50 px-2 text-right tabular-nums">{formatYen(String(rowTotal(r.subject_id, lineId)))}</td>
+      <td className="border-b border-slate-100 bg-slate-50 px-2 text-right tabular-nums">{formatYen(String(rowTotal(l.row.subject_id, l.lineId)))}</td>
     </tr>
   )
 
@@ -172,8 +259,10 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
           amounts: amountKeys.map(toItem).map(({ id, lineId, value, ...rest }) => ({ subject_id: id, line_id: lineId || null, amount: value, ...rest })),
         })
       }
-      if (latest) view.setData(latest)
+      if (latest) setData(latest)
       setEdits(new Map())
+      past.current = []
+      future.current = []
       setExtraSubjects([])
       setReason('')
       setSavedMessage(`${changedKeys.length} 件を保存しました`)
@@ -189,7 +278,7 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         }
         setCellErrors(m)
       }
-      if (current === 'amount') view.reload()
+      if (current === 'amount') reload()
     } finally {
       setSaving(false)
     }
@@ -197,13 +286,15 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
 
   const discard = () => {
     setEdits(new Map())
+    past.current = []
+    future.current = []
     setExtraSubjects([])
     setCellErrors(new Map())
     setSaveError(null)
   }
 
   const selectedInfo = selected ? describeCell(selected, v, amountRows) : null
-  const otherScenarios = scenarios.data.items.filter((s) => s.id !== v.scenario.id)
+  const otherScenarios = scenarios.filter((s) => s.id !== v.scenario.id)
 
   return (
     <>
@@ -249,6 +340,19 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         }
       />
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
+      {editable && (
+        <details className="mb-4 text-xs text-slate-500">
+          <summary className="cursor-pointer select-none">スプレッドシートと同じように入力できます（操作方法）</summary>
+          <ul className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+            <li>セルを選んでそのまま入力。Enter・F2・ダブルクリックで編集</li>
+            <li>Enter で確定して下へ、Tab で確定して右へ。Esc で取り消し</li>
+            <li>矢印キーで移動。Shift+クリック・Shift+矢印・ドラッグで範囲を選択</li>
+            <li>Excel・Google スプレッドシートとコピー・貼り付けできます（1,000 や △1,000 も可）</li>
+            <li>Ctrl/⌘+R で右へ、Ctrl/⌘+D で下へコピー（例: 4月の値を3月まで）</li>
+            <li>Delete で消去。Ctrl/⌘+Z で元に戻す、Ctrl/⌘+Shift+Z でやり直す</li>
+          </ul>
+        </details>
+      )}
 
       <Card title="ドライバー・KPI" className="mb-4">
         {v.drivers.length === 0 ? (
@@ -260,29 +364,28 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
             で追加できます。
           </p>
         ) : (
-          <Grid months={v.months}>
-            {v.drivers.map((d) => (
+          <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months}>
+            {v.drivers.map((d, r) => (
               <tr key={d.id}>
                 <RowHeader title={d.name} sub={`${d.code}${d.unit ? `（${d.unit}）` : ''}`} />
-                {v.months.map((m) => {
+                {v.months.map((m, c) => {
                   const k: CellKey = `d:${d.id}:${m}`
                   return (
-                    <CellInput
+                    <SheetCell
                       key={m}
+                      sheet={driverSheet}
+                      r={r}
+                      c={c}
                       label={`${d.name} ${monthLabel(m)}`}
-                      value={cell(k).value}
                       display={formatNumber(cell(k).value)}
                       editable={editable}
                       provisional={cell(k).is_provisional}
                       changed={isChanged(k)}
                       error={cellErrors.get(k)}
-                      selected={selected === k}
-                      onFocus={() => setSelected(k)}
-                      onChange={(value) => update(k, { value })}
                     />
                   )
                 })}
-                <td />
+                <td className="border-b border-slate-100" />
               </tr>
             ))}
           </Grid>
@@ -322,36 +425,21 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         {amountRows.length === 0 ? (
           <p className="text-sm text-slate-500">金額はまだありません。{editable ? '「＋ 科目を追加」から入力する科目を選んでください。' : ''}</p>
         ) : (
-          <Grid months={v.months} total>
+          <Grid sheet={amountSheet} label="金額" months={v.months} total>
             {amountRows.flatMap((r) => {
-              const sub = `${r.code} ${categoryLabels[r.category]}`
-              // 内訳のない科目は、科目への直接入力の1行だけ
-              if (r.lines.length === 0) return [amountLine(r, 0, r.name, r.name, sub, true, false)]
+              const lines = sheetLines.map((l, i) => [l, i] as const).filter(([l]) => l.row === r)
+              if (r.lines.length === 0) return lines.map(([l, i]) => amountLine(l, i))
               return [
                 <tr key={r.subject_id} className="bg-slate-50/60">
-                  <RowHeader title={r.name} sub={`${sub}・合計`} />
+                  <RowHeader title={r.name} sub={`${r.code} ${categoryLabels[r.category]}・合計`} />
                   {v.months.map((m) => (
-                    <td key={m} className="border-b border-slate-100 px-3 py-1 text-right font-medium tabular-nums">
+                    <td key={m} className="border-b border-slate-100 px-2 py-1 text-right font-medium tabular-nums">
                       {formatYen(String(subjectMonth(r, m)))}
                     </td>
                   ))}
                   <td className="border-b border-slate-100 bg-slate-50 px-2 text-right font-medium tabular-nums">{formatYen(String(subjectTotal(r)))}</td>
                 </tr>,
-                ...r.lines.map((l) =>
-                  amountLine(
-                    r,
-                    l.id,
-                    `${r.name} ${l.name}`,
-                    <>
-                      {l.formula_enabled && <span className="mr-1 rounded bg-indigo-50 px-1 font-mono text-xs text-indigo-700">fx</span>}
-                      {l.name}
-                    </>,
-                    l.formula_enabled ? l.expression : '直接入力',
-                    !l.formula_enabled,
-                    true,
-                  ),
-                ),
-                amountLine(r, 0, `${r.name} その他`, 'その他', '科目への直接入力', true, true),
+                ...lines.map(([l, i]) => amountLine(l, i)),
               ]
             })}
             {(['revenue', 'expense'] as const).map((c) => (
@@ -416,7 +504,7 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
         </Card>
       )}
 
-      <ConditionCard path={path} condition={v.condition} editable={editable} onSaved={(nv) => view.setData(nv)} />
+      <ConditionCard path={path} condition={v.condition} editable={editable} onSaved={setData} />
 
       {editable && (dirty || saveError || savedMessage) ? (
         <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] backdrop-blur">
@@ -480,24 +568,22 @@ function toBigInt(raw: string): bigint {
   return /^-?\d+$/.test(v) ? BigInt(v) : 0n
 }
 
-function Grid({ months, total, children }: { months: string[]; total?: boolean; children: ReactNode }) {
+function Grid({ sheet, label, months, total, children }: { sheet: Sheet; label: string; months: string[]; total?: boolean; children: ReactNode }) {
   return (
-    <div className="-mx-4 overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr>
-            <th className="sticky left-0 z-10 min-w-44 border-b border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-500" />
-            {months.map((m) => (
-              <th key={m} className="border-b border-slate-200 px-2 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500">
-                {monthLabel(m)}
-              </th>
-            ))}
-            <th className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-xs font-semibold text-slate-500">{total ? '年計' : ''}</th>
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
+    <SheetFrame sheet={sheet} label={label}>
+      <thead>
+        <tr>
+          <th className="sticky left-0 z-10 min-w-44 border-b border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-500" />
+          {months.map((m) => (
+            <th key={m} className="border-b border-slate-200 px-2 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500">
+              {monthLabel(m)}
+            </th>
+          ))}
+          <th className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-xs font-semibold text-slate-500">{total ? '年計' : ''}</th>
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </SheetFrame>
   )
 }
 
@@ -507,57 +593,6 @@ function RowHeader({ title, sub, indent }: { title: ReactNode; sub: string; inde
       <div className="text-sm font-medium whitespace-nowrap text-slate-800">{title}</div>
       <div className="font-mono text-xs whitespace-nowrap text-slate-400">{sub}</div>
     </th>
-  )
-}
-
-function CellInput({
-  label,
-  value,
-  display,
-  editable,
-  provisional,
-  changed,
-  error,
-  selected,
-  onFocus,
-  onChange,
-}: {
-  label: string
-  value: string
-  display: string
-  editable: boolean
-  provisional: boolean
-  changed: boolean
-  error?: string
-  selected: boolean
-  onFocus: () => void
-  onChange: (v: string) => void
-}) {
-  const tone = cx(
-    'w-28 rounded px-2 py-1 text-right tabular-nums',
-    provisional && 'bg-amber-50',
-    changed && 'ring-2 ring-indigo-300',
-    error && 'ring-2 ring-red-400',
-    selected && !changed && !error && 'ring-2 ring-slate-300',
-  )
-  return (
-    <td className="border-b border-slate-100 px-1 py-1">
-      {editable ? (
-        <input
-          aria-label={label}
-          inputMode="decimal"
-          value={value}
-          onFocus={onFocus}
-          onChange={(e) => onChange(e.target.value)}
-          title={error ?? (provisional ? '仮の値' : undefined)}
-          className={cx(tone, 'border border-slate-200 bg-white focus:border-indigo-400 focus:outline-none', provisional && 'bg-amber-50')}
-        />
-      ) : (
-        <button type="button" aria-label={`${label}: ${display || '未入力'}`} onClick={onFocus} className={cx(tone, 'block text-slate-700 hover:bg-slate-50')}>
-          {display || <span className="text-slate-300">—</span>}
-        </button>
-      )}
-    </td>
   )
 }
 

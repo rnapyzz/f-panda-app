@@ -53,6 +53,11 @@ export async function seedMasters(page: Page): Promise<Fixture> {
   return { run, segmentId: seg.id, unitId: fn.id, revenueId: rev.id, expenseId: exp.id, revenueName }
 }
 
+/** 数値入力グリッドのセル（アクセシブルネームは「ラベル: 表示値」） */
+export function gridCell(page: Page, label: string) {
+  return page.getByRole('gridcell', { name: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `) })
+}
+
 export async function createActivity(page: Page, f: Fixture, extra: Record<string, unknown> = {}) {
   return api(page).post<{ id: number; code: string; name: string }>('/activities', {
     unit_id: f.unitId,
