@@ -271,7 +271,10 @@ const fieldLabels: Record<string, string> = {
   code: 'コード',
   amount: '金額',
   value: '値',
-  probability: '確度',
+  probability: '確度', // 確度の段階を導入する前の変更履歴用
+  confidence_level: '確度の段階',
+  rate: '標準の確率',
+  criteria: '判定基準',
   assumptions: '前提条件',
   start_date: '開始日',
   end_date: '終了日',

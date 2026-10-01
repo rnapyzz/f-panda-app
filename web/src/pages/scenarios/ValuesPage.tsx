@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
-import { categoryLabels, type AmountRow, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
+import { categoryLabels, type AmountRow, type ConfidenceLevel, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
-import { formatNumber, formatPercent, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
+import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { useActiveScenario } from '../../lib/activeScenario'
+import { confidenceLabel } from '../../lib/confidence'
 import { Link, navigate } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { ScenarioBadges } from './ScenarioListPage'
@@ -65,6 +66,7 @@ function ValuesEditor({
   reload: () => void
 }) {
   const { active } = useActiveScenario()
+  const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
   const [extraSubjects, setExtraSubjects] = useState<number[]>([])
   const [selected, setSelected] = useState<CellKey | null>(null)
@@ -325,7 +327,7 @@ function ValuesEditor({
           <span className="flex flex-wrap items-center gap-2">
             {v.scenario.name}
             <ScenarioBadges s={v.scenario} />
-            <span>確度: {formatPercent(v.activity.probability)}</span>
+            <span>確度: {confidenceLabel(v.activity.confidence_level, levels.data?.items)}</span>
           </span>
         }
         actions={

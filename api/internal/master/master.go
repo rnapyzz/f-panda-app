@@ -1,4 +1,4 @@
-// Package master はマスタ（組織・セグメント・ユニット・勘定科目・ユーザー）の管理 API を提供する。
+// Package master はマスタ（組織・セグメント・ユニット・勘定科目・ユーザー・確度の段階）の管理 API を提供する。
 //
 // 参照はログインユーザー全員、更新は FP&A（fpa_admin）のみが行える。
 // 更新はすべて変更セットと監査ログに記録する。変更理由（reason）は任意。
@@ -61,6 +61,11 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/subjects/{id}", read(h.getSubject))
 	mux.Handle("PUT /api/subjects/{id}", write(h.updateSubject))
 	mux.Handle("DELETE /api/subjects/{id}", write(h.deleteSubject))
+
+	mux.Handle("GET /api/confidence-levels", read(h.listConfidenceLevels))
+	mux.Handle("POST /api/confidence-levels", write(h.createConfidenceLevel))
+	mux.Handle("PUT /api/confidence-levels/{id}", write(h.updateConfidenceLevel))
+	mux.Handle("DELETE /api/confidence-levels/{id}", write(h.deleteConfidenceLevel))
 
 	mux.Handle("GET /api/users", read(h.listUsers))
 	mux.Handle("POST /api/users", write(h.createUser))

@@ -71,7 +71,7 @@
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
-| 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{code}`（名前・標準の確率 0〜1・判定基準・表示順。参照されている段階は削除できない） |
+| 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策から参照されている段階は削除できない） |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
 - 組織・セグメント・ユニット・勘定科目はコードを持つ（一意）。組織・セグメント・ユニットは、作成時にコードが空なら `ORG-0001` / `SEG-0001` / `UNIT-0001` 形式で自動採番し、更新時に空なら変更しない

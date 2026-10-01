@@ -75,7 +75,7 @@ func findLine(ctx context.Context, tx *sql.Tx, activityID, id int64) (line, erro
 	return l, err
 }
 
-// validateLine は内訳の入力を検証し、計算式を解析する。式に使える識別子は、施策のドライバーの code と probability。
+// validateLine は内訳の入力を検証し、計算式を解析する。式に使える識別子は、施策のドライバーの code。
 func validateLine(ctx context.Context, tx *sql.Tx, activityID int64, req *lineRequest) error {
 	v := httpx.Validator{}
 	req.Name = v.Text("name", "内訳名", req.Name, 100)
@@ -92,7 +92,7 @@ func validateLine(ctx context.Context, tx *sql.Tx, activityID int64, req *lineRe
 			if err != nil {
 				return err
 			}
-			known := slices.Clone(reservedIdents)
+			var known []string
 			for _, d := range drivers {
 				known = append(known, d.Code)
 			}

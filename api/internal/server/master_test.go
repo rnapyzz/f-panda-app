@@ -189,7 +189,7 @@ func TestUnitWithActivityCannotBeDeleted(t *testing.T) {
 	seg := c.mustCreate("/api/segments", map[string]any{"name": "S"})
 	org := c.mustCreate("/api/organizations", map[string]any{"name": "O"})
 	fn := c.mustCreate("/api/units", map[string]any{"name": "F", "segment_id": seg, "organization_id": org})
-	if _, err := env.Exec("INSERT INTO activities (unit_id, code, name, activity_type, status) VALUES (?, 'ACT-1', 'a', 'project', 'active')", fn); err != nil {
+	if _, err := env.Exec("INSERT INTO activities (unit_id, code, name, activity_type, status, confidence_level) VALUES (?, 'ACT-1', 'a', 'project', 'active', 'C')", fn); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := c.do("DELETE", fmt.Sprintf("/api/units/%d", fn), nil); status != http.StatusConflict {

@@ -164,10 +164,6 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 	if err != nil || len(lines) == 0 {
 		return err
 	}
-	var probability sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT probability FROM activities WHERE id = ?", activityID).Scan(&probability); err != nil {
-		return err
-	}
 	values, err := loadDriverValues(ctx, tx, scenarioID, activityID)
 	if err != nil {
 		return err
@@ -182,15 +178,6 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 			var provisional []string
 			complete := true
 			for _, id := range l.expr.Idents() {
-				if id == "probability" {
-					if !probability.Valid {
-						complete = false
-						break
-					}
-					p, _ := new(big.Rat).SetString(probability.String)
-					vars[id] = p
-					continue
-				}
 				v, ok := values[month][id]
 				if !ok {
 					complete = false

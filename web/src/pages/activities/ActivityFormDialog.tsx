@@ -6,23 +6,20 @@ import {
   type Activity,
   type ActivityStatus,
   type ActivityType,
+  type ConfidenceLevel,
+  type List,
   type Unit,
   type User,
 } from '../../api/types'
 import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError } from '../../components/ui'
+import { ratePercent } from '../../lib/confidence'
+import { useApi } from '../../lib/useApi'
 
-const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'probability', 'assumptions']
+const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'confidence_level', 'assumptions']
 
-/** 確度（0〜1）→ パーセントの入力値 */
-function toPercent(p: number | null): string {
-  return p === null ? '' : String(Math.round(p * 10000) / 100)
-}
-
-/** パーセントの入力値 → 確度（0〜1、小数4桁の文字列）。空なら null */
-function fromPercent(s: string): string | null {
-  if (s.trim() === '') return null
-  const n = Number(s)
-  return Number.isFinite(n) ? (n / 100).toFixed(4) : s
+/** 確度の段階を選ばなかったときの既定（サーバーと同じ: プロジェクト型は C、それ以外は A） */
+function defaultLevel(type: ActivityType): string {
+  return type === 'project' ? 'C' : 'A'
 }
 
 /**
@@ -50,7 +47,11 @@ export function ActivityFormDialog({
   const [startDate, setStartDate] = useState(initial?.start_date ?? '')
   const [endDate, setEndDate] = useState(initial?.end_date ?? '')
   const [ownerId, setOwnerId] = useState(initial?.owner_user_id ? String(initial.owner_user_id) : '')
-  const [probability, setProbability] = useState(toPercent(initial?.probability ?? null))
+  const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
+  // 段階を選ぶまでは、施策タイプの既定を表示する（タイプを変えると既定も変わる）
+  const [pickedLevel, setPickedLevel] = useState(initial?.confidence_level ?? '')
+  const level = pickedLevel || defaultLevel(activityType)
+  const selectedLevel = levels.data?.items.find((l) => l.code === level)
   const [assumptions, setAssumptions] = useState(initial?.assumptions ?? '')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -69,7 +70,7 @@ export function ActivityFormDialog({
         start_date: startDate || null,
         end_date: endDate || null,
         owner_user_id: ownerId ? Number(ownerId) : null,
-        probability: fromPercent(probability),
+        confidence_level: level,
         assumptions,
       })
     } catch (err) {
@@ -160,8 +161,22 @@ export function ActivityFormDialog({
             </Select>
           )}
         </Field>
-        <Field label="確度（%）" error={fieldError(error, 'probability')} hint="案件や売上の発生確度。計算式では probability で参照できます">
-          {(p) => <Input {...p} type="number" min={0} max={100} step="0.01" value={probability} onChange={(e) => setProbability(e.target.value)} />}
+        <Field
+          label="確度の段階"
+          required
+          error={fieldError(error, 'confidence_level')}
+          hint={selectedLevel?.criteria ? `判定基準: ${selectedLevel.criteria}` : '事実（商談の進み具合など）で判断できる段階を選びます'}
+        >
+          {(p) => (
+            <Select {...p} value={level} onChange={(e) => setPickedLevel(e.target.value)}>
+              {(levels.data?.items ?? []).map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.code} {l.name}（{ratePercent(l.rate)}）
+                </option>
+              ))}
+              {!levels.data && <option value={level}>{level}</option>}
+            </Select>
+          )}
         </Field>
         <Field label="前提条件" error={fieldError(error, 'assumptions')} className="col-span-2">
           {(p) => <Textarea {...p} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} placeholder="例: A社の年間契約更新が前提。単価は2026年度の改定後価格" />}

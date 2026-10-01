@@ -133,3 +133,12 @@ export const IconAdmin = (p: P) => (
     <circle cx="18" cy="18" r="2" />
   </Icon>
 )
+
+/** 確度の段階: メーター */
+export const IconConfidence = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 17a8 8 0 1 1 16 0" />
+    <path d="M12 17l4-5" />
+    <path d="M4 20h16" />
+  </Icon>
+)

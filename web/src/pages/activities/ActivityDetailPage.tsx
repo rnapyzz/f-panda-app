@@ -7,6 +7,7 @@ import {
   driverKindLabels,
   milestoneStatusLabels,
   type ActivityDetail,
+  type ConfidenceLevel,
   type Driver,
   type Line,
   type Unit,
@@ -20,7 +21,7 @@ import { useReason } from '../../components/ReasonDialog'
 import { Badge, Button, Card, Empty, ErrorMessage, Loading, PageHeader, Table } from '../../components/ui'
 import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
-import { formatPercent } from '../../lib/format'
+import { confidenceLabel } from '../../lib/confidence'
 import { Link, navigate } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { ActivityFormDialog } from './ActivityFormDialog'
@@ -34,6 +35,7 @@ const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 
 export function ActivityDetailPage({ id }: { id: string }) {
   const me = useCurrentUser()
   const { active } = useActiveScenario()
+  const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
   const activity = useApi<ActivityDetail>(`/activities/${id}`)
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
@@ -159,7 +161,9 @@ export function ActivityDetailPage({ id }: { id: string }) {
               <Info label="ユニット">{unitById.get(a.unit_id)?.name}</Info>
               <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
               <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>
-              <Info label="確度">{formatPercent(a.probability)}</Info>
+              <Info label="確度">
+                <span title={levels.data?.items.find((l) => l.code === a.confidence_level)?.criteria}>{confidenceLabel(a.confidence_level, levels.data?.items)}</span>
+              </Info>
             </dl>
             <div className="mt-4 border-t border-slate-100 pt-3">
               <h3 className="mb-1 text-xs font-semibold text-slate-500">前提条件</h3>

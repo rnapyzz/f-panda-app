@@ -25,13 +25,13 @@ func newScenarioFixture(t *testing.T) *scenarioFixture {
 	f.cost = a.mustCreate("/api/subjects", map[string]any{"code": "8110", "name": "外注費", "category": "expense"})
 
 	f.formulaAct = a.mustCreate("/api/activities", activityBody(f.fn1, "SAAS-1", map[string]any{
-		"owner_user_id": f.memberID, "probability": 0.5,
+		"owner_user_id": f.memberID, "confidence_level": "C",
 	}))
 	base := fmt.Sprintf("/api/activities/%d", f.formulaAct)
 	f.priceID = a.mustCreate(base+"/drivers", map[string]any{"code": "unit_price", "name": "単価", "driver_kind": "value"})
 	f.volumeID = a.mustCreate(base+"/drivers", map[string]any{"code": "volume", "name": "件数", "driver_kind": "kpi"})
 	f.salesLine = a.mustCreate(base+"/lines", map[string]any{
-		"subject_id": f.sales, "name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "算出式の設定",
+		"subject_id": f.sales, "name": "利用料", "expression": "unit_price * volume * 0.5", "formula_enabled": true, "reason": "算出式の設定",
 	})
 
 	f.manualAct = a.mustCreate("/api/activities", activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID}))
@@ -181,13 +181,13 @@ func TestDriverValuesRecalculateAmounts(t *testing.T) {
 		t.Errorf("2026-11 = %v, want 2001・仮の値ではない", cell)
 	}
 
-	// 確度を変えると金額も再計算される（1000.5 * 4 * 0.8 = 3201.6 → 3202）
-	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "probability": 0.8, "reason": "受注確度の上方修正"})
+	// 金額は満額で持つので、確度の段階を変えても金額は変わらない（加重は集計時に行う）
+	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "confidence_level": "B", "reason": "内示を受けた"})
 	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d", f.formulaAct), update); status != http.StatusOK {
 		t.Fatalf("確度の変更: status = %d, body = %v", status, body)
 	}
-	if got, _ := lineAmountOf(f.member.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.salesLine, "2026-11"); got != "3202" {
-		t.Errorf("確度変更後の 2026-11 = %q, want 3202", got)
+	if got, _ := lineAmountOf(f.member.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.salesLine, "2026-11"); got != "2001" {
+		t.Errorf("確度変更後の 2026-11 = %q, want 2001（変わらない）", got)
 	}
 
 	// 変更は変更セット（シナリオ付き）と監査ログに残る
@@ -452,7 +452,7 @@ func TestAmountLines(t *testing.T) {
 	}
 
 	// 反映をやめると金額は残り、直接入力できるようになる
-	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": false, "reason": "値引き交渉中のため手入力"}); status != http.StatusOK {
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * 0.5", "formula_enabled": false, "reason": "値引き交渉中のため手入力"}); status != http.StatusOK {
 		t.Fatalf("反映をやめる: status = %d, body = %v", status, body)
 	}
 	status, body = f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "値引き", "amounts": []map[string]any{{"subject_id": f.sales, "line_id": f.salesLine, "target_month": "2026-10", "amount": 1800}}})
@@ -460,7 +460,7 @@ func TestAmountLines(t *testing.T) {
 		t.Errorf("反映しない内訳への入力: status = %d, cell = %v", status, cell)
 	}
 	// 反映に戻すと再計算される
-	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "式に戻す"}); status != http.StatusOK {
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume * 0.5", "formula_enabled": true, "reason": "式に戻す"}); status != http.StatusOK {
 		t.Fatalf("反映に戻す: status = %d, body = %v", status, body)
 	}
 	if got, cell := lineAmountOf(f.member.mustGet(vpath), f.salesLine, "2026-10"); got != "2000" || cell["source"] != "formula" {
@@ -626,11 +626,11 @@ func TestRecalculateOnlyPlanMonths(t *testing.T) {
 		{"driver_id": f.priceID, "target_month": "2026-05", "value": 1000},
 		{"driver_id": f.volumeID, "target_month": "2026-05", "value": 2},
 	}})
-	// 4月を実績の月にしてから確度を変えると、計算式の金額は5月だけ再計算される
+	// 4月を実績の月にしてから計算式を変えると、計算式の金額は5月だけ再計算される
 	f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", f.budget), map[string]any{"name": "2026年度 当初予算", "actual_through": "2026-04", "reason": "4月決算確定"})
-	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "probability": 1, "reason": "確度の見直し"})
-	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d", f.formulaAct), update); status != http.StatusOK {
-		t.Fatalf("確度の変更: status = %d, body = %v", status, body)
+	lpath := fmt.Sprintf("/api/activities/%d/lines/%d", f.formulaAct, f.salesLine)
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "利用料", "expression": "unit_price * volume", "formula_enabled": true, "reason": "式の見直し"}); status != http.StatusOK {
+		t.Fatalf("計算式の変更: status = %d, body = %v", status, body)
 	}
 	var april, may string
 	if err := f.env.QueryRow("SELECT CAST(amount AS CHAR) FROM budget_facts WHERE scenario_id = ? AND line_id = ? AND target_month = '2026-04-01'", f.budget, f.salesLine).Scan(&april); err != nil {

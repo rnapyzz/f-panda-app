@@ -20,7 +20,7 @@ func TestChangeHistory(t *testing.T) {
 	activityPath := fmt.Sprintf("/api/activities/%d", f.manualAct)
 
 	// 施策の確度を変更（理由あり）
-	update := activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID, "probability": 0.6, "reason": "受注確度の見直し"})
+	update := activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID, "confidence_level": "B", "reason": "受注確度の見直し"})
 	if status, body := f.member.do("PUT", activityPath, update); status != http.StatusOK {
 		t.Fatalf("確度変更: status = %d, body = %v", status, body)
 	}

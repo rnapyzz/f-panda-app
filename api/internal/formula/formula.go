@@ -4,7 +4,7 @@
 // 四則演算（+ - * /）、単項マイナス、括弧のみ。
 // 計算は math/big.Rat で行い、浮動小数点の誤差を出さない。
 //
-//	unit_price * volume * probability
+//	unit_price * volume
 //	(headcount * monthly_cost) + fixed_cost
 package formula
 
