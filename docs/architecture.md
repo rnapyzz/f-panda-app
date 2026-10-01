@@ -113,10 +113,12 @@
 
 | API                                                           | 内容                                         | 権限           |
 | ------------------------------------------------------------- | -------------------------------------------- | -------------- |
-| `GET /api/scenarios`（`fiscal_year` / `scenario_kind` で絞り込み） | 一覧                                         | 全員           |
-| `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製）          | FP&A           |
-| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称変更                               | 全員 / FP&A    |
-| `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック・ロック解除（解除は理由必須）         | FP&A           |
+| `GET /api/scenarios`（`fiscal_year` で絞り込み）              | 一覧（エイリアス・決算確定月・作成中を含む） | 全員           |
+| `GET /api/scenarios/active`                                   | 作成中のシナリオ（未設定なら `null`）        | 全員           |
+| `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製。`plan_role`・`actual_through` も指定できる） | FP&A           |
+| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、決算確定月（`actual_through`、変更は理由必須）の変更 | 全員 / FP&A    |
+| `POST /api/scenarios/{id}/activate`                           | 作成中に指定（前の作成中は外れる）           | FP&A           |
+| `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
@@ -126,25 +128,29 @@
 - ドライバー値は小数点以下6桁まで、金額は円単位の整数（マイナス可）
 - 「仮の値」（`is_provisional: true`）には理由（`provisional_reason`）が必須
 - 更新 API のレスポンスは、更新後の `GET .../activities/{aid}` と同じ形
-- ロック済みシナリオ・実績シナリオへの入力は 409。入力の可否はレスポンスの `editable` で分かる
+- 金額は、決算確定月以前の月は実績（ロック済みなら `scenario_actuals`、それ以外は `actual_facts`）、それより後の月は計画値（`budget_facts`）。月ごとに実績かどうか（`actual_months`）を返す
+- 入力できるのは、ロックされていないシナリオの決算確定月より後の月で、作成中のシナリオは施策の編集権限、それ以外は FP&A のみ。それ以外は 409。入力の可否はレスポンスの `editable` で分かる
+- エイリアスを付けると、同じ年度で同じエイリアスを持つシナリオからは外れる
 - 金額の再計算は `internal/calc` が行い、変更した金額は同じ変更セットの監査ログに残す
 
 ## 実績取込 API
 
-`POST /api/scenarios/{id}/actuals/import`（FP&A のみ）
+`POST /api/actuals/import`（FP&A のみ）
 
 - `multipart/form-data` で `file`（CSV）と `reason`（変更理由）を送る。形式は docs/plan.md「6.1 実績 CSV の形式」
+- 取込先は実績データ（`actual_facts`）。シナリオは指定しない
 - `?dry_run=true` を付けると、検証と集計だけを行い保存しない（理由は不要）
 - レスポンス: 取り込んだ月、データ行数、合算後の件数、追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用）
 - CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。1件もエラーがなければ保存する
-- 取込先は、ロックされていない実績シナリオ（`scenario_kind = actual`）のみ。それ以外は 409
+- `GET /api/actuals/months?fiscal_year=`: 実績を取り込み済みの月（決算確定月の既定値に使う）
 
 ## 予実比較 API
 
 `GET /api/reports/comparison`（ログインユーザー全員）
 
 - `scenario_ids`: 比較するシナリオ（カンマ区切り、最大4つ）。先頭が差異の基準
-- `landing_actual_id` / `landing_forecast_id` / `landing_through`（YYYY-MM）: 着地見込を系列に加える。`landing_through` までの月は実績シナリオ、それ以降の月は見込シナリオの金額を使う
+- 各シナリオの金額は、決算確定月以前は実績、それより後は計画値（着地見込の指定は廃止）
+- `include_actual=true`: 実績データ（取込済みの月）を系列に加える
 - `unit_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
 - レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
@@ -165,7 +171,7 @@
 
 `GET /api/reports/risk?scenario_id=&optimistic_id=&pessimistic_id=`（ログインユーザー全員）
 
-- 基準シナリオ（必須）と、楽観・悲観シナリオ（任意、基準と同じ年度）を指定する
+- 基準シナリオ（必須）と、楽観・悲観として比べるシナリオ（任意、基準と同じ年度。種別は問わない）を指定する
 - 施策ごとに、確度・前提条件、基準／楽観／悲観の年間の収益・費用、基準の仮の値（件数・金額・理由）、注意が必要なマイルストーン、シナリオごとの想定条件を返す
 - 注意が必要なマイルストーン: 完了していないもののうち、期日超過（`overdue`）・状態が遅延（`delayed`）・30日以内に期日（`upcoming`）。日付は日本時間
 - 確度帯の集計、振れ幅（楽観と悲観の差）の計算、並べ替えは画面側で行う
