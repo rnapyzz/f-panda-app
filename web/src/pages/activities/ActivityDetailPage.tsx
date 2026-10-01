@@ -25,6 +25,7 @@ import { useApi } from '../../lib/useApi'
 import { ActivityFormDialog } from './ActivityFormDialog'
 import { creatableUnits, statusTone } from './ActivityListPage'
 import { DriverDialog, LineDialog, MilestoneDialog } from './ActivityDialogs'
+import { ActivityPlCard } from './ActivityPlCard'
 import { ExternalCodesCard } from './ExternalCodesCard'
 
 const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 'green', delayed: 'red' } as const
@@ -165,7 +166,8 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <ExternalCodesCard activityId={a.id} codes={a.external_codes} canEdit={canEdit} onChanged={reload} />
         </div>
 
-        <div className="space-y-4 lg:col-span-2">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
+          <ActivityPlCard activityId={a.id} />
           <Card title="マイルストーン" actions={canEdit && <Button size="sm" onClick={() => setMilestone('new')}>＋ 追加</Button>}>
             {a.milestones.length === 0 ? (
               <Empty>マイルストーンはありません</Empty>
