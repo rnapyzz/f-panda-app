@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { api, ApiError } from '../../api/client'
-import type { ImportResult, Scenario } from '../../api/types'
+import type { ImportResult } from '../../api/types'
 import { Button, Dialog, ErrorMessage, Field, Input, Table, Textarea } from '../../components/ui'
 import { formatYen, yearMonthLabel } from '../../lib/format'
 
 /**
- * 実績 CSV の取込ダイアログ。
+ * 実績 CSV の取込ダイアログ。取込先は実績データで、シナリオは選ばない。
  * 「内容を確認」で dry run（保存しない検証と集計）を行い、結果を確認してから「取り込む」。
  */
-export function ActualsImportDialog({ scenario, onClose }: { scenario: Scenario; onClose: () => void }) {
+export function ActualsImportDialog({ onClose, onImported }: { onClose: () => void; onImported?: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [reason, setReason] = useState('')
   const [preview, setPreview] = useState<ImportResult | null>(null)
@@ -24,9 +24,12 @@ export function ActualsImportDialog({ scenario, onClose }: { scenario: Scenario;
     form.set('file', file)
     form.set('reason', reason)
     try {
-      const res = await api.post<ImportResult>(`/scenarios/${scenario.id}/actuals/import${dryRun ? '?dry_run=true' : ''}`, form)
+      const res = await api.post<ImportResult>(`/actuals/import${dryRun ? '?dry_run=true' : ''}`, form)
       if (dryRun) setPreview(res)
-      else setDone(res)
+      else {
+        setDone(res)
+        onImported?.()
+      }
     } catch (err) {
       setError(err)
       setPreview(null)
@@ -70,6 +73,7 @@ export function ActualsImportDialog({ scenario, onClose }: { scenario: Scenario;
               <p className="mt-1">
                 <code className="font-mono">activity_code</code> には、施策コードまたは施策に登録した外部コード（案件番号など）を書けます。同じ施策の行は合算します。
               </p>
+              <p className="mt-1">取り込んだ実績は、ロックされていないシナリオの決算確定月以前の月に反映されます（ロック済みのシナリオは変わりません）。</p>
               <p className="mt-1">CSV に含まれる月の実績は、CSV の内容で置き換えます。1行でもエラーがあれば取り込みません。</p>
             </div>
             <Field label="CSV ファイル" required>

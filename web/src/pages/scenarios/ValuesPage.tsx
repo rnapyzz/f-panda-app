@@ -16,7 +16,7 @@ type CellKey = `d:${number}:${string}` | `a:${number}:${number}:${string}`
 
 type ServerCell = CellEdit & { source?: string }
 
-const sourceLabels: Record<string, string> = { manual: '直接入力', formula: '計算式', import: '取込' }
+const sourceLabels: Record<string, string> = { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' }
 
 function normalize(v: string): string {
   return v.replace(/,/g, '').trim()
@@ -112,6 +112,9 @@ function ValuesEditor({
   }, [dirty])
 
   const editable = v.editable
+  // 決算確定月以前の月は実績。入力できない
+  const actualMonths = new Set(v.actual_months)
+  const monthOf = (k: CellKey) => k.slice(k.lastIndexOf(':') + 1)
   const update = (k: CellKey, patch: Partial<CellEdit>) => {
     setEdits((prev) => new Map(prev).set(k, { ...cell(k), ...patch }))
     setSavedMessage('')
@@ -182,7 +185,7 @@ function ValuesEditor({
   })
   const readonlyKeys = new Set<CellKey>(sheetLines.filter((l) => !l.editable).flatMap((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)))
   const sheetOptions = {
-    isEditable: (k: CellKey) => editable && !readonlyKeys.has(k),
+    isEditable: (k: CellKey) => editable && !readonlyKeys.has(k) && !actualMonths.has(monthOf(k)),
     rawValue: (k: CellKey) => normalize(cell(k).value),
     setValues,
     onActivate: (k: CellKey) => setSelected(k),
@@ -206,7 +209,7 @@ function ValuesEditor({
             c={c}
             label={`${l.label} ${monthLabel(m)}`}
             display={formatYen(cell(k).value)}
-            editable={editable && l.editable}
+            editable={editable && l.editable && !actualMonths.has(m)}
             provisional={cell(k).is_provisional}
             changed={isChanged(k)}
             error={cellErrors.get(k)}
@@ -364,7 +367,7 @@ function ValuesEditor({
             で追加できます。
           </p>
         ) : (
-          <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months}>
+          <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months} actualMonths={actualMonths}>
             {v.drivers.map((d, r) => (
               <tr key={d.id}>
                 <RowHeader title={d.name} sub={`${d.code}${d.unit ? `（${d.unit}）` : ''}`} />
@@ -378,7 +381,7 @@ function ValuesEditor({
                       c={c}
                       label={`${d.name} ${monthLabel(m)}`}
                       display={formatNumber(cell(k).value)}
-                      editable={editable}
+                      editable={editable && !actualMonths.has(m)}
                       provisional={cell(k).is_provisional}
                       changed={isChanged(k)}
                       error={cellErrors.get(k)}
@@ -425,7 +428,7 @@ function ValuesEditor({
         {amountRows.length === 0 ? (
           <p className="text-sm text-slate-500">金額はまだありません。{editable ? '「＋ 科目を追加」から入力する科目を選んでください。' : ''}</p>
         ) : (
-          <Grid sheet={amountSheet} label="金額" months={v.months} total>
+          <Grid sheet={amountSheet} label="金額" months={v.months} actualMonths={actualMonths} total>
             {amountRows.flatMap((r) => {
               const lines = sheetLines.map((l, i) => [l, i] as const).filter(([l]) => l.row === r)
               if (r.lines.length === 0) return lines.map(([l, i]) => amountLine(l, i))
@@ -474,7 +477,7 @@ function ValuesEditor({
         <Card title={`選択中のセル: ${selectedInfo.label}（${yearMonthLabel(selectedInfo.month)}）`} className="mb-4">
           <div className="flex flex-wrap items-start gap-6 text-sm">
             {selected.startsWith('a:') && server.get(selected)?.source && <div>登録方法: {sourceLabels[server.get(selected)!.source!]}</div>}
-            {selectedInfo.editable && editable ? (
+            {selectedInfo.editable && editable && !actualMonths.has(selectedInfo.month) ? (
               <>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="size-4 rounded border-slate-300" checked={cell(selected).is_provisional} onChange={(e) => update(selected, { is_provisional: e.target.checked })} />
@@ -545,7 +548,7 @@ function ValuesEditor({
 
 function readonlyReason(v: ValuesView): string {
   if (v.scenario.is_locked) return 'このシナリオはロックされているため、参照のみです。'
-  if (v.scenario.scenario_kind === 'actual') return '実績シナリオの数値は CSV の取込で登録します。画面からは参照のみです。'
+  if (!v.scenario.is_active) return 'このシナリオは作成中ではないため、参照のみです（入力できるのは FP&A のみ）。'
   return 'この施策の編集権限がないため、参照のみです。'
 }
 
@@ -568,7 +571,21 @@ function toBigInt(raw: string): bigint {
   return /^-?\d+$/.test(v) ? BigInt(v) : 0n
 }
 
-function Grid({ sheet, label, months, total, children }: { sheet: Sheet; label: string; months: string[]; total?: boolean; children: ReactNode }) {
+function Grid({
+  sheet,
+  label,
+  months,
+  actualMonths,
+  total,
+  children,
+}: {
+  sheet: Sheet
+  label: string
+  months: string[]
+  actualMonths: Set<string>
+  total?: boolean
+  children: ReactNode
+}) {
   return (
     <SheetFrame sheet={sheet} label={label}>
       <thead>
@@ -577,6 +594,7 @@ function Grid({ sheet, label, months, total, children }: { sheet: Sheet; label: 
           {months.map((m) => (
             <th key={m} className="border-b border-slate-200 px-2 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500">
               {monthLabel(m)}
+              {actualMonths.has(m) && <span className="block text-[10px] font-normal text-slate-400">実績</span>}
             </th>
           ))}
           <th className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-xs font-semibold text-slate-500">{total ? '年計' : ''}</th>
@@ -618,7 +636,7 @@ function ConditionCard({ path, condition, editable, onSaved }: { path: string; c
 
   return (
     <Card title="このシナリオでの想定条件" className="mb-4">
-      <p className="mb-2 text-xs text-slate-500">楽観・悲観シナリオの想定内容や、その発生条件などを記録します。</p>
+      <p className="mb-2 text-xs text-slate-500">このシナリオで想定している内容（楽観・悲観の見通しなど）や、その発生条件を記録します。</p>
       {editable ? (
         <div className="space-y-2">
           <Textarea

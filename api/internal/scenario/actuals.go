@@ -10,8 +10,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -170,16 +170,12 @@ type actualKey struct {
 	month                 string
 }
 
-// resolveActuals はコードを ID に変換し、年度の範囲を確認して、同じキーの金額を合算する。
-func resolveActuals(rows []csvRow, fiscalMonths []string, activities, subjects map[string]int64) (map[actualKey]*big.Int, error) {
+// resolveActuals はコードを ID に変換し、同じキーの金額を合算する。
+func resolveActuals(rows []csvRow, activities, subjects map[string]int64) (map[actualKey]*big.Int, error) {
 	errs := &rowErrors{}
 	out := map[actualKey]*big.Int{}
 	for _, row := range rows {
 		ok := true
-		if !slices.Contains(fiscalMonths, row.month) {
-			errs.add(row.line, "対象年月 %s はシナリオの年度（%s〜%s）の範囲外です", row.month, fiscalMonths[0], fiscalMonths[len(fiscalMonths)-1])
-			ok = false
-		}
 		activityID, found := activities[row.activityCode]
 		if !found {
 			errs.add(row.line, "施策コード %q は登録されていません（施策コードまたは外部コードを指定してください）", row.activityCode)
@@ -232,17 +228,24 @@ type monthTotals struct {
 
 var errDryRun = errors.New("dry run")
 
-// importActuals は POST /api/scenarios/{id}/actuals/import。FP&A のみ。
+// actualFact は実績データ（actual_facts）の1行。監査ログにも使う。
+type actualFact struct {
+	ID          int64  `json:"id"`
+	ActivityID  int64  `json:"activity_id"`
+	SubjectID   int64  `json:"subject_id"`
+	TargetMonth string `json:"target_month"`
+	Amount      string `json:"amount"`
+}
+
+// importActuals は POST /api/actuals/import。FP&A のみ。
 //
 // multipart/form-data で file（CSV）と reason（変更理由、必須）を送る。
-// CSV に含まれる月の実績を、CSV の内容で置き換える（差分だけを更新し、監査ログに残す）。
+// 実績データ（actual_facts）の、CSV に含まれる月の実績を CSV の内容で置き換える（差分だけを更新し、監査ログに残す）。
+// ロックされていないシナリオは、決算確定月以前の月に実績データを参照するので、取込の内容がそのまま反映される。
+// ロック済みのシナリオは、ロック時に保存した実績を使うため影響を受けない。
 // クエリ dry_run=true を付けると、検証と件数の集計だけを行い保存しない。
 func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
-	if err != nil {
-		return err
-	}
-	scenarioID, err := httpx.PathID(r, "id")
 	if err != nil {
 		return err
 	}
@@ -278,18 +281,7 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 
 	ctx := r.Context()
 	result := importResult{DryRun: dryRun, Rows: len(rows)}
-	err = audit.InTx(ctx, h.db, u.ID, &scenarioID, reason, func(tx *sql.Tx, rec *audit.Recorder) error {
-		s, err := findScenario(ctx, tx, scenarioID, " FOR UPDATE")
-		if err != nil {
-			return err
-		}
-		if s.ScenarioKind != "actual" {
-			return httpx.Conflict("実績は実績シナリオ（種別 actual）にのみ取り込めます")
-		}
-		if s.IsLocked {
-			return httpx.Conflict("ロックされたシナリオには取り込めません")
-		}
-
+	err = audit.InTx(ctx, h.db, u.ID, nil, reason, func(tx *sql.Tx, rec *audit.Recorder) error {
 		// activity_code 列には、施策コードと外部コード（案件番号など）のどちらも使える
 		activities, err := codeMap(ctx, tx, "SELECT code, id FROM activities")
 		if err != nil {
@@ -306,7 +298,7 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		want, err := resolveActuals(rows, calc.FiscalMonths(s.FiscalYear), activities, subjects)
+		want, err := resolveActuals(rows, activities, subjects)
 		if err != nil {
 			return err
 		}
@@ -321,14 +313,14 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 		}
 		sort.Strings(result.Months)
 
-		existing, err := loadMonthFacts(ctx, tx, scenarioID, result.Months)
+		existing, err := loadMonthActuals(ctx, tx, result.Months)
 		if err != nil {
 			return err
 		}
-		if err := h.applyActuals(ctx, tx, rec, scenarioID, existing, want, &result); err != nil {
+		if err := applyActuals(ctx, tx, rec, existing, want, &result); err != nil {
 			return err
 		}
-		if result.Totals, err = monthlyTotals(ctx, tx, scenarioID, result.Months); err != nil {
+		if result.Totals, err = monthlyTotals(ctx, tx, result.Months); err != nil {
 			return err
 		}
 		if dryRun {
@@ -344,8 +336,8 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 }
 
 // applyActuals は既存の実績を CSV の内容に合わせて insert / update / delete する。
-func (h *Handler) applyActuals(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID int64,
-	existing map[actualKey]calc.Fact, want map[actualKey]*big.Int, result *importResult) error {
+func applyActuals(ctx context.Context, tx *sql.Tx, rec *audit.Recorder,
+	existing map[actualKey]actualFact, want map[actualKey]*big.Int, result *importResult) error {
 	keys := make([]actualKey, 0, len(existing)+len(want))
 	for k := range existing {
 		keys = append(keys, k)
@@ -371,35 +363,37 @@ func (h *Handler) applyActuals(ctx context.Context, tx *sql.Tx, rec *audit.Recor
 		amount, has := want[k]
 		switch {
 		case had && !has:
-			if _, err := tx.ExecContext(ctx, "DELETE FROM budget_facts WHERE id = ?", before.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM actual_facts WHERE id = ?", before.ID); err != nil {
 				return err
 			}
-			if err := rec.Delete(ctx, "budget_facts", before.ID, before); err != nil {
+			if err := rec.Delete(ctx, "actual_facts", before.ID, before); err != nil {
 				return err
 			}
 			result.Deleted++
 		case !had && has:
-			after := calc.Fact{ScenarioID: scenarioID, ActivityID: k.activityID, SubjectID: k.subjectID, TargetMonth: k.month, Amount: amount.String(), Source: "import"}
-			id, err := calc.InsertFact(ctx, tx, after)
+			after := actualFact{ActivityID: k.activityID, SubjectID: k.subjectID, TargetMonth: k.month, Amount: amount.String()}
+			res, err := tx.ExecContext(ctx,
+				"INSERT INTO actual_facts (activity_id, subject_id, target_month, amount) VALUES (?, ?, ?, ?)",
+				after.ActivityID, after.SubjectID, after.TargetMonth+"-01", after.Amount)
 			if err != nil {
 				return err
 			}
-			after.ID = id
-			if err := rec.Insert(ctx, "budget_facts", id, after); err != nil {
+			after.ID, _ = res.LastInsertId()
+			if err := rec.Insert(ctx, "actual_facts", after.ID, after); err != nil {
 				return err
 			}
 			result.Inserted++
 		default:
 			after := before
-			after.Amount, after.Source, after.IsProvisional, after.ProvisionalReason = amount.String(), "import", false, ""
+			after.Amount = amount.String()
 			if after == before {
 				result.Unchanged++
 				continue
 			}
-			if err := calc.UpdateFact(ctx, tx, after); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE actual_facts SET amount = ? WHERE id = ?", after.Amount, after.ID); err != nil {
 				return err
 			}
-			if err := rec.Update(ctx, "budget_facts", before.ID, before, after); err != nil {
+			if err := rec.Update(ctx, "actual_facts", before.ID, before, after); err != nil {
 				return err
 			}
 			result.Updated++
@@ -427,27 +421,27 @@ func codeMap(ctx context.Context, tx *sql.Tx, query string) (map[string]int64, e
 	return out, rows.Err()
 }
 
-// loadMonthFacts はシナリオの指定月の金額を行ロック付きで読み込む。
-func loadMonthFacts(ctx context.Context, tx *sql.Tx, scenarioID int64, months []string) (map[actualKey]calc.Fact, error) {
-	out := map[actualKey]calc.Fact{}
+// loadMonthActuals は指定月の実績を行ロック付きで読み込む。
+func loadMonthActuals(ctx context.Context, tx *sql.Tx, months []string) (map[actualKey]actualFact, error) {
+	out := map[actualKey]actualFact{}
 	if len(months) == 0 {
 		return out, nil
 	}
-	args := []any{scenarioID}
+	args := []any{}
 	for _, m := range months {
 		args = append(args, m+"-01")
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, activity_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
-		FROM budget_facts
-		WHERE scenario_id = ? AND line_id IS NULL AND target_month IN (?`+strings.Repeat(", ?", len(months)-1)+`) FOR UPDATE`, args...)
+		SELECT id, activity_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), amount
+		FROM actual_facts
+		WHERE target_month IN (?`+strings.Repeat(", ?", len(months)-1)+`) FOR UPDATE`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		f := calc.Fact{ScenarioID: scenarioID}
-		if err := rows.Scan(&f.ID, &f.ActivityID, &f.SubjectID, &f.TargetMonth, &f.Amount, &f.Source, &f.IsProvisional, &f.ProvisionalReason); err != nil {
+		var f actualFact
+		if err := rows.Scan(&f.ID, &f.ActivityID, &f.SubjectID, &f.TargetMonth, &f.Amount); err != nil {
 			return nil, err
 		}
 		out[actualKey{f.ActivityID, f.SubjectID, f.TargetMonth}] = f
@@ -455,16 +449,16 @@ func loadMonthFacts(ctx context.Context, tx *sql.Tx, scenarioID int64, months []
 	return out, rows.Err()
 }
 
-// monthlyTotals は月ごとの収益・費用の合計を返す。
-func monthlyTotals(ctx context.Context, tx *sql.Tx, scenarioID int64, months []string) ([]monthTotals, error) {
+// monthlyTotals は月ごとの実績の収益・費用の合計を返す。
+func monthlyTotals(ctx context.Context, tx *sql.Tx, months []string) ([]monthTotals, error) {
 	out := []monthTotals{}
 	for _, m := range months {
 		t := monthTotals{Month: m}
 		err := tx.QueryRowContext(ctx, `
-			SELECT CAST(COALESCE(SUM(CASE WHEN s.category = 'revenue' THEN b.amount END), 0) AS CHAR),
-			       CAST(COALESCE(SUM(CASE WHEN s.category = 'expense' THEN b.amount END), 0) AS CHAR)
-			FROM budget_facts b JOIN subjects s ON s.id = b.subject_id
-			WHERE b.scenario_id = ? AND b.target_month = ?`, scenarioID, m+"-01",
+			SELECT CAST(COALESCE(SUM(CASE WHEN s.category = 'revenue' THEN f.amount END), 0) AS CHAR),
+			       CAST(COALESCE(SUM(CASE WHEN s.category = 'expense' THEN f.amount END), 0) AS CHAR)
+			FROM actual_facts f JOIN subjects s ON s.id = f.subject_id
+			WHERE f.target_month = ?`, m+"-01",
 		).Scan(&t.Revenue, &t.Expense)
 		if err != nil {
 			return nil, err
@@ -472,4 +466,34 @@ func monthlyTotals(ctx context.Context, tx *sql.Tx, scenarioID int64, months []s
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// actualMonths は GET /api/actuals/months?fiscal_year=。年度のうち、実績を取り込み済みの月を返す。
+// シナリオを作成するときの決算確定月の既定値（取込済みの最終月）に使う。
+func (h *Handler) actualMonths(w http.ResponseWriter, r *http.Request) error {
+	fy, err := strconv.Atoi(r.URL.Query().Get("fiscal_year"))
+	if err != nil {
+		return httpx.BadRequest("fiscal_year は数値で指定してください")
+	}
+	months := calc.FiscalMonths(fy)
+	rows, err := h.db.QueryContext(r.Context(), `
+		SELECT DISTINCT DATE_FORMAT(target_month, '%Y-%m') FROM actual_facts
+		WHERE target_month BETWEEN ? AND ? ORDER BY 1`, months[0]+"-01", months[len(months)-1]+"-01")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return err
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"fiscal_year": fy, "months": out})
+	return nil
 }

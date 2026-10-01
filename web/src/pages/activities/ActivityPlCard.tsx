@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { scenarioKindLabels, type List, type Scenario, type ValuesView } from '../../api/types'
+import type { List, Scenario, ValuesView } from '../../api/types'
 import { Card, Empty, ErrorMessage, Loading, Select, cx } from '../../components/ui'
 import { isFavorable, varianceRate } from '../../lib/aggregate'
 import { formatYen } from '../../lib/format'
-import { buildPl, defaultFiscalYear, defaultScenarios, grainLabels, periodsOf, sumOver, type Grain, type PlNode } from '../../lib/pl'
+import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain, type PlNode } from '../../lib/pl'
 import { Link } from '../../lib/router'
+import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 
 const grains: Grain[] = ['month', 'quarter', 'half', 'year']
@@ -43,7 +44,7 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
 
   const scenarioOption = (s: Scenario) => (
     <option key={s.id} value={s.id}>
-      {s.name}（{scenarioKindLabels[s.scenario_kind]}）
+      {scenarioLabel(s)}
     </option>
   )
 
@@ -115,6 +116,9 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
                 {inYear.map(scenarioOption)}
               </Select>
             </label>
+            <p className="pb-1.5 text-slate-500">
+              基準: {actualThroughLabel(inYear.find((s) => s.id === baseId)?.actual_through)} / 最新: {actualThroughLabel(inYear.find((s) => s.id === latestId)?.actual_through)}
+            </p>
             <div className="ml-auto flex gap-3 pb-1.5">
               {expandable.length > 0 && (
                 <button type="button" onClick={() => setOpen(allOpen ? new Set() : new Set(expandable))} className="text-indigo-700 hover:underline">

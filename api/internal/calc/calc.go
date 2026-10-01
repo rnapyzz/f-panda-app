@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 
@@ -72,11 +73,48 @@ func FiscalMonths(fiscalYear int) []string {
 	return months
 }
 
+// PlanMonths は年度の月のうち、決算確定月（YYYY-MM、空なら未設定）より後の月を返す。
+func PlanMonths(fiscalYear int, actualThrough string) []string {
+	months := FiscalMonths(fiscalYear)
+	if actualThrough == "" {
+		return months
+	}
+	return slices.DeleteFunc(months, func(m string) bool { return m <= actualThrough })
+}
+
+// RecalculateScenario は、シナリオの計算式で反映する内訳を持つすべての施策の金額を再計算する。
+// 決算確定月を変更したときに呼ぶ。
+func RecalculateScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID int64) error {
+	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT activity_id FROM activity_lines WHERE formula_enabled ORDER BY activity_id")
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := Recalculate(ctx, tx, rec, scenarioID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RecalculateActivity は施策の金額を、再計算の対象となるすべてのシナリオで再計算する。
 // 計算式・確度・算出方式を変更したときに呼ぶ。
 func RecalculateActivity(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, activityID int64) error {
 	rows, err := tx.QueryContext(ctx,
-		"SELECT id FROM scenarios WHERE NOT is_locked AND scenario_kind <> 'actual' ORDER BY id FOR SHARE")
+		"SELECT id FROM scenarios WHERE NOT is_locked ORDER BY id FOR SHARE")
 	if err != nil {
 		return err
 	}
@@ -110,15 +148,17 @@ type driverValue struct {
 func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID, activityID int64) error {
 	var fiscalYear int
 	var locked bool
-	var kind string
-	err := tx.QueryRowContext(ctx, "SELECT fiscal_year, is_locked, scenario_kind FROM scenarios WHERE id = ?", scenarioID).
-		Scan(&fiscalYear, &locked, &kind)
+	var through sql.NullString
+	err := tx.QueryRowContext(ctx, "SELECT fiscal_year, is_locked, DATE_FORMAT(actual_through, '%Y-%m') FROM scenarios WHERE id = ?", scenarioID).
+		Scan(&fiscalYear, &locked, &through)
 	if err != nil {
 		return err
 	}
-	if locked || kind == "actual" {
+	if locked {
 		return nil
 	}
+	// 計算するのは計画値の月（決算確定月より後の月）だけ。実績の月の金額は変えない
+	months := PlanMonths(fiscalYear, through.String)
 
 	lines, err := loadComputedLines(ctx, tx, activityID)
 	if err != nil || len(lines) == 0 {
@@ -137,7 +177,7 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 	lineIDs := map[int64]bool{}
 	for _, l := range lines {
 		lineIDs[l.id] = true
-		for _, month := range FiscalMonths(fiscalYear) {
+		for _, month := range months {
 			vars := map[string]*big.Rat{}
 			var provisional []string
 			complete := true
@@ -198,7 +238,7 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 	}
 	existing := map[Key]Fact{}
 	for k, f := range all {
-		if lineIDs[k.LineID] {
+		if lineIDs[k.LineID] && slices.Contains(months, k.Month) {
 			existing[k] = f
 		}
 	}

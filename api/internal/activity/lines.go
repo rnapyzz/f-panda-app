@@ -276,7 +276,7 @@ func (h *Handler) deleteLine(w http.ResponseWriter, r *http.Request) error {
 		}
 		n, err := dbx.Count(ctx, tx, `
 			SELECT COUNT(*) FROM budget_facts b JOIN scenarios s ON s.id = b.scenario_id
-			WHERE b.line_id = ? AND (s.is_locked OR s.scenario_kind = 'actual')`, id)
+			WHERE b.line_id = ? AND s.is_locked`, id)
 		if err != nil {
 			return err
 		}

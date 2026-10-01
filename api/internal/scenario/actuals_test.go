@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
@@ -94,7 +93,7 @@ func TestResolveActuals(t *testing.T) {
 		"2026-09,A,4110,100\n" +
 		"2026-09,A,4110,250\n" + // 同じキーは合算
 		"2026-09,B,4110,1\n" +
-		"2027-04,A,4110,1\n" + // 年度外
+		"2027-04,A,4110,1\n" + // 年度をまたいでも取り込める
 		"2026-10,X,9999,1\n")) // 未登録のコード
 	if err != nil {
 		t.Fatal(err)
@@ -102,20 +101,20 @@ func TestResolveActuals(t *testing.T) {
 	activities := map[string]int64{"A": 1, "B": 2}
 	subjects := map[string]int64{"4110": 10}
 
-	_, err = resolveActuals(rows, calc.FiscalMonths(2026), activities, subjects)
+	_, err = resolveActuals(rows, activities, subjects)
 	var apiErr *httpx.Error
-	if !errors.As(err, &apiErr) || len(apiErr.Rows) != 3 {
-		t.Fatalf("err = %v, rows = %+v, want 3 件（年度外・未登録の施策・未登録の科目）", err, apiErr)
+	if !errors.As(err, &apiErr) || len(apiErr.Rows) != 2 {
+		t.Fatalf("err = %v, rows = %+v, want 2 件（未登録の施策・未登録の科目）", err, apiErr)
 	}
 
-	got, err := resolveActuals(rows[:3], calc.FiscalMonths(2026), activities, subjects)
+	got, err := resolveActuals(rows[:4], activities, subjects)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v := got[actualKey{1, 10, "2026-09"}]; v == nil || v.String() != "350" {
 		t.Errorf("合算 = %v, want 350", v)
 	}
-	if len(got) != 2 {
-		t.Errorf("件数 = %d, want 2", len(got))
+	if len(got) != 3 {
+		t.Errorf("件数 = %d, want 3", len(got))
 	}
 }

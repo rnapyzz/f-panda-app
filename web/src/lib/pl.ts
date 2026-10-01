@@ -121,14 +121,3 @@ export function defaultFiscalYear(years: number[], today = new Date()): number |
   const current = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
   return years.includes(current) ? current : [...years].sort((a, b) => b - a)[0]
 }
-
-/**
- * 基準と比較のシナリオの既定値。基準は予算（なければ最初のシナリオ）、
- * 比較は実績以外でいちばん新しく作られたシナリオ（基準以外）。
- */
-export function defaultScenarios<S extends { id: number; scenario_kind: string }>(inYear: S[]): { base?: S; latest?: S } {
-  const base = inYear.find((s) => s.scenario_kind === 'budget') ?? inYear[0]
-  const candidates = inYear.filter((s) => s.scenario_kind !== 'actual' && s.id !== base?.id)
-  const latest = candidates.reduce<S | undefined>((a, s) => (!a || s.id > a.id ? s : a), undefined) ?? base
-  return { base, latest }
-}

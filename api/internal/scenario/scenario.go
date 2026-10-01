@@ -1,7 +1,10 @@
 // Package scenario はシナリオと、シナリオごとの数値（ドライバー値・金額・想定条件）の API を提供する。
 //
-// シナリオの作成・名称変更・ロック/ロック解除は FP&A（fpa_admin）のみ。参照はログインユーザー全員。
-// 数値の入力は施策の編集権限を持つユーザーが、ロックされていない実績以外のシナリオに対して行える。
+// シナリオの金額は、決算確定月（actual_through）以前の月は実績、それより後の月は計画値とする（docs/plan.md「2.6 シナリオ」）。
+// 実績はシナリオに属さない実績データ（actual_facts）で、ロック時に決算確定月以前の実績をシナリオに保存して固定する（scenario_actuals）。
+//
+// シナリオの作成・変更・作成中の指定・ロック/ロック解除、実績の取込は FP&A（fpa_admin）のみ。参照はログインユーザー全員。
+// 数値の入力は、作成中のシナリオなら施策の編集権限を持つユーザー、それ以外のロックされていないシナリオは FP&A のみが行える。
 //
 // シナリオは削除できない（変更履歴がシナリオを参照するため）。
 package scenario
@@ -10,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -18,11 +22,13 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
-var scenarioKinds = []string{"budget", "forecast", "actual", "optimistic", "pessimistic", "other"}
+// planRoles はシナリオのエイリアス（期初計画・修正計画・最新見込）。年度ごとに1つのシナリオにだけ付けられる。
+var planRoles = map[string]string{"initial": "期初計画", "revised": "修正計画", "latest": "最新見込"}
 
 // Handler はシナリオ API のハンドラー。
 type Handler struct {
@@ -40,12 +46,16 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	write := func(f httpx.HandlerFunc) http.Handler { return requireAuth(requireAdmin(httpx.Handle(f))) }
 
 	mux.Handle("GET /api/scenarios", read(h.list))
+	mux.Handle("GET /api/scenarios/active", read(h.active))
 	mux.Handle("POST /api/scenarios", write(h.create))
 	mux.Handle("GET /api/scenarios/{id}", read(h.get))
 	mux.Handle("PUT /api/scenarios/{id}", write(h.update))
+	mux.Handle("POST /api/scenarios/{id}/activate", write(h.activate))
 	mux.Handle("POST /api/scenarios/{id}/lock", write(h.lock))
 	mux.Handle("POST /api/scenarios/{id}/unlock", write(h.unlock))
-	mux.Handle("POST /api/scenarios/{id}/actuals/import", write(h.importActuals))
+
+	mux.Handle("POST /api/actuals/import", write(h.importActuals))
+	mux.Handle("GET /api/actuals/months", read(h.actualMonths))
 
 	// 数値の入力は施策ごとに権限を判定する
 	mux.Handle("GET /api/scenarios/{id}/activities/{aid}", read(h.getValues))
@@ -58,8 +68,10 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 type Scenario struct {
 	ID             int64     `json:"id"`
 	Name           string    `json:"name"`
-	ScenarioKind   string    `json:"scenario_kind"`
 	FiscalYear     int       `json:"fiscal_year"`
+	PlanRole       *string   `json:"plan_role"`      // initial / revised / latest
+	ActualThrough  *string   `json:"actual_through"` // 決算確定月（YYYY-MM）。この月以前は実績
+	IsActive       bool      `json:"is_active"`      // 作成中
 	BaseScenarioID *int64    `json:"base_scenario_id"`
 	IsLocked       bool      `json:"is_locked"`
 	CreatedBy      int64     `json:"created_by"`
@@ -67,14 +79,36 @@ type Scenario struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-const scenarioSelect = "SELECT id, name, scenario_kind, fiscal_year, base_scenario_id, is_locked, created_by, created_at, updated_at FROM scenarios"
+// PlanMonths は計画値の月（決算確定月より後の月）。数値を入力できるのはこの月だけ。
+func (s Scenario) PlanMonths() []string {
+	return calc.PlanMonths(s.FiscalYear, derefStr(s.ActualThrough))
+}
+
+// ActualMonths は実績の月（決算確定月以前の月）。
+func (s Scenario) ActualMonths() []string {
+	plan := s.PlanMonths()
+	return slices.DeleteFunc(calc.FiscalMonths(s.FiscalYear), func(m string) bool { return slices.Contains(plan, m) })
+}
+
+const scenarioSelect = `SELECT id, name, fiscal_year, plan_role, DATE_FORMAT(actual_through, '%Y-%m'), is_active,
+	base_scenario_id, is_locked, created_by, created_at, updated_at FROM scenarios`
 
 func scanScenario(row interface{ Scan(...any) error }) (Scenario, error) {
 	var s Scenario
 	var base sql.NullInt64
-	err := row.Scan(&s.ID, &s.Name, &s.ScenarioKind, &s.FiscalYear, &base, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
+	var role, through sql.NullString
+	err := row.Scan(&s.ID, &s.Name, &s.FiscalYear, &role, &through, &s.IsActive, &base, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
 	s.BaseScenarioID = dbx.PtrInt64(base)
+	s.PlanRole = ptrString(role)
+	s.ActualThrough = ptrString(through)
 	return s, err
+}
+
+func ptrString(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	return &v.String
 }
 
 func findScenario(ctx context.Context, q dbx.Querier, id int64, lock string) (Scenario, error) {
@@ -87,9 +121,10 @@ func findScenario(ctx context.Context, q dbx.Querier, id int64, lock string) (Sc
 
 type createRequest struct {
 	Name           string `json:"name"`
-	ScenarioKind   string `json:"scenario_kind"`
 	FiscalYear     int    `json:"fiscal_year"`
 	BaseScenarioID *int64 `json:"base_scenario_id"`
+	PlanRole       string `json:"plan_role"`      // 空ならエイリアスなし
+	ActualThrough  string `json:"actual_through"` // YYYY-MM。空なら未設定（12か月すべて計画値）
 	Reason         string `json:"reason"`
 }
 
@@ -105,7 +140,56 @@ func currentUser(r *http.Request) (auth.User, error) {
 	return u, nil
 }
 
-// list は GET /api/scenarios。fiscal_year / scenario_kind で絞り込める。新しい年度・新しい順に返す。
+// validateRoleAndThrough はエイリアスと決算確定月を検証し、DB に保存する値を返す。
+func validateRoleAndThrough(v httpx.Validator, fiscalYear int, role, through string) (any, any) {
+	role, through = strings.TrimSpace(role), strings.TrimSpace(through)
+	if _, ok := planRoles[role]; role != "" && !ok {
+		v.Add("plan_role", "エイリアスは initial（期初計画）/ revised（修正計画）/ latest（最新見込）のいずれかを指定してください")
+	}
+	if through != "" {
+		months := calc.FiscalMonths(fiscalYear)
+		if !slices.Contains(months, through) {
+			v.Add("actual_through", fmt.Sprintf("決算確定月は %s〜%s の YYYY-MM で指定してください", months[0], months[len(months)-1]))
+		}
+	}
+	return dbx.NullString(role), dbx.NullString(monthDate(through))
+}
+
+func monthDate(ym string) string {
+	if ym == "" {
+		return ""
+	}
+	return ym + "-01"
+}
+
+// takeRole は、同じ年度で role のエイリアスを持つほかのシナリオからエイリアスを外す（付け替え）。
+func takeRole(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, fiscalYear int, role string, exceptID int64) error {
+	if role == "" {
+		return nil
+	}
+	var id int64
+	err := tx.QueryRowContext(ctx, "SELECT id FROM scenarios WHERE fiscal_year = ? AND plan_role = ? AND id <> ? FOR UPDATE", fiscalYear, role, exceptID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	before, err := findScenario(ctx, tx, id, "")
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET plan_role = NULL WHERE id = ?", id); err != nil {
+		return err
+	}
+	after, err := findScenario(ctx, tx, id, "")
+	if err != nil {
+		return err
+	}
+	return rec.Update(ctx, "scenarios", id, before, after)
+}
+
+// list は GET /api/scenarios。fiscal_year で絞り込める。新しい年度・新しい順に返す。
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
 	var where []string
@@ -117,10 +201,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		}
 		where = append(where, "fiscal_year = ?")
 		args = append(args, y)
-	}
-	if s := q.Get("scenario_kind"); s != "" {
-		where = append(where, "scenario_kind = ?")
-		args = append(args, s)
 	}
 	query := scenarioSelect
 	if len(where) > 0 {
@@ -162,8 +242,23 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// active は GET /api/scenarios/active。作成中のシナリオを返す（未設定なら null）。
+func (h *Handler) active(w http.ResponseWriter, r *http.Request) error {
+	s, err := scanScenario(h.db.QueryRowContext(r.Context(), scenarioSelect+" WHERE is_active"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteJSON(w, http.StatusOK, nil)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, s)
+	return nil
+}
+
 // create は POST /api/scenarios。base_scenario_id を指定すると、そのシナリオの数値
 // （ドライバー値・金額・想定条件）をすべて複製する。複製元は同じ年度のシナリオに限る。
+// plan_role を指定すると、同じ年度でそのエイリアスを持つシナリオからは外れる。
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
 	if err != nil {
@@ -175,15 +270,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 	v := httpx.Validator{}
 	name := v.Text("name", "シナリオ名", req.Name, 100)
-	if !slices.Contains(scenarioKinds, req.ScenarioKind) {
-		v.Add("scenario_kind", "種別は "+strings.Join(scenarioKinds, " / ")+" のいずれかを指定してください")
-	}
 	if req.FiscalYear < 2000 || req.FiscalYear > 2100 {
 		v.Add("fiscal_year", "年度を正しく入力してください（例: 2026）")
 	}
-	if req.ScenarioKind == "actual" && req.BaseScenarioID != nil {
-		v.Add("base_scenario_id", "実績シナリオは複製して作成できません（実績は取込で登録します）")
-	}
+	role, through := validateRoleAndThrough(v, req.FiscalYear, req.PlanRole, req.ActualThrough)
 	if err := v.Err(); err != nil {
 		return err
 	}
@@ -203,10 +293,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 				return httpx.Validation(map[string]string{"base_scenario_id": "複製元は同じ年度のシナリオを選んでください"})
 			}
 		}
+		if err := takeRole(ctx, tx, rec, req.FiscalYear, strings.TrimSpace(req.PlanRole), 0); err != nil {
+			return err
+		}
 
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO scenarios (name, scenario_kind, fiscal_year, base_scenario_id, created_by) VALUES (?, ?, ?, ?, ?)",
-			name, req.ScenarioKind, req.FiscalYear, dbx.NullInt64(req.BaseScenarioID), u.ID,
+			"INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, base_scenario_id, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+			name, req.FiscalYear, role, through, dbx.NullInt64(req.BaseScenarioID), u.ID,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
@@ -253,7 +346,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// update は PUT /api/scenarios/{id}。名称のみ変更できる。
+// update は PUT /api/scenarios/{id}。名称・エイリアス・決算確定月を変更する（年度は変更できない）。
+// 決算確定月の変更は表示する金額が変わるため変更理由が必須で、ロック済みのシナリオでは変更できない。
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
 	if err != nil {
@@ -264,15 +358,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req struct {
-		Name   string `json:"name"`
-		Reason string `json:"reason"`
+		Name          string `json:"name"`
+		PlanRole      string `json:"plan_role"`
+		ActualThrough string `json:"actual_through"`
+		Reason        string `json:"reason"`
 	}
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
-		return err
-	}
-	v := httpx.Validator{}
-	name := v.Text("name", "シナリオ名", req.Name, 100)
-	if err := v.Err(); err != nil {
 		return err
 	}
 
@@ -283,11 +374,97 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ? WHERE id = ?", name, id)
+		v := httpx.Validator{}
+		name := v.Text("name", "シナリオ名", req.Name, 100)
+		role, through := validateRoleAndThrough(v, before.FiscalYear, req.PlanRole, req.ActualThrough)
+		if err := v.Err(); err != nil {
+			return err
+		}
+		if strings.TrimSpace(req.ActualThrough) != derefStr(before.ActualThrough) {
+			if before.IsLocked {
+				return httpx.Conflict("ロックされたシナリオの決算確定月は変更できません")
+			}
+			if strings.TrimSpace(req.Reason) == "" {
+				return httpx.Validation(map[string]string{"reason": "決算確定月の変更には変更理由の入力が必要です"})
+			}
+		}
+		if err := takeRole(ctx, tx, rec, before.FiscalYear, strings.TrimSpace(req.PlanRole), id); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ?, plan_role = ?, actual_through = ? WHERE id = ?", name, role, through, id)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
 		}
 		if err != nil {
+			return err
+		}
+		if updated, err = findScenario(ctx, tx, id, ""); err != nil {
+			return err
+		}
+		if sameScenario(before, updated) {
+			return nil
+		}
+		if err := rec.Update(ctx, "scenarios", id, before, updated); err != nil {
+			return err
+		}
+		// 計画値の月が変わったら、計算式の金額を再計算する
+		if derefStr(before.ActualThrough) != derefStr(updated.ActualThrough) {
+			return calc.RecalculateScenario(ctx, tx, rec, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, updated)
+	return nil
+}
+
+// sameScenario は変更できる項目が同じかを返す。
+func sameScenario(a, b Scenario) bool {
+	return a.Name == b.Name && derefStr(a.PlanRole) == derefStr(b.PlanRole) && derefStr(a.ActualThrough) == derefStr(b.ActualThrough)
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// activate は POST /api/scenarios/{id}/activate。作成中のシナリオに指定する（前の作成中は外れる）。
+func (h *Handler) activate(w http.ResponseWriter, r *http.Request) error {
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var req reasonRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+
+	ctx := r.Context()
+	var updated Scenario
+	err = audit.InTx(ctx, h.db, u.ID, &id, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		before, err := findScenario(ctx, tx, id, " FOR UPDATE")
+		if err != nil {
+			return err
+		}
+		if before.IsLocked {
+			return httpx.Conflict("ロックされたシナリオは作成中にできません")
+		}
+		updated = before
+		if before.IsActive {
+			return nil
+		}
+		if err := deactivateCurrent(ctx, tx, rec); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_active = TRUE WHERE id = ?", id); err != nil {
 			return err
 		}
 		if updated, err = findScenario(ctx, tx, id, ""); err != nil {
@@ -302,12 +479,31 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// deactivateCurrent は作成中のシナリオの指定を外す。
+func deactivateCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder) error {
+	cur, err := scanScenario(tx.QueryRowContext(ctx, scenarioSelect+" WHERE is_active FOR UPDATE"))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_active = FALSE WHERE id = ?", cur.ID); err != nil {
+		return err
+	}
+	after := cur
+	after.IsActive = false
+	return rec.Update(ctx, "scenarios", cur.ID, cur, after)
+}
+
 // lock は POST /api/scenarios/{id}/lock。ロックしたシナリオの数値は変更できなくなる。
+// 決算確定月以前の実績を scenario_actuals に保存して固定し、作成中の指定は外す。
 func (h *Handler) lock(w http.ResponseWriter, r *http.Request) error {
 	return h.setLocked(w, r, true)
 }
 
 // unlock は POST /api/scenarios/{id}/unlock。確定した版を変更可能に戻すため、変更理由が必須。
+// 保存した実績を外し、再び実績データを参照する。
 func (h *Handler) unlock(w http.ResponseWriter, r *http.Request) error {
 	return h.setLocked(w, r, false)
 }
@@ -342,13 +538,37 @@ func (h *Handler) setLocked(w http.ResponseWriter, r *http.Request, locked bool)
 			}
 			return httpx.Conflict("このシナリオはロックされていません")
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_locked = ? WHERE id = ?", locked, id); err != nil {
+		// ロック時は決算確定月以前の実績をシナリオに保存して固定し、解除時は外す（再び実績データを参照する）
+		var actuals int64
+		if locked && before.ActualThrough != nil {
+			res, err := tx.ExecContext(ctx, `
+				INSERT INTO scenario_actuals (scenario_id, activity_id, subject_id, target_month, amount)
+				SELECT ?, activity_id, subject_id, target_month, amount FROM actual_facts
+				WHERE target_month BETWEEN ? AND ?`,
+				id, calc.FiscalMonths(before.FiscalYear)[0]+"-01", monthDate(*before.ActualThrough))
+			if err != nil {
+				return err
+			}
+			actuals, _ = res.RowsAffected()
+		} else if !locked {
+			res, err := tx.ExecContext(ctx, "DELETE FROM scenario_actuals WHERE scenario_id = ?", id)
+			if err != nil {
+				return err
+			}
+			actuals, _ = res.RowsAffected()
+		}
+		// 作成中のシナリオをロックすると、作成中の指定は外れる
+		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_locked = ?, is_active = is_active AND NOT ? WHERE id = ?", locked, locked, id); err != nil {
 			return err
 		}
 		if updated, err = findScenario(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		return rec.Update(ctx, "scenarios", id, before, updated)
+		// 保存・削除した実績は件数だけを記録する（行ごとの監査ログは actual_facts に残っている）
+		return rec.Update(ctx, "scenarios", id, before, struct {
+			Scenario
+			FrozenActuals int64 `json:"frozen_actuals"`
+		}{updated, actuals})
 	})
 	if err != nil {
 		return err

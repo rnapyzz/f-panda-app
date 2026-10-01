@@ -1,12 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import { activityTypeLabels, type Activity, type Unit, type List, type Scenario } from '../../api/types'
+import { activityTypeLabels, type Activity, type List, type PlanRole, type Scenario, type Unit } from '../../api/types'
 import { useReason } from '../../components/ReasonDialog'
-import { Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Table, fieldError } from '../../components/ui'
+import { Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Table, Textarea, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { Link } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
-import { ActualsImportDialog } from './ActualsImportDialog'
+import { ScenarioRoleFields } from './ScenarioFields'
 import { ScenarioBadges } from './ScenarioListPage'
 
 export function ScenarioDetailPage({ id }: { id: string }) {
@@ -18,7 +18,6 @@ export function ScenarioDetailPage({ id }: { id: string }) {
   const unitName = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f.name])), [units.data])
   const { askReason, dialog: reasonDialog } = useReason()
   const [renaming, setRenaming] = useState(false)
-  const [importing, setImporting] = useState(false)
   const [q, setQ] = useState('')
   const [actionError, setActionError] = useState<unknown>(null)
 
@@ -26,6 +25,15 @@ export function ScenarioDetailPage({ id }: { id: string }) {
   if (error) return <ErrorMessage error={error} />
   if (!scenario.data || !activities.data || !units.data) return <Loading />
   const s = scenario.data
+
+  const activate = async () => {
+    setActionError(null)
+    try {
+      scenario.setData(await api.post<Scenario>(`/scenarios/${s.id}/activate`, {}))
+    } catch (err) {
+      setActionError(err)
+    }
+  }
 
   const setLocked = async (locked: boolean) => {
     setActionError(null)
@@ -70,12 +78,12 @@ export function ScenarioDetailPage({ id }: { id: string }) {
             </Link>
             {isAdmin && (
               <>
-                {s.scenario_kind === 'actual' && !s.is_locked && (
-                  <Button variant="primary" onClick={() => setImporting(true)}>
-                    実績 CSV を取り込む
+                {!s.is_active && !s.is_locked && (
+                  <Button variant="primary" onClick={activate}>
+                    作成中にする
                   </Button>
                 )}
-                <Button onClick={() => setRenaming(true)}>名称を変更</Button>
+                <Button onClick={() => setRenaming(true)}>設定を変更</Button>
                 {s.is_locked ? <Button onClick={() => setLocked(false)}>ロックを解除</Button> : <Button onClick={() => setLocked(true)}>🔒 ロックする</Button>}
               </>
             )}
@@ -88,7 +96,9 @@ export function ScenarioDetailPage({ id }: { id: string }) {
         </div>
       ) : null}
       {s.is_locked && <p className="mb-4 rounded-md bg-amber-50 px-4 py-2 text-sm text-amber-800">このシナリオはロックされています。数値は変更できません。</p>}
-      {s.scenario_kind === 'actual' && !s.is_locked && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">実績シナリオの数値は CSV の取込でのみ登録します。画面からは参照のみです。</p>}
+      {!s.is_locked && !s.is_active && (
+        <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">このシナリオは作成中ではないため、数値を入力できるのは FP&A のみです。</p>
+      )}
 
       <Card
         title="施策"
@@ -116,7 +126,7 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                   <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-right">
                     <Link to={`/scenarios/${s.id}/activities/${a.id}`} className="text-sm font-medium text-indigo-700 hover:underline">
-                      {a.can_edit && !s.is_locked && s.scenario_kind !== 'actual' ? '数値を入力' : '数値を見る'} →
+                      {a.can_edit && !s.is_locked && (s.is_active || isAdmin) ? '数値を入力' : '数値を見る'} →
                     </Link>
                   </td>
                 </tr>
@@ -136,22 +146,27 @@ export function ScenarioDetailPage({ id }: { id: string }) {
           }}
         />
       )}
-      {importing && <ActualsImportDialog scenario={s} onClose={() => setImporting(false)} />}
       {reasonDialog}
     </>
   )
 }
 
+/** シナリオの設定（名称・エイリアス・決算確定月）の変更。決算確定月の変更は理由が必須 */
 function RenameDialog({ scenario, onClose, onSaved }: { scenario: Scenario; onClose: () => void; onSaved: (s: Scenario) => void }) {
+  const scenarios = useApi<List<Scenario>>('/scenarios')
   const [name, setName] = useState(scenario.name)
+  const [planRole, setPlanRole] = useState<PlanRole | ''>(scenario.plan_role ?? '')
+  const [actualThrough, setActualThrough] = useState(scenario.actual_through ?? '')
+  const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  const throughChanged = actualThrough !== (scenario.actual_through ?? '')
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, { name }))
+      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, { name, plan_role: planRole, actual_through: actualThrough, reason }))
     } catch (err) {
       setError(err)
     } finally {
@@ -161,7 +176,7 @@ function RenameDialog({ scenario, onClose, onSaved }: { scenario: Scenario; onCl
   return (
     <Dialog
       open
-      title="シナリオ名の変更"
+      title="シナリオの設定"
       onClose={onClose}
       footer={
         <>
@@ -176,7 +191,23 @@ function RenameDialog({ scenario, onClose, onSaved }: { scenario: Scenario; onCl
         <Field label="シナリオ名" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
-        <FormError error={error} fields={['name']} />
+        <ScenarioRoleFields
+          scenarios={scenarios.data?.items ?? []}
+          self={scenario.id}
+          fiscalYear={scenario.fiscal_year}
+          planRole={planRole}
+          actualThrough={actualThrough}
+          onPlanRole={setPlanRole}
+          onActualThrough={setActualThrough}
+          throughDisabled={scenario.is_locked}
+          error={error}
+        />
+        {throughChanged && (
+          <Field label="変更理由" required error={fieldError(error, 'reason')} hint="決算確定月を変えると、表示する金額（実績と計画値の境目）が変わります">
+            {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" placeholder="例: 2026-09 決算確定" />}
+          </Field>
+        )}
+        <FormError error={error} fields={['name', 'plan_role', 'actual_through', 'reason']} />
       </form>
     </Dialog>
   )
