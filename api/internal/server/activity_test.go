@@ -363,7 +363,7 @@ func TestDeleteActivity(t *testing.T) {
 	// 金額データがある施策は削除できない
 	id2 := f.admin.mustCreate("/api/activities", activityBody(f.fn1, "ACT-2", nil))
 	var scenarioID int64
-	res, err := f.env.Exec("INSERT INTO scenarios (name, scenario_kind, fiscal_year, created_by) VALUES ('2026予算', 'budget', 2026, ?)", f.env.adminID)
+	res, err := f.env.Exec("INSERT INTO scenarios (name, fiscal_year, created_by) VALUES ('2026予算', 2026, ?)", f.env.adminID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 // Package report は予実比較・集計の API を提供する。
 //
-// GET /api/reports/comparison は、複数のシナリオ（と着地見込）の金額を、
+// GET /api/reports/comparison は、複数のシナリオ（と実績）の金額を、
 // ユニット×科目×月（またはユニット内の施策×科目×月）で集計して返す。
 // 階層（セグメント・組織）での集計や利益の計算は画面側で行う。
 package report
@@ -39,16 +39,14 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/reports/risk", requireAuth(httpx.Handle(h.risk)))
 }
 
-// Series は比較する系列（シナリオ、または着地見込）。
+// Series は比較する系列（シナリオ、または実績）。
 type Series struct {
 	Key        string `json:"key"`
 	Label      string `json:"label"`
-	Kind       string `json:"kind"` // scenario / landing
+	Kind       string `json:"kind"` // scenario / actual
 	ScenarioID *int64 `json:"scenario_id,omitempty"`
-	// 着地見込の構成
-	ActualScenarioID   *int64 `json:"actual_scenario_id,omitempty"`
-	ForecastScenarioID *int64 `json:"forecast_scenario_id,omitempty"`
-	ActualThrough      string `json:"actual_through,omitempty"`
+	// ActualThrough はシナリオの決算確定月（YYYY-MM）。この月以前は実績
+	ActualThrough *string `json:"actual_through,omitempty"`
 }
 
 // Row は1つの集計単位（ユニットまたは施策）× 科目 × 月の金額。Values は系列の Key → 金額（円、文字列）。
@@ -68,21 +66,21 @@ type comparisonResponse struct {
 }
 
 type scenarioInfo struct {
-	id         int64
-	name       string
-	kind       string
-	fiscalYear int
+	id            int64
+	name          string
+	actualThrough *string
+	fiscalYear    int
 }
 
 // comparison は GET /api/reports/comparison。
 //
 // クエリパラメーター:
 //   - scenario_ids: 比較するシナリオ ID（カンマ区切り、最大4つ）。先頭が差異の基準
-//   - landing_actual_id / landing_forecast_id / landing_through（YYYY-MM）:
-//     着地見込を系列に加える。landing_through までの月は実績、それ以降の月は見込を使う
+//   - include_actual=true: 実績データ（取込済みの月）を系列に加える
 //   - unit_id: 指定すると、そのユニットの施策ごとに集計する（指定しなければユニットごと）
 //
-// すべての系列は同じ年度のシナリオでなければならない。
+// シナリオの金額は、決算確定月以前の月は実績、それより後の月は計画値。
+// すべてのシナリオは同じ年度でなければならない。
 func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -91,16 +89,13 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return httpx.BadRequest("scenario_ids はシナリオ ID をカンマ区切りで指定してください")
 	}
-	landing, err := parseLanding(q.Get("landing_actual_id"), q.Get("landing_forecast_id"), q.Get("landing_through"))
-	if err != nil {
-		return err
-	}
-	if len(scenarioIDs) == 0 && landing == nil {
+	if len(scenarioIDs) == 0 {
 		return httpx.Validation(map[string]string{"scenario_ids": "比較するシナリオを選んでください"})
 	}
 	if len(scenarioIDs) > maxScenarios {
 		return httpx.Validation(map[string]string{"scenario_ids": fmt.Sprintf("比較できるシナリオは%dつまでです", maxScenarios)})
 	}
+	includeActual := q.Get("include_actual") == "true"
 	var unitID *int64
 	if s := q.Get("unit_id"); s != "" {
 		id, err := strconv.ParseInt(s, 10, 64)
@@ -111,16 +106,12 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// 使うシナリオをまとめて読み込み、年度をそろえる
-	needed := slices.Clone(scenarioIDs)
-	if landing != nil {
-		needed = append(needed, landing.actualID, landing.forecastID)
-	}
-	infos, err := loadScenarios(ctx, h.db, needed)
+	infos, err := loadScenarios(ctx, h.db, scenarioIDs)
 	if err != nil {
 		return err
 	}
-	fiscalYear := infos[needed[0]].fiscalYear
-	for _, id := range needed {
+	fiscalYear := infos[scenarioIDs[0]].fiscalYear
+	for _, id := range scenarioIDs {
 		if infos[id].fiscalYear != fiscalYear {
 			return httpx.Validation(map[string]string{"scenario_ids": "同じ年度のシナリオを選んでください"})
 		}
@@ -130,29 +121,13 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	resp := comparisonResponse{FiscalYear: fiscalYear, Months: months, Rows: []Row{}}
 	for i, id := range scenarioIDs {
 		id := id
-		resp.Series = append(resp.Series, Series{Key: fmt.Sprintf("s%d", i+1), Label: infos[id].name, Kind: "scenario", ScenarioID: &id})
+		resp.Series = append(resp.Series, Series{Key: fmt.Sprintf("s%d", i+1), Label: infos[id].name, Kind: "scenario", ScenarioID: &id, ActualThrough: infos[id].actualThrough})
 	}
-	if landing != nil {
-		if infos[landing.actualID].kind != "actual" {
-			return httpx.Validation(map[string]string{"landing_actual_id": "着地見込の実績には、種別が実績のシナリオを選んでください"})
-		}
-		if infos[landing.forecastID].kind == "actual" {
-			return httpx.Validation(map[string]string{"landing_forecast_id": "着地見込の見込には、実績以外のシナリオを選んでください"})
-		}
-		if !slices.Contains(months, landing.through) {
-			return httpx.Validation(map[string]string{"landing_through": fmt.Sprintf("実績を使う最後の月は %s〜%s の範囲で指定してください", months[0], months[len(months)-1])})
-		}
-		resp.Series = append(resp.Series, Series{
-			Key:                "landing",
-			Label:              fmt.Sprintf("着地見込（%s まで実績）", landing.through),
-			Kind:               "landing",
-			ActualScenarioID:   &landing.actualID,
-			ForecastScenarioID: &landing.forecastID,
-			ActualThrough:      landing.through,
-		})
+	if includeActual {
+		resp.Series = append(resp.Series, Series{Key: "actual", Label: "実績", Kind: "actual"})
 	}
 
-	amounts, err := loadAmounts(ctx, h.db, needed, unitID)
+	amounts, err := loadAmounts(ctx, h.db, scenarioIDs, unitID)
 	if err != nil {
 		return err
 	}
@@ -176,16 +151,13 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 			put(k, fmt.Sprintf("s%d", i+1), v)
 		}
 	}
-	if landing != nil {
-		for k, v := range amounts[landing.actualID] {
-			if k.month <= landing.through {
-				put(k, "landing", v)
-			}
+	if includeActual {
+		actuals, err := loadActuals(ctx, h.db, months, unitID)
+		if err != nil {
+			return err
 		}
-		for k, v := range amounts[landing.forecastID] {
-			if k.month > landing.through {
-				put(k, "landing", v)
-			}
+		for k, v := range actuals {
+			put(k, "actual", v)
 		}
 	}
 
@@ -207,26 +179,6 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	})
 	httpx.WriteJSON(w, http.StatusOK, resp)
 	return nil
-}
-
-type landingParams struct {
-	actualID, forecastID int64
-	through              string
-}
-
-func parseLanding(actual, forecast, through string) (*landingParams, error) {
-	if actual == "" && forecast == "" && through == "" {
-		return nil, nil
-	}
-	if actual == "" || forecast == "" || through == "" {
-		return nil, httpx.Validation(map[string]string{"landing": "着地見込には、実績シナリオ・見込シナリオ・実績を使う最後の月をすべて指定してください"})
-	}
-	a, err1 := strconv.ParseInt(actual, 10, 64)
-	f, err2 := strconv.ParseInt(forecast, 10, 64)
-	if err1 != nil || err2 != nil {
-		return nil, httpx.BadRequest("着地見込のシナリオ ID は数値で指定してください")
-	}
-	return &landingParams{actualID: a, forecastID: f, through: through}, nil
 }
 
 func parseIDs(s string) ([]int64, error) {
@@ -254,8 +206,12 @@ func loadScenarios(ctx context.Context, db *sql.DB, ids []int64) (map[int64]scen
 			continue
 		}
 		var s scenarioInfo
-		err := db.QueryRowContext(ctx, "SELECT id, name, scenario_kind, fiscal_year FROM scenarios WHERE id = ?", id).
-			Scan(&s.id, &s.name, &s.kind, &s.fiscalYear)
+		var through sql.NullString
+		err := db.QueryRowContext(ctx, "SELECT id, name, DATE_FORMAT(actual_through, '%Y-%m'), fiscal_year FROM scenarios WHERE id = ?", id).
+			Scan(&s.id, &s.name, &through, &s.fiscalYear)
+		if through.Valid {
+			s.actualThrough = &through.String
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, httpx.Validation(map[string]string{"scenario_ids": fmt.Sprintf("シナリオ %d が見つかりません", id)})
 		}
@@ -273,6 +229,7 @@ type rowKey struct {
 }
 
 // loadAmounts はシナリオごとに、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
+// 金額は scenario_amounts ビュー（決算確定月以前は実績、それより後は計画値）から読む。
 func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *int64) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
@@ -288,7 +245,7 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *i
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT b.scenario_id, a.unit_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), CAST(SUM(b.amount) AS CHAR)
-		FROM budget_facts b JOIN activities a ON a.id = b.activity_id
+		FROM scenario_amounts b JOIN activities a ON a.id = b.activity_id
 		WHERE b.scenario_id IN (`+placeholders+`)`+where+`
 		GROUP BY b.scenario_id, a.unit_id, `+groupActivity+`b.subject_id, b.target_month`, args...)
 	if err != nil {
@@ -311,6 +268,40 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *i
 			out[scenarioID] = map[rowKey]*big.Int{}
 		}
 		out[scenarioID][k] = v
+	}
+	return out, rows.Err()
+}
+
+// loadActuals は実績データの、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
+func loadActuals(ctx context.Context, db *sql.DB, months []string, unitID *int64) (map[rowKey]*big.Int, error) {
+	args := []any{months[0] + "-01", months[len(months)-1] + "-01"}
+	activityCol, groupActivity, where := "0", "", ""
+	if unitID != nil {
+		activityCol, groupActivity = "a.id", "a.id, "
+		where = " AND a.unit_id = ?"
+		args = append(args, *unitID)
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT a.unit_id, `+activityCol+`, f.subject_id, DATE_FORMAT(f.target_month, '%Y-%m'), CAST(SUM(f.amount) AS CHAR)
+		FROM actual_facts f JOIN activities a ON a.id = f.activity_id
+		WHERE f.target_month BETWEEN ? AND ?`+where+`
+		GROUP BY a.unit_id, `+groupActivity+`f.subject_id, f.target_month`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[rowKey]*big.Int{}
+	for rows.Next() {
+		var k rowKey
+		var amount string
+		if err := rows.Scan(&k.unitID, &k.activityID, &k.subjectID, &k.month, &amount); err != nil {
+			return nil, err
+		}
+		v, ok := new(big.Int).SetString(amount, 10)
+		if !ok {
+			return nil, fmt.Errorf("invalid amount %q", amount)
+		}
+		out[k] = v
 	}
 	return out, rows.Err()
 }

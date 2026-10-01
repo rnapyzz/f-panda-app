@@ -35,7 +35,11 @@ func newScenarioFixture(t *testing.T) *scenarioFixture {
 	})
 
 	f.manualAct = a.mustCreate("/api/activities", activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID}))
-	f.budget = a.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 当初予算", "scenario_kind": "budget", "fiscal_year": 2026})
+	f.budget = a.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 当初予算", "fiscal_year": 2026, "plan_role": "initial"})
+	// 現場が入力できるのは作成中のシナリオだけ
+	if status, body := a.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", f.budget), nil); status != http.StatusOK {
+		t.Fatalf("作成中に指定: status = %d, body = %v", status, body)
+	}
 	return f
 }
 
@@ -80,18 +84,18 @@ func cellOf(values any, month string) (string, map[string]any) {
 func TestScenarioManagement(t *testing.T) {
 	f := newScenarioFixture(t)
 
-	if status, _ := f.manager1.do("POST", "/api/scenarios", map[string]any{"name": "x", "scenario_kind": "budget", "fiscal_year": 2026}); status != http.StatusForbidden {
+	if status, _ := f.manager1.do("POST", "/api/scenarios", map[string]any{"name": "x", "fiscal_year": 2026}); status != http.StatusForbidden {
 		t.Errorf("マネージャーのシナリオ作成: status = %d, want 403", status)
 	}
 	for name, tc := range map[string]struct {
 		body  map[string]any
 		field string
 	}{
-		"名称重複":     {map[string]any{"name": "2026年度 当初予算", "scenario_kind": "budget", "fiscal_year": 2026}, "name"},
-		"種別不正":     {map[string]any{"name": "x", "scenario_kind": "plan", "fiscal_year": 2026}, "scenario_kind"},
-		"年度不正":     {map[string]any{"name": "x", "scenario_kind": "budget", "fiscal_year": 26}, "fiscal_year"},
-		"実績を複製で作成": {map[string]any{"name": "x", "scenario_kind": "actual", "fiscal_year": 2026, "base_scenario_id": f.budget}, "base_scenario_id"},
-		"年度違いの複製元": {map[string]any{"name": "x", "scenario_kind": "forecast", "fiscal_year": 2027, "base_scenario_id": f.budget}, "base_scenario_id"},
+		"名称重複":      {map[string]any{"name": "2026年度 当初予算", "fiscal_year": 2026}, "name"},
+		"エイリアス不正":   {map[string]any{"name": "x", "fiscal_year": 2026, "plan_role": "budget"}, "plan_role"},
+		"決算確定月が年度外": {map[string]any{"name": "x", "fiscal_year": 2026, "actual_through": "2027-04"}, "actual_through"},
+		"年度不正":      {map[string]any{"name": "x", "fiscal_year": 26}, "fiscal_year"},
+		"年度違いの複製元":  {map[string]any{"name": "x", "fiscal_year": 2027, "base_scenario_id": f.budget}, "base_scenario_id"},
 	} {
 		if status, body := f.admin.do("POST", "/api/scenarios", tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
 			t.Errorf("%s: status = %d, body = %v", name, status, body)
@@ -120,7 +124,7 @@ func TestScenarioManagement(t *testing.T) {
 		t.Errorf("マネージャーのロック: status = %d, want 403", status)
 	}
 
-	f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027年度 予算", "scenario_kind": "budget", "fiscal_year": 2027})
+	f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027年度 予算", "fiscal_year": 2027})
 	items := f.viewer.mustGet("/api/scenarios?fiscal_year=2027")["items"].([]any)
 	if len(items) != 1 || items[0].(map[string]any)["name"] != "2027年度 予算" {
 		t.Errorf("年度での絞り込み = %v", items)
@@ -263,7 +267,7 @@ func TestFormulaChangeRecalculatesOnlyUnlockedScenarios(t *testing.T) {
 		},
 	})
 	// 予算を複製して見込を作り、予算はロックする
-	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026-10時点見込", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026-10時点見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	if status, _ := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", f.budget), nil); status != http.StatusOK {
 		t.Fatalf("ロック: status = %d", status)
 	}
@@ -290,7 +294,7 @@ func TestScenarioCopy(t *testing.T) {
 	})
 	f.member.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/condition", map[string]any{"description": "A社の継続受注が前提"})
 
-	copyID := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "複製", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	copyID := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "複製", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	body := f.viewer.mustGet(f.valuesPath(copyID, f.manualAct))
 	if got, _ := amountOf(body, f.cost, "2026-10"); got != "-500000" {
 		t.Errorf("複製された金額 = %q, want -500000", got)
@@ -368,15 +372,24 @@ func TestValueEditingRestrictions(t *testing.T) {
 		t.Errorf("閲覧者の editable = %v, want false", got)
 	}
 
-	// ロック済み・実績シナリオは編集できない
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 実績", "scenario_kind": "actual", "fiscal_year": 2026})
+	// 作成中ではないシナリオは FP&A のみ、ロック済みのシナリオはだれも編集できない
+	other := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 楽観", "fiscal_year": 2026})
+	if status, _ := f.member.do("PUT", f.valuesPath(other, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": values}); status != http.StatusConflict {
+		t.Errorf("作成中ではないシナリオへの担当者の入力: status = %d, want 409", status)
+	}
+	if got := f.member.mustGet(f.valuesPath(other, f.manualAct))["editable"]; got != false {
+		t.Errorf("作成中ではないシナリオの担当者の editable = %v, want false", got)
+	}
+	if status, body := f.admin.do("PUT", f.valuesPath(other, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": values}); status != http.StatusOK {
+		t.Errorf("作成中ではないシナリオへの FP&A の入力: status = %d, body = %v", status, body)
+	}
 	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", f.budget), nil)
-	for name, sid := range map[string]int64{"ロック済み": f.budget, "実績": actual} {
-		if status, _ := f.member.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": values}); status != http.StatusConflict {
-			t.Errorf("%s シナリオへの入力: status = %d, want 409", name, status)
+	for name, c := range map[string]*client{"担当者": f.member, "FP&A": f.admin} {
+		if status, _ := c.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": values}); status != http.StatusConflict {
+			t.Errorf("ロック済みシナリオへの %s の入力: status = %d, want 409", name, status)
 		}
-		if got := f.member.mustGet(f.valuesPath(sid, f.manualAct))["editable"]; got != false {
-			t.Errorf("%s シナリオの editable = %v, want false", name, got)
+		if got := c.mustGet(f.valuesPath(f.budget, f.manualAct))["editable"]; got != false {
+			t.Errorf("ロック済みシナリオの %s の editable = %v, want false", name, got)
 		}
 	}
 }
@@ -455,7 +468,7 @@ func TestAmountLines(t *testing.T) {
 	}
 
 	// 複製したシナリオにも内訳の金額が引き継がれる
-	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "見込", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	body = f.viewer.mustGet(f.valuesPath(forecast, f.formulaAct))
 	if a, b := first(lineAmountOf(body, f.salesLine, "2026-10")), first(lineAmountOf(body, setupLine, "2026-10")); a != "2000" || b != "200000" {
 		t.Errorf("複製後 = %s / %s, want 2000 / 200000", a, b)
@@ -480,3 +493,153 @@ func TestAmountLines(t *testing.T) {
 }
 
 func first(s string, _ map[string]any) string { return s }
+
+func TestScenarioRolesAndActive(t *testing.T) {
+	f := newScenarioFixture(t)
+	scenario := func(id int64) map[string]any { return f.viewer.mustGet(fmt.Sprintf("/api/scenarios/%d", id)) }
+
+	// エイリアスは年度ごとに1つ。別のシナリオに付けると前のシナリオからは外れる
+	r1 := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "修正計画A", "fiscal_year": 2026, "plan_role": "revised"})
+	r2 := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "修正計画B", "fiscal_year": 2026, "plan_role": "revised"})
+	if got := scenario(r1)["plan_role"]; got != nil {
+		t.Errorf("付け替え後の修正計画A = %v, want なし", got)
+	}
+	if got := scenario(r2)["plan_role"]; got != "revised" {
+		t.Errorf("修正計画B = %v, want revised", got)
+	}
+	// 別の年度なら同じエイリアスを付けられる
+	next := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027期初", "fiscal_year": 2027, "plan_role": "initial"})
+	if got := scenario(f.budget)["plan_role"]; got != "initial" {
+		t.Errorf("2026 の期初計画 = %v, want initial のまま", got)
+	}
+	// PUT でも付け替えられる
+	if status, body := f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", r1), map[string]any{"name": "修正計画A", "plan_role": "revised"}); status != http.StatusOK || body["plan_role"] != "revised" {
+		t.Errorf("PUT での付け替え: status = %d, body = %v", status, body)
+	}
+	if got := scenario(r2)["plan_role"]; got != nil {
+		t.Errorf("PUT 後の修正計画B = %v, want なし", got)
+	}
+
+	// 作成中はアプリ全体で1つ
+	if got := f.viewer.mustGet("/api/scenarios/active")["id"]; got != float64(f.budget) {
+		t.Errorf("作成中 = %v, want 予算", got)
+	}
+	if status, body := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", next), nil); status != http.StatusOK || body["is_active"] != true {
+		t.Errorf("作成中に指定: status = %d, body = %v", status, body)
+	}
+	if got := scenario(f.budget)["is_active"]; got != false {
+		t.Errorf("前の作成中 = %v, want false", got)
+	}
+	if status, _ := f.manager1.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", f.budget), nil); status != http.StatusForbidden {
+		t.Errorf("マネージャーの指定: status = %d, want 403", status)
+	}
+	// 作成中のシナリオをロックすると作成中は外れ、ロック済みは作成中にできない
+	if status, body := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", next), nil); status != http.StatusOK || body["is_active"] != false {
+		t.Errorf("作成中のロック: status = %d, body = %v", status, body)
+	}
+	if status, body := f.viewer.do("GET", "/api/scenarios/active", nil); status != http.StatusOK || body != nil {
+		t.Errorf("ロック後の作成中 = %v, want null", body)
+	}
+	if status, _ := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", next), nil); status != http.StatusConflict {
+		t.Errorf("ロック済みを作成中に: status = %d, want 409", status)
+	}
+}
+
+func TestScenarioActualThrough(t *testing.T) {
+	f := newScenarioFixture(t)
+	path := fmt.Sprintf("/api/scenarios/%d", f.budget)
+	vpath := f.valuesPath(f.budget, f.manualAct)
+	importActuals := func(csv, reason string) {
+		t.Helper()
+		if status, body := f.admin.upload("/api/actuals/import", "target_month,activity_code,subject_code,amount\n"+csv, reason); status != http.StatusOK {
+			t.Fatalf("実績取込: status = %d, body = %v", status, body)
+		}
+	}
+
+	// 計画値: 4〜6月。実績: 4・5月
+	f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "計画", "amounts": []map[string]any{
+		{"subject_id": f.sales, "target_month": "2026-04", "amount": 5000},
+		{"subject_id": f.sales, "target_month": "2026-05", "amount": 6000},
+		{"subject_id": f.sales, "target_month": "2026-06", "amount": 7000},
+	}})
+	importActuals("2026-04,PRJ-1,4110,1000\n2026-05,PRJ-1,4110,900\n", "4・5月実績")
+
+	// 決算確定月の変更は理由が必須
+	if status, body := f.admin.do("PUT", path, map[string]any{"name": "2026年度 当初予算", "plan_role": "initial", "actual_through": "2026-05"}); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
+		t.Errorf("理由なしの決算確定月の変更: status = %d, body = %v", status, body)
+	}
+	if status, body := f.admin.do("PUT", path, map[string]any{"name": "2026年度 当初予算", "plan_role": "initial", "actual_through": "2026-05", "reason": "5月決算確定"}); status != http.StatusOK || body["actual_through"] != "2026-05" {
+		t.Fatalf("決算確定月の変更: status = %d, body = %v", status, body)
+	}
+
+	// 決算確定月以前は実績、それより後は計画値
+	body := f.member.mustGet(vpath)
+	if got, cell := amountOf(body, f.sales, "2026-04"); got != "1000" || cell["source"] != "actual" {
+		t.Errorf("4月 = %v, want 実績 1000", cell)
+	}
+	if got, _ := amountOf(body, f.sales, "2026-06"); got != "7000" {
+		t.Errorf("6月 = %q, want 計画値 7000", got)
+	}
+	if months := body["actual_months"].([]any); len(months) != 2 || months[1] != "2026-05" {
+		t.Errorf("actual_months = %v", months)
+	}
+	// 実績の月は入力できない（金額・ドライバー値とも）
+	status, res := f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-05", "amount": 1}}})
+	if status != http.StatusUnprocessableEntity || detail(res, "amounts[0].target_month") == "" {
+		t.Errorf("実績の月への金額入力: status = %d, body = %v", status, res)
+	}
+	status, res = f.member.do("PUT", f.valuesPath(f.budget, f.formulaAct)+"/driver-values", map[string]any{"reason": "r", "values": []map[string]any{{"driver_id": f.priceID, "target_month": "2026-04", "value": 1}}})
+	if status != http.StatusUnprocessableEntity || detail(res, "values[0].target_month") == "" {
+		t.Errorf("実績の月へのドライバー値入力: status = %d, body = %v", status, res)
+	}
+
+	// ロックされていない間は実績を参照するので、取り込み直すと反映される
+	importActuals("2026-04,PRJ-1,4110,1100\n", "4月実績修正")
+	if got, _ := amountOf(f.member.mustGet(vpath), f.sales, "2026-04"); got != "1100" {
+		t.Errorf("取込後の4月 = %q, want 1100", got)
+	}
+	// ロックすると実績を保存して固定する。解除すると再び参照する
+	f.admin.do("POST", path+"/lock", nil)
+	importActuals("2026-04,PRJ-1,4110,1200\n", "4月実績再修正")
+	if got, _ := amountOf(f.member.mustGet(vpath), f.sales, "2026-04"); got != "1100" {
+		t.Errorf("ロック後の4月 = %q, want 1100（固定）", got)
+	}
+	report := f.viewer.mustGet(fmt.Sprintf("/api/reports/comparison?scenario_ids=%d", f.budget))
+	if got := reportValue(report, f.fn1, 0, f.sales, "2026-04", "s1"); got != "1100" {
+		t.Errorf("ロック後の予実比較の4月 = %q, want 1100", got)
+	}
+	if status, _ := f.admin.do("PUT", path, map[string]any{"name": "2026年度 当初予算", "actual_through": "2026-06", "reason": "r"}); status != http.StatusConflict {
+		t.Errorf("ロック済みの決算確定月の変更: status = %d, want 409", status)
+	}
+	f.admin.do("POST", path+"/unlock", map[string]any{"reason": "修正"})
+	if got, _ := amountOf(f.member.mustGet(vpath), f.sales, "2026-04"); got != "1200" {
+		t.Errorf("ロック解除後の4月 = %q, want 1200", got)
+	}
+}
+
+func TestRecalculateOnlyPlanMonths(t *testing.T) {
+	f := newScenarioFixture(t)
+	dpath := f.valuesPath(f.budget, f.formulaAct) + "/driver-values"
+	f.member.do("PUT", dpath, map[string]any{"reason": "r", "values": []map[string]any{
+		{"driver_id": f.priceID, "target_month": "2026-04", "value": 1000},
+		{"driver_id": f.volumeID, "target_month": "2026-04", "value": 2},
+		{"driver_id": f.priceID, "target_month": "2026-05", "value": 1000},
+		{"driver_id": f.volumeID, "target_month": "2026-05", "value": 2},
+	}})
+	// 4月を実績の月にしてから確度を変えると、計算式の金額は5月だけ再計算される
+	f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", f.budget), map[string]any{"name": "2026年度 当初予算", "actual_through": "2026-04", "reason": "4月決算確定"})
+	update := activityBody(f.fn1, "SAAS-1", map[string]any{"owner_user_id": f.memberID, "probability": 1, "reason": "確度の見直し"})
+	if status, body := f.member.do("PUT", fmt.Sprintf("/api/activities/%d", f.formulaAct), update); status != http.StatusOK {
+		t.Fatalf("確度の変更: status = %d, body = %v", status, body)
+	}
+	var april, may string
+	if err := f.env.QueryRow("SELECT CAST(amount AS CHAR) FROM budget_facts WHERE scenario_id = ? AND line_id = ? AND target_month = '2026-04-01'", f.budget, f.salesLine).Scan(&april); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.env.QueryRow("SELECT CAST(amount AS CHAR) FROM budget_facts WHERE scenario_id = ? AND line_id = ? AND target_month = '2026-05-01'", f.budget, f.salesLine).Scan(&may); err != nil {
+		t.Fatal(err)
+	}
+	if april != "1000" || may != "2000" {
+		t.Errorf("4月 = %s（want 1000、変わらない）、5月 = %s（want 2000）", april, may)
+	}
+}

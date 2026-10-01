@@ -64,9 +64,9 @@ type RiskActivity struct {
 }
 
 type riskScenario struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"scenario_kind"`
+	ID       int64   `json:"id"`
+	Name     string  `json:"name"`
+	PlanRole *string `json:"plan_role"`
 }
 
 type riskResponse struct {
@@ -82,7 +82,7 @@ type riskResponse struct {
 //
 // クエリパラメーター:
 //   - scenario_id: 基準のシナリオ（必須。通常は最新の見込）
-//   - optimistic_id / pessimistic_id: 楽観・悲観のシナリオ（任意、基準と同じ年度）
+//   - optimistic_id / pessimistic_id: 楽観・悲観として比べるシナリオ（任意、基準と同じ年度）
 //
 // 施策ごとに、確度・前提条件、基準／楽観／悲観の年間の収益・費用、基準の仮の値、
 // 注意が必要なマイルストーン（期日超過・遅延・30日以内に期日）、想定条件を返す。
@@ -115,7 +115,11 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 		}
 		var s riskScenario
 		var fy int
-		err := h.db.QueryRowContext(ctx, "SELECT id, name, scenario_kind, fiscal_year FROM scenarios WHERE id = ?", id).Scan(&s.ID, &s.Name, &s.Kind, &fy)
+		var role sql.NullString
+		err := h.db.QueryRowContext(ctx, "SELECT id, name, plan_role, fiscal_year FROM scenarios WHERE id = ?", id).Scan(&s.ID, &s.Name, &role, &fy)
+		if role.Valid {
+			s.PlanRole = &role.String
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return httpx.Validation(map[string]string{p: fmt.Sprintf("シナリオ %d が見つかりません", id)})
 		}
@@ -266,7 +270,7 @@ func loadRiskActivities(ctx context.Context, db *sql.DB) ([]RiskActivity, map[in
 	return out, index, nil
 }
 
-// activityTotals はシナリオの施策ごとの年間の収益・費用を返す。provisionalOnly なら仮の値だけを合計する。
+// activityTotals はシナリオの施策ごとの年間の収益・費用（決算確定月以前は実績）を返す。provisionalOnly なら仮の値だけを合計する。
 func activityTotals(ctx context.Context, db *sql.DB, scenarioID int64, provisionalOnly bool) (map[int64]pl, error) {
 	where := ""
 	if provisionalOnly {
@@ -276,7 +280,7 @@ func activityTotals(ctx context.Context, db *sql.DB, scenarioID int64, provision
 		SELECT b.activity_id,
 		       CAST(COALESCE(SUM(CASE WHEN s.category = 'revenue' THEN b.amount END), 0) AS CHAR),
 		       CAST(COALESCE(SUM(CASE WHEN s.category = 'expense' THEN b.amount END), 0) AS CHAR)
-		FROM budget_facts b JOIN subjects s ON s.id = b.subject_id
+		FROM scenario_amounts b JOIN subjects s ON s.id = b.subject_id
 		WHERE b.scenario_id = ?`+where+`
 		GROUP BY b.activity_id`, scenarioID)
 	if err != nil {
@@ -299,7 +303,7 @@ func activityTotals(ctx context.Context, db *sql.DB, scenarioID int64, provision
 func provisionalDetails(ctx context.Context, db *sql.DB, scenarioID int64) (map[int64]int, map[int64][]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT activity_id, COALESCE(provisional_reason, '')
-		FROM budget_facts WHERE scenario_id = ? AND is_provisional
+		FROM scenario_amounts WHERE scenario_id = ? AND is_provisional
 		ORDER BY activity_id, target_month`, scenarioID)
 	if err != nil {
 		return nil, nil, err

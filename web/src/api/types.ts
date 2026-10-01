@@ -170,25 +170,27 @@ export const driverKindLabels: Record<DriverKind, string> = {
 
 // --- シナリオ ---
 
-export type ScenarioKind = 'budget' | 'forecast' | 'actual' | 'optimistic' | 'pessimistic' | 'other'
+/** シナリオのエイリアス。年度ごとに1つのシナリオにだけ付けられる */
+export type PlanRole = 'initial' | 'revised' | 'latest'
+
+export const planRoleLabels: Record<PlanRole, string> = {
+  initial: '期初計画',
+  revised: '修正計画',
+  latest: '最新見込',
+}
 
 export type Scenario = Timestamps & {
   id: number
   name: string
-  scenario_kind: ScenarioKind
   fiscal_year: number
+  plan_role: PlanRole | null
+  /** 決算確定月（YYYY-MM）。この月以前は実績、それより後は計画値 */
+  actual_through: string | null
+  /** 作成中（アプリ全体で1つ） */
+  is_active: boolean
   base_scenario_id: number | null
   is_locked: boolean
   created_by: number
-}
-
-export const scenarioKindLabels: Record<ScenarioKind, string> = {
-  budget: '予算',
-  forecast: '見込',
-  actual: '実績',
-  optimistic: '楽観',
-  pessimistic: '悲観',
-  other: 'その他',
 }
 
 export type ValueCell = {
@@ -210,7 +212,7 @@ export type DriverRow = {
 export type AmountCell = {
   target_month: string
   amount: number | string
-  source: 'manual' | 'formula' | 'import'
+  source: 'manual' | 'formula' | 'import' | 'actual'
   is_provisional: boolean
   provisional_reason: string
 }
@@ -247,6 +249,8 @@ export type ValuesView = {
   scenario: Scenario
   activity: ActivitySummary
   months: string[]
+  /** 実績の月（決算確定月以前）。入力できない */
+  actual_months: string[]
   editable: boolean
   drivers: DriverRow[]
   amounts: AmountRow[]
@@ -270,10 +274,9 @@ export type ImportResult = {
 export type ReportSeries = {
   key: string
   label: string
-  kind: 'scenario' | 'landing'
+  kind: 'scenario' | 'actual'
   scenario_id?: number
-  actual_scenario_id?: number
-  forecast_scenario_id?: number
+  /** シナリオの決算確定月（YYYY-MM） */
   actual_through?: string
 }
 
@@ -360,8 +363,8 @@ export type RiskActivity = {
 export type RiskReport = {
   fiscal_year: number
   today: string
-  base: { id: number; name: string; scenario_kind: ScenarioKind }
-  optimistic: { id: number; name: string; scenario_kind: ScenarioKind } | null
-  pessimistic: { id: number; name: string; scenario_kind: ScenarioKind } | null
+  base: { id: number; name: string; plan_role: PlanRole | null }
+  optimistic: { id: number; name: string; plan_role: PlanRole | null } | null
+  pessimistic: { id: number; name: string; plan_role: PlanRole | null } | null
   activities: RiskActivity[]
 }

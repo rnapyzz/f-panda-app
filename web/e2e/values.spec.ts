@@ -8,7 +8,7 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   const activity = await createActivity(page, f)
   await a.post(`/activities/${activity.id}/drivers`, { code: 'unit_price', name: '月額単価', driver_kind: 'value' })
   await a.post(`/activities/${activity.id}/drivers`, { code: 'customers', name: '契約社数', driver_kind: 'kpi' })
-  const scenario = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, scenario_kind: 'budget', fiscal_year: 2026 })
+  const scenario = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, fiscal_year: 2026 })
 
   // 施策の詳細で内訳を追加する（計算式で反映する内訳と、直接入力の内訳）
   await page.goto(`/activities/${activity.id}`)
@@ -74,7 +74,7 @@ test('範囲の選択・右方向へのコピー・貼り付け・消去・元�
   await login(page)
   const f = await seedMasters(page)
   const activity = await createActivity(page, f)
-  const scenario = await api(page).post('/scenarios', { name: `E2Eグリッド ${f.run}`, scenario_kind: 'budget', fiscal_year: 2026 })
+  const scenario = await api(page).post('/scenarios', { name: `E2Eグリッド ${f.run}`, fiscal_year: 2026 })
   const rev = f.revenueName
 
   await page.goto(`/scenarios/${scenario.id}/activities/${activity.id}`)
@@ -129,7 +129,7 @@ test('ロックしたシナリオは参照のみになる', async ({ page }) => 
   const f = await seedMasters(page)
   const activity = await createActivity(page, f)
   const a = api(page)
-  const scenario = await a.post('/scenarios', { name: `E2Eロック ${f.run}`, scenario_kind: 'budget', fiscal_year: 2026 })
+  const scenario = await a.post('/scenarios', { name: `E2Eロック ${f.run}`, fiscal_year: 2026 })
 
   await page.goto(`/scenarios/${scenario.id}`)
   await page.getByRole('button', { name: '🔒 ロックする' }).click()

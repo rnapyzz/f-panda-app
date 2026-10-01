@@ -76,8 +76,8 @@ func TestChangeHistory(t *testing.T) {
 
 	// シナリオ・理由の有無で絞り込み
 	body = f.viewer.mustGet(fmt.Sprintf("/api/change-sets?scenario_id=%d", f.budget))
-	if got := fmt.Sprint(changeSetReasons(body)); got != "[単価の入力 予算の初回入力]" {
-		t.Errorf("シナリオの履歴 = %s", got)
+	if got := fmt.Sprint(changeSetReasons(body)); got != "[単価の入力 予算の初回入力 ]" {
+		t.Errorf("シナリオの履歴 = %s（最後の空は作成中の指定）", got)
 	}
 	body = f.viewer.mustGet("/api/change-sets?reason=without&limit=1")
 	if got := changeSetReasons(body); len(got) != 1 || got[0] != "" {

@@ -7,7 +7,7 @@ import {
   driverKindLabels,
   milestoneStatusLabels,
   roleLabels,
-  scenarioKindLabels,
+  planRoleLabels,
   tableLabels,
   unitTypeLabels,
   type Activity,
@@ -20,6 +20,7 @@ import {
 import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { formatDateTime, formatNumber, formatPercent, formatYen } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
+import { scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 
 type ListResponse = { items: ChangeSet[]; has_more: boolean }
@@ -88,7 +89,7 @@ export function HistoryPage() {
               <option value="">すべて</option>
               {(scenarios.data?.items ?? []).map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}（{scenarioKindLabels[s.scenario_kind]}）
+                  {scenarioLabel(s)}
                 </option>
               ))}
             </Select>
@@ -301,7 +302,10 @@ const fieldLabels: Record<string, string> = {
   subject_id: '科目',
   driver_kind: '種別',
   unit: '単位',
-  scenario_kind: '種別',
+  scenario_kind: '種別', // 種別を廃止する前の変更履歴用
+  plan_role: 'エイリアス',
+  actual_through: '決算確定月',
+  frozen_actuals: '保存した実績の件数',
   fiscal_year: '年度',
   base_scenario_id: '複製元',
   password_changed: 'パスワード',
@@ -317,8 +321,9 @@ const valueLabels: Record<string, Record<string, string>> = {
   driver_kind: driverKindLabels,
   role: roleLabels,
   category: categoryLabels,
-  scenario_kind: scenarioKindLabels,
-  source: { manual: '直接入力', formula: '計算式', import: '取込' },
+  scenario_kind: { budget: '予算', forecast: '見込', actual: '実績', optimistic: '楽観', pessimistic: '悲観', other: 'その他' },
+  plan_role: planRoleLabels,
+  source: { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' },
   unit_type: unitTypeLabels,
 }
 

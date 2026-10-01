@@ -95,6 +95,8 @@ func (l *labeler) label(log Log) string {
 			return activity() + " / " + l.subjectName(rec) + " / " + l.lineName(id) + " / " + rec.str("target_month")
 		}
 		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month")
+	case "actual_facts":
+		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month") + "（実績）"
 	case "driver_values":
 		id, _ := rec.int("activity_driver_id")
 		if d, ok := l.drivers[id]; ok {

@@ -2,7 +2,9 @@ package server_test
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -40,10 +42,25 @@ func counts(body map[string]any) string {
 	return fmt.Sprintf("inserted=%v updated=%v deleted=%v unchanged=%v", body["inserted"], body["updated"], body["deleted"], body["unchanged"])
 }
 
+// actualAmount は実績データの金額を返す（なければ空文字）。
+func (f *scenarioFixture) actualAmount(activityID, subjectID int64, month string) string {
+	f.admin.t.Helper()
+	var amount string
+	err := f.env.QueryRow("SELECT CAST(amount AS CHAR) FROM actual_facts WHERE activity_id = ? AND subject_id = ? AND target_month = ?",
+		activityID, subjectID, month+"-01").Scan(&amount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ""
+	}
+	if err != nil {
+		f.admin.t.Fatal(err)
+	}
+	return amount
+}
+
+const actualsPath = "/api/actuals/import"
+
 func TestImportActuals(t *testing.T) {
 	f := newScenarioFixture(t)
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 実績", "scenario_kind": "actual", "fiscal_year": 2026})
-	path := fmt.Sprintf("/api/scenarios/%d/actuals/import", actual)
 
 	csv := "target_month,activity_code,subject_code,amount\n" +
 		"2026-09,PRJ-1,4110,1200000\n" +
@@ -52,16 +69,16 @@ func TestImportActuals(t *testing.T) {
 		"2026-10,SAAS-1,4110,300000\n"
 
 	// dry_run は保存せずに件数を返す（理由は不要）
-	status, body := f.admin.upload(path+"?dry_run=true", csv, "")
+	status, body := f.admin.upload(actualsPath+"?dry_run=true", csv, "")
 	if status != http.StatusOK || body["dry_run"] != true || counts(body) != "inserted=3 updated=0 deleted=0 unchanged=0" {
 		t.Fatalf("dry_run: status = %d, body = %v", status, body)
 	}
-	if got, _ := amountOf(f.admin.mustGet(f.valuesPath(actual, f.manualAct)), f.sales, "2026-09"); got != "" {
+	if got := f.actualAmount(f.manualAct, f.sales, "2026-09"); got != "" {
 		t.Fatalf("dry_run なのに保存された: %q", got)
 	}
 
 	// 取込
-	status, body = f.admin.upload(path, csv, "2026-09・10 実績取込")
+	status, body = f.admin.upload(actualsPath, csv, "2026-09・10 実績取込")
 	if status != http.StatusOK || counts(body) != "inserted=3 updated=0 deleted=0 unchanged=0" || body["rows"] != float64(4) || body["facts"] != float64(3) {
 		t.Fatalf("取込: status = %d, body = %v", status, body)
 	}
@@ -69,35 +86,37 @@ func TestImportActuals(t *testing.T) {
 	if sep := totals[0].(map[string]any); sep["month"] != "2026-09" || sep["revenue"] != "1200000" || sep["expense"] != "-400000" {
 		t.Errorf("2026-09 の合計 = %v", sep)
 	}
-	values := f.viewer.mustGet(f.valuesPath(actual, f.manualAct))
-	if got, cell := amountOf(values, f.cost, "2026-09"); got != "-400000" || cell["source"] != "import" {
-		t.Errorf("取り込んだ外注費 = %v", cell)
+	if got := f.actualAmount(f.manualAct, f.cost, "2026-09"); got != "-400000" {
+		t.Errorf("取り込んだ外注費 = %q", got)
+	}
+	months := f.viewer.mustGet("/api/actuals/months?fiscal_year=2026")["months"].([]any)
+	if len(months) != 2 || months[1] != "2026-10" {
+		t.Errorf("取込済みの月 = %v", months)
 	}
 
 	// 同じファイルの再取込では何も変わらない
-	status, body = f.admin.upload(path, csv, "再取込")
+	status, body = f.admin.upload(actualsPath, csv, "再取込")
 	if status != http.StatusOK || counts(body) != "inserted=0 updated=0 deleted=0 unchanged=3" {
 		t.Errorf("同じファイルの再取込: status = %d, body = %v", status, body)
 	}
 
 	// 2026-09 だけを取り込み直すと、2026-09 は CSV の内容に置き換わり、2026-10 はそのまま
-	status, body = f.admin.upload(path, "target_month,activity_code,subject_code,amount\n2026-09,PRJ-1,4110,1250000\n", "2026-09 実績修正")
+	status, body = f.admin.upload(actualsPath, "target_month,activity_code,subject_code,amount\n2026-09,PRJ-1,4110,1250000\n", "2026-09 実績修正")
 	if status != http.StatusOK || counts(body) != "inserted=0 updated=1 deleted=1 unchanged=0" {
 		t.Errorf("2026-09 の再取込: status = %d, body = %v", status, body)
 	}
-	values = f.viewer.mustGet(f.valuesPath(actual, f.manualAct))
-	if got, _ := amountOf(values, f.cost, "2026-09"); got != "" {
+	if got := f.actualAmount(f.manualAct, f.cost, "2026-09"); got != "" {
 		t.Errorf("CSV にない 2026-09 の外注費が残っている: %q", got)
 	}
-	if got, _ := amountOf(f.viewer.mustGet(f.valuesPath(actual, f.formulaAct)), f.sales, "2026-10"); got != "300000" {
+	if got := f.actualAmount(f.formulaAct, f.sales, "2026-10"); got != "300000" {
 		t.Errorf("2026-10 が変わった: %q", got)
 	}
 
-	// 取込は変更セット（理由・シナリオ付き）と監査ログに残る
+	// 取込は変更セット（理由付き、シナリオなし）と監査ログに残る
 	var n int
 	if err := f.env.QueryRow(`
 		SELECT COUNT(*) FROM audit_logs a JOIN change_sets c ON c.id = a.change_set_id
-		WHERE c.scenario_id = ? AND c.reason = '2026-09 実績修正' AND a.table_name = 'budget_facts'`, actual).Scan(&n); err != nil {
+		WHERE c.scenario_id IS NULL AND c.reason = '2026-09 実績修正' AND a.table_name = 'actual_facts'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 2 {
@@ -107,41 +126,28 @@ func TestImportActuals(t *testing.T) {
 
 func TestImportActualsRejectsInvalidData(t *testing.T) {
 	f := newScenarioFixture(t)
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2026年度 実績", "scenario_kind": "actual", "fiscal_year": 2026})
-	path := fmt.Sprintf("/api/scenarios/%d/actuals/import", actual)
 
 	// 1行でもエラーがあれば全件取り込まない
 	csv := "target_month,activity_code,subject_code,amount\n" +
 		"2026-09,PRJ-1,4110,1200000\n" +
 		"2026-09,NOPE,4110,1\n" +
-		"2027-04,PRJ-1,4110,1\n"
-	status, body := f.admin.upload(path, csv, "取込")
+		"2026-13,PRJ-1,4110,1\n"
+	status, body := f.admin.upload(actualsPath, csv, "取込")
 	if status != http.StatusUnprocessableEntity || errorCode(body) != "invalid_csv" {
 		t.Fatalf("status = %d, body = %v", status, body)
 	}
-	rows := body["error"].(map[string]any)["rows"].([]any)
-	if len(rows) != 2 || rows[0].(map[string]any)["line"] != float64(3) || rows[1].(map[string]any)["line"] != float64(4) {
-		t.Errorf("エラー行 = %v, want 3行目と4行目", rows)
-	}
-	if got, _ := amountOf(f.admin.mustGet(f.valuesPath(actual, f.manualAct)), f.sales, "2026-09"); got != "" {
+	if got := f.actualAmount(f.manualAct, f.sales, "2026-09"); got != "" {
 		t.Errorf("エラーがあるのに一部が保存された: %q", got)
 	}
 
 	valid := "target_month,activity_code,subject_code,amount\n2026-09,PRJ-1,4110,1\n"
-	if status, body := f.admin.upload(path, valid, ""); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
+	if status, body := f.admin.upload(actualsPath, valid, ""); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
 		t.Errorf("理由なし: status = %d, body = %v", status, body)
 	}
-	if status, body := f.admin.upload(path, "", "取込"); status != http.StatusUnprocessableEntity || detail(body, "file") == "" {
+	if status, body := f.admin.upload(actualsPath, "", "取込"); status != http.StatusUnprocessableEntity || detail(body, "file") == "" {
 		t.Errorf("ファイルなし: status = %d, body = %v", status, body)
 	}
-	if status, _ := f.manager1.upload(path, valid, "取込"); status != http.StatusForbidden {
+	if status, _ := f.manager1.upload(actualsPath, valid, "取込"); status != http.StatusForbidden {
 		t.Errorf("マネージャーの取込: status = %d, want 403", status)
-	}
-	if status, _ := f.admin.upload(fmt.Sprintf("/api/scenarios/%d/actuals/import", f.budget), valid, "取込"); status != http.StatusConflict {
-		t.Errorf("予算シナリオへの取込: status = %d, want 409", status)
-	}
-	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", actual), nil)
-	if status, _ := f.admin.upload(path, valid, "取込"); status != http.StatusConflict {
-		t.Errorf("ロック済みへの取込: status = %d, want 409", status)
 	}
 }

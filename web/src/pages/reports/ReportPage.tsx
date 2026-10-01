@@ -2,7 +2,6 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { api, query } from '../../api/client'
 import {
   categoryLabels,
-  scenarioKindLabels,
   type Activity,
   type ComparisonReport,
   type Unit,
@@ -19,6 +18,7 @@ import { Button, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, 
 import { aggregate, isFavorable, measureLabels, measureOf, varianceRate, type Measure, type Totals } from '../../lib/aggregate'
 import { formatYen, monthLabel } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
+import { defaultScenarios, fiscalMonths, scenarioLabel as labelOf } from '../../lib/scenario'
 import { buildTree, subtreeIds, type Tree } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
 
@@ -41,7 +41,8 @@ type Settings = {
   fy: number
   base: number | null
   compare: number[]
-  landing: { actual: number; forecast: number; through: string } | null
+  /** 実績データ（取込済みの月）を系列に加える */
+  actual: boolean
   axis: Axis
   measure: Measure
   period: string
@@ -79,15 +80,19 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
   const fy = Number(search.get('fy')) || years[0] || 0
   const inYear = scenarios.filter((s) => s.fiscal_year === fy)
-  const defaultBase = inYear.find((s) => s.scenario_kind === 'budget') ?? inYear[0]
-  const base = search.has('base') ? Number(search.get('base')) || null : defaultBase?.id ?? null
-  const compare = (search.get('cmp') ?? '').split(',').filter(Boolean).map(Number)
-  const [la, lf, lt] = [search.get('la'), search.get('lf'), search.get('lt')]
+  // 既定は、基準 = 修正計画（なければ期初計画）、比較 = 最新見込
+  const defaults = defaultScenarios(inYear)
+  const base = search.has('base') ? Number(search.get('base')) || null : defaults.base?.id ?? null
+  const compare = search.has('cmp')
+    ? (search.get('cmp') ?? '').split(',').filter(Boolean).map(Number)
+    : defaults.latest && defaults.latest.id !== base
+      ? [defaults.latest.id]
+      : []
   const settings: Settings = {
     fy,
     base,
     compare,
-    landing: la && lf && lt ? { actual: Number(la), forecast: Number(lf), through: lt } : null,
+    actual: search.get('act') === '1',
     axis: search.get('axis') === 'organization' ? 'organization' : 'segment',
     measure: (['profit', 'revenue', 'expense'] as const).find((m) => m === search.get('measure')) ?? 'profit',
     period: search.get('period') ?? 'year',
@@ -100,9 +105,7 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
         fy: s.fy,
         base: s.base ?? '',
         cmp: s.compare.join(','),
-        la: s.landing?.actual,
-        lf: s.landing?.forecast,
-        lt: s.landing?.through,
+        act: s.actual ? '1' : '',
         axis: s.axis,
         measure: s.measure,
         period: s.period,
@@ -134,16 +137,7 @@ function ReportView({
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
 
   const scenarioIds = [settings.base, ...settings.compare].filter((id): id is number => id !== null && inYear.some((s) => s.id === id))
-  const landingValid = settings.landing && inYear.some((s) => s.id === settings.landing!.actual) && inYear.some((s) => s.id === settings.landing!.forecast)
-  const reportQuery =
-    scenarioIds.length > 0 || landingValid
-      ? query({
-          scenario_ids: scenarioIds.join(','),
-          landing_actual_id: landingValid ? settings.landing!.actual : undefined,
-          landing_forecast_id: landingValid ? settings.landing!.forecast : undefined,
-          landing_through: landingValid ? settings.landing!.through : undefined,
-        })
-      : null
+  const reportQuery = scenarioIds.length > 0 ? query({ scenario_ids: scenarioIds.join(','), include_actual: settings.actual ? 'true' : undefined }) : null
   const report = useApi<ComparisonReport>(reportQuery ? `/reports/comparison${reportQuery}` : null)
 
   // 展開したユニットの施策別データ（ユニット ID → 行）
@@ -198,21 +192,19 @@ function ReportView({
     setExpanded(next)
   }
 
-  const scenarioLabel = (s: Scenario) => `${s.name}（${scenarioKindLabels[s.scenario_kind]}${s.is_locked ? '・ロック' : ''}）`
-  const actuals = inYear.filter((s) => s.scenario_kind === 'actual')
-  const forecasts = inYear.filter((s) => s.scenario_kind !== 'actual')
+  const scenarioLabel = (s: Scenario) => `${labelOf(s)}${s.is_locked ? '・ロック' : ''}`
 
   // 全体（ルートの合計）
   const allTotals = data ? aggregate(reportRows, seriesKeys, categoryOf, () => true, periodMonths) : null
 
   return (
     <>
-      <PageHeader title="予実比較" description="シナリオ（予算・見込・実績）と着地見込を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。" />
+      <PageHeader title="予実比較" description="シナリオ（決算確定月以前は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。" />
 
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-4">
           <Control label="年度">
-            <Select value={settings.fy} onChange={(e) => update({ fy: Number(e.target.value), base: null, compare: [], landing: null })}>
+            <Select value={settings.fy} onChange={(e) => update({ fy: Number(e.target.value), base: null, compare: [] })}>
               {years.map((y) => (
                 <option key={y} value={y}>
                   {y}年度
@@ -252,56 +244,11 @@ function ReportView({
           ))}
         </div>
 
-        <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 md:col-span-4">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-slate-300"
-              checked={settings.landing !== null}
-              disabled={actuals.length === 0 || forecasts.length === 0}
-              onChange={(e) =>
-                update({
-                  // 見込は、種別が「見込」の最新のシナリオを初期値にする（一覧は新しい順）
-                  landing: e.target.checked
-                    ? { actual: actuals[0].id, forecast: (forecasts.find((s) => s.scenario_kind === 'forecast') ?? forecasts[0]).id, through: lastClosedMonth(settings.fy) }
-                    : null,
-                })
-              }
-            />
-            着地見込を加える（実績＋見込）
-            {(actuals.length === 0 || forecasts.length === 0) && <span className="text-xs font-normal text-slate-400">この年度に実績シナリオと見込シナリオが必要です</span>}
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input type="checkbox" className="size-4 rounded border-slate-300" checked={settings.actual} onChange={(e) => update({ actual: e.target.checked })} />
+            実績を加える（取り込み済みの月）
           </label>
-          {settings.landing && (
-            <>
-              <Control label="実績">
-                <Select value={settings.landing.actual} onChange={(e) => update({ landing: { ...settings.landing!, actual: Number(e.target.value) } })}>
-                  {actuals.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-              </Control>
-              <Control label="見込">
-                <Select value={settings.landing.forecast} onChange={(e) => update({ landing: { ...settings.landing!, forecast: Number(e.target.value) } })}>
-                  {forecasts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-              </Control>
-              <Control label="実績を使う最後の月">
-                <Select value={settings.landing.through} onChange={(e) => update({ landing: { ...settings.landing!, through: e.target.value } })}>
-                  {fiscalMonths(settings.fy).map((m) => (
-                    <option key={m} value={m}>
-                      {m.replace('-', '年')}月まで
-                    </option>
-                  ))}
-                </Select>
-              </Control>
-            </>
-          )}
         </div>
 
         <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
@@ -700,7 +647,7 @@ function DetailPanel({
           </tbody>
         </Table>
       )}
-      {view === 'months' && series.some((s) => s.kind === 'landing') && <p className="mt-2 text-xs text-slate-500">着地見込の灰色の月は実績です。</p>}
+      {view === 'months' && series.some((s) => s.actual_through) && <p className="mt-2 text-xs text-slate-500">灰色の月は、シナリオの決算確定月以前の実績です。</p>}
     </Card>
   )
 }
@@ -738,24 +685,6 @@ function Segmented({ label, value, options, onChange }: { label: string; value: 
   )
 }
 
-function fiscalMonths(fy: number): string[] {
-  return Array.from({ length: 12 }, (_, i) => {
-    const m = 4 + i
-    const y = m > 12 ? fy + 1 : fy
-    return `${y}-${String(m > 12 ? m - 12 : m).padStart(2, '0')}`
-  })
-}
-
-/** 着地見込の「実績を使う最後の月」の初期値: 前月（年度外なら年度の端） */
-function lastClosedMonth(fy: number): string {
-  const months = fiscalMonths(fy)
-  const d = new Date()
-  d.setMonth(d.getMonth() - 1)
-  const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  if (prev < months[0]) return months[0]
-  if (prev > months[11]) return months[11]
-  return prev
-}
 
 function periodToMonths(period: string, months: string[]): string[] {
   if (period === 'h1') return months.slice(0, 6)

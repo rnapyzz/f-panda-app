@@ -20,7 +20,7 @@ func TestRiskReport(t *testing.T) {
 	f := newScenarioFixture(t)
 	amounts := func(sid int64, items ...map[string]any) {
 		t.Helper()
-		if status, body := f.member.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
+		if status, body := f.admin.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
 			t.Fatalf("amounts: status = %d, body = %v", status, body)
 		}
 	}
@@ -29,11 +29,11 @@ func TestRiskReport(t *testing.T) {
 		map[string]any{"subject_id": f.sales, "target_month": "2026-05", "amount": 500, "is_provisional": true, "provisional_reason": "受注待ち"},
 		map[string]any{"subject_id": f.cost, "target_month": "2026-05", "amount": 200, "is_provisional": true, "provisional_reason": "見積待ち"},
 	)
-	opt := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "楽観", "scenario_kind": "optimistic", "fiscal_year": 2026, "base_scenario_id": f.budget})
-	pes := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "悲観", "scenario_kind": "pessimistic", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	opt := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "楽観", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	pes := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "悲観", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	amounts(opt, map[string]any{"subject_id": f.sales, "target_month": "2026-06", "amount": 800})
 	amounts(pes, map[string]any{"subject_id": f.sales, "target_month": "2026-05", "amount": nil})
-	f.member.do("PUT", f.valuesPath(opt, f.manualAct)+"/condition", map[string]any{"description": "追加発注が確定した場合"})
+	f.admin.do("PUT", f.valuesPath(opt, f.manualAct)+"/condition", map[string]any{"description": "追加発注が確定した場合"})
 
 	// マイルストーン: 期日超過・遅延・期日が近い・完了（対象外）・先の予定（対象外）
 	today := time.Now().In(time.FixedZone("JST", 9*60*60))
@@ -81,7 +81,7 @@ func TestRiskReport(t *testing.T) {
 	check("金額のない施策の楽観", other["optimistic"].(map[string]any)["revenue"], "0")
 
 	// 入力検証
-	nextYear := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "scenario_kind": "budget", "fiscal_year": 2027})
+	nextYear := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "fiscal_year": 2027})
 	for name, q := range map[string]string{
 		"基準なし":  "",
 		"年度違い":  fmt.Sprintf("scenario_id=%d&optimistic_id=%d", f.budget, nextYear),

@@ -16,8 +16,8 @@ test('施策詳細の P/L で、基準と最新の差異を期間を切り替え
   const f = await seedMasters(page)
   const a = api(page)
   const activity = await createActivity(page, f)
-  const budget = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, scenario_kind: 'budget', fiscal_year: 2026 })
-  const forecast = await a.post('/scenarios', { name: `E2E見込 ${f.run}`, scenario_kind: 'forecast', fiscal_year: 2026 })
+  const budget = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, fiscal_year: 2026 })
+  const forecast = await a.post('/scenarios', { name: `E2E見込 ${f.run}`, fiscal_year: 2026 })
   const line = await a.post(`/activities/${activity.id}/lines`, { subject_id: f.revenueId, name: '月額利用料' })
   await a.put(`/scenarios/${budget.id}/activities/${activity.id}/amounts`, {
     reason: 'E2E',

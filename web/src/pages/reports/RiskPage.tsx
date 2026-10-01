@@ -1,9 +1,10 @@
 import { useMemo, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { milestoneStatusLabels, scenarioKindLabels, unitTypeLabels, type Unit, type List, type PL, type RiskActivity, type RiskReport, type Scenario, type UnitType } from '../../api/types'
+import { milestoneStatusLabels, unitTypeLabels, type Unit, type List, type PL, type RiskActivity, type RiskReport, type Scenario, type UnitType } from '../../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { formatPercent, formatYen } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
+import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 
 const profit = (p: PL | null | undefined): bigint => (p ? BigInt(p.revenue) - BigInt(p.expense) : 0n)
@@ -29,12 +30,11 @@ export function RiskPage() {
   const years = [...new Set(all.map((s) => s.fiscal_year))].sort((a, b) => b - a)
   const fy = Number(search.get('fy')) || years[0] || 0
   const inYear = all.filter((s) => s.fiscal_year === fy)
-  // 一覧は新しい順なので、先頭が最新
-  const latest = (kind: Scenario['scenario_kind']) => inYear.find((s) => s.scenario_kind === kind)?.id
   const pick = (param: string, fallback: number | undefined) => (search.has(param) ? Number(search.get(param)) || undefined : fallback)
-  const base = pick('base', latest('forecast') ?? latest('budget') ?? inYear.find((s) => s.scenario_kind !== 'actual')?.id)
-  const opt = pick('opt', latest('optimistic'))
-  const pes = pick('pes', latest('pessimistic'))
+  // 基準の既定は最新見込。楽観・悲観として比べるシナリオは、一覧から自由に選ぶ
+  const base = pick('base', defaultScenarios(inYear).latest?.id)
+  const opt = pick('opt', undefined)
+  const pes = pick('pes', undefined)
 
   const update = (patch: Record<string, number | string | undefined>) => {
     navigate(`/risks${query({ fy, base, opt: opt ?? '', pes: pes ?? '', unit: unitType, ...patch })}`, { replace: true })
@@ -49,7 +49,7 @@ export function RiskPage() {
   const options = (filter: (s: Scenario) => boolean) =>
     inYear.filter(filter).map((s) => (
       <option key={s.id} value={s.id}>
-        {s.name}（{scenarioKindLabels[s.scenario_kind]}）
+        {scenarioLabel(s)}
       </option>
     ))
 
@@ -70,22 +70,22 @@ export function RiskPage() {
               ))}
             </Select>
           </Control>
-          <Control label="基準（見込）">
+          <Control label="基準">
             <Select value={base ?? ''} onChange={(e) => update({ base: Number(e.target.value) || undefined })}>
               <option value="">選択してください</option>
-              {options((s) => s.scenario_kind !== 'actual')}
+              {options(() => true)}
             </Select>
           </Control>
-          <Control label="楽観シナリオ">
+          <Control label="楽観として比べる">
             <Select value={opt ?? ''} onChange={(e) => update({ opt: Number(e.target.value) || undefined })}>
               <option value="">（なし）</option>
-              {options((s) => s.scenario_kind !== 'actual' && s.id !== base)}
+              {options((s) => s.id !== base)}
             </Select>
           </Control>
-          <Control label="悲観シナリオ">
+          <Control label="悲観として比べる">
             <Select value={pes ?? ''} onChange={(e) => update({ pes: Number(e.target.value) || undefined })}>
               <option value="">（なし）</option>
-              {options((s) => s.scenario_kind !== 'actual' && s.id !== base)}
+              {options((s) => s.id !== base)}
             </Select>
           </Control>
           <Control label="ユニットの種別">

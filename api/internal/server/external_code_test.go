@@ -84,16 +84,15 @@ func TestExternalCodes(t *testing.T) {
 	}
 
 	// 実績 CSV は外部コードでも取り込め、同じ施策の行は合算される
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "実績", "scenario_kind": "actual", "fiscal_year": 2026})
 	csv := "target_month,activity_code,subject_code,amount\n" +
 		"2026-09,P-1001,4110,1000\n" +
 		"2026-09,P-1002,4110,250\n" +
 		"2026-09,PRJ-1,4110,5\n"
-	status, body := f.admin.upload(fmt.Sprintf("/api/scenarios/%d/actuals/import", actual), csv, "外部コードで取込")
+	status, body := f.admin.upload("/api/actuals/import", csv, "外部コードで取込")
 	if status != http.StatusOK || body["facts"] != float64(1) {
 		t.Fatalf("取込: status = %d, body = %v", status, body)
 	}
-	if got, _ := amountOf(f.viewer.mustGet(f.valuesPath(actual, f.manualAct)), f.sales, "2026-09"); got != "1255" {
+	if got := f.actualAmount(f.manualAct, f.sales, "2026-09"); got != "1255" {
 		t.Errorf("合算された実績 = %q, want 1255", got)
 	}
 
@@ -101,7 +100,7 @@ func TestExternalCodes(t *testing.T) {
 	if status, _ := f.member.do("DELETE", fmt.Sprintf("%s/%d", base, p1), map[string]any{"reason": "案件番号の付け替え"}); status != http.StatusNoContent {
 		t.Fatalf("削除: status = %d", status)
 	}
-	if got, _ := amountOf(f.viewer.mustGet(f.valuesPath(actual, f.manualAct)), f.sales, "2026-09"); got != "1255" {
+	if got := f.actualAmount(f.manualAct, f.sales, "2026-09"); got != "1255" {
 		t.Errorf("外部コード削除後の実績 = %q", got)
 	}
 	hist := f.viewer.mustGet(fmt.Sprintf("/api/change-sets?activity_id=%d&reason=with", f.manualAct))

@@ -6,7 +6,7 @@ test('予実比較で、基準との差異をセグメント → ユニット �
   const f = await seedMasters(page)
   const a = api(page)
   const activity = await createActivity(page, f)
-  const budget = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, scenario_kind: 'budget', fiscal_year: 2026 })
+  const budget = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, fiscal_year: 2026 })
   await a.put(`/scenarios/${budget.id}/activities/${activity.id}/amounts`, {
     reason: 'E2E',
     amounts: [
@@ -14,7 +14,7 @@ test('予実比較で、基準との差異をセグメント → ユニット �
       { subject_id: f.expenseId, target_month: '2026-04', amount: 400000 },
     ],
   })
-  const forecast = await a.post('/scenarios', { name: `E2E見込 ${f.run}`, scenario_kind: 'forecast', fiscal_year: 2026, base_scenario_id: budget.id })
+  const forecast = await a.post('/scenarios', { name: `E2E見込 ${f.run}`, fiscal_year: 2026, base_scenario_id: budget.id })
   await a.put(`/scenarios/${forecast.id}/activities/${activity.id}/amounts`, {
     reason: 'E2E',
     amounts: [{ subject_id: f.revenueId, target_month: '2026-04', amount: 1100000 }],

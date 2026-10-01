@@ -29,7 +29,7 @@ func TestComparisonReport(t *testing.T) {
 	f := newScenarioFixture(t)
 	amounts := func(sid, aid int64, items ...map[string]any) {
 		t.Helper()
-		if status, body := f.member.do("PUT", f.valuesPath(sid, aid)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
+		if status, body := f.admin.do("PUT", f.valuesPath(sid, aid)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
 			t.Fatalf("amounts: status = %d, body = %v", status, body)
 		}
 	}
@@ -37,24 +37,26 @@ func TestComparisonReport(t *testing.T) {
 		return map[string]any{"subject_id": subject, "target_month": month, "amount": amount}
 	}
 
-	// 予算: 4月・10月に受託売上、見込: 10月だけ増額、実績: 4月
+	// 予算: 4月・10月に受託売上、見込: 10月だけ増額し、決算確定月を 9月にする。実績: 4月・10月
 	amounts(f.budget, f.manualAct, amt(f.sales, "2026-04", 1000), amt(f.sales, "2026-10", 2000), amt(f.cost, "2026-04", 300))
-	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "scenario_kind": "forecast", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	forecast := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	amounts(forecast, f.manualAct, amt(f.sales, "2026-10", 2500))
 	// 同じユニットの別施策にも金額を入れ、ユニット単位では合算されることを確認する
 	amounts(f.budget, f.formulaAct, amt(f.cost, "2026-04", 50))
 
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "実績", "scenario_kind": "actual", "fiscal_year": 2026})
 	csv := "target_month,activity_code,subject_code,amount\n2026-04,PRJ-1,4110,900\n2026-10,PRJ-1,4110,9999\n"
-	if status, body := f.admin.upload(fmt.Sprintf("/api/scenarios/%d/actuals/import", actual), csv, "実績取込"); status != http.StatusOK {
+	if status, body := f.admin.upload("/api/actuals/import", csv, "実績取込"); status != http.StatusOK {
 		t.Fatalf("実績取込: status = %d, body = %v", status, body)
 	}
+	if status, body := f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", forecast), map[string]any{"name": "10月見込", "actual_through": "2026-09", "reason": "9月決算確定"}); status != http.StatusOK {
+		t.Fatalf("決算確定月: status = %d, body = %v", status, body)
+	}
 
-	path := fmt.Sprintf("/api/reports/comparison?scenario_ids=%d,%d&landing_actual_id=%d&landing_forecast_id=%d&landing_through=2026-09", f.budget, forecast, actual, forecast)
+	path := fmt.Sprintf("/api/reports/comparison?scenario_ids=%d,%d&include_actual=true", f.budget, forecast)
 	body := f.viewer.mustGet(path)
 
 	series := body["series"].([]any)
-	if len(series) != 3 || series[2].(map[string]any)["key"] != "landing" {
+	if len(series) != 3 || series[1].(map[string]any)["actual_through"] != "2026-09" || series[2].(map[string]any)["key"] != "actual" {
 		t.Fatalf("series = %v", series)
 	}
 	tests := []struct {
@@ -66,9 +68,9 @@ func TestComparisonReport(t *testing.T) {
 		{"予算 4月 売上", f.sales, "2026-04", "s1", "1000"},
 		{"見込 10月 売上", f.sales, "2026-10", "s2", "2500"},
 		{"ユニット単位で2施策の費用を合算", f.cost, "2026-04", "s1", "350"},
-		{"着地見込: 9月までは実績", f.sales, "2026-04", "landing", "900"},
-		{"着地見込: 10月以降は見込（実績の10月は使わない）", f.sales, "2026-10", "landing", "2500"},
-		{"着地見込: 実績にない費用は含まない", f.cost, "2026-04", "landing", ""},
+		{"見込: 決算確定月以前は実績", f.sales, "2026-04", "s2", "900"},
+		{"見込: 実績の月の計画値（費用）は使わない", f.cost, "2026-04", "s2", ""},
+		{"実績 10月", f.sales, "2026-10", "actual", "9999"},
 	}
 	for _, tt := range tests {
 		if got := reportValue(body, f.fn1, 0, tt.subject, tt.month, tt.series); got != tt.want {
@@ -88,7 +90,7 @@ func TestComparisonReport(t *testing.T) {
 
 func TestComparisonReportValidation(t *testing.T) {
 	f := newScenarioFixture(t)
-	other := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "scenario_kind": "budget", "fiscal_year": 2027})
+	other := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "fiscal_year": 2027})
 	tests := []struct {
 		name, query, field string
 	}{
@@ -96,18 +98,11 @@ func TestComparisonReportValidation(t *testing.T) {
 		{"年度違い", fmt.Sprintf("scenario_ids=%d,%d", f.budget, other), "scenario_ids"},
 		{"存在しない", "scenario_ids=99999", "scenario_ids"},
 		{"5つ以上", fmt.Sprintf("scenario_ids=%d,1,2,3,4", f.budget), "scenario_ids"},
-		{"着地見込の指定不足", fmt.Sprintf("scenario_ids=%d&landing_actual_id=%d", f.budget, f.budget), "landing"},
-		{"着地見込の実績が実績シナリオでない", fmt.Sprintf("landing_actual_id=%d&landing_forecast_id=%d&landing_through=2026-09", f.budget, f.budget), "landing_actual_id"},
 	}
 	for _, tt := range tests {
 		status, body := f.viewer.do("GET", "/api/reports/comparison?"+tt.query, nil)
 		if status != http.StatusUnprocessableEntity || detail(body, tt.field) == "" {
 			t.Errorf("%s: status = %d, body = %v", tt.name, status, body)
 		}
-	}
-	actual := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "実績", "scenario_kind": "actual", "fiscal_year": 2026})
-	status, body := f.viewer.do("GET", fmt.Sprintf("/api/reports/comparison?landing_actual_id=%d&landing_forecast_id=%d&landing_through=2027-04", actual, f.budget), nil)
-	if status != http.StatusUnprocessableEntity || detail(body, "landing_through") == "" {
-		t.Errorf("年度外の月: status = %d, body = %v", status, body)
 	}
 }

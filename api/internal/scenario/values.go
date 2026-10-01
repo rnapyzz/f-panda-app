@@ -78,13 +78,15 @@ type lineRow struct {
 
 // valuesView はシナリオ×施策の入力画面用のデータ。
 type valuesView struct {
-	Scenario  Scenario         `json:"scenario"`
-	Activity  activity.Summary `json:"activity"`
-	Months    []string         `json:"months"`
-	Editable  bool             `json:"editable"`
-	Drivers   []driverRow      `json:"drivers"`
-	Amounts   []amountRow      `json:"amounts"`
-	Condition *string          `json:"condition"`
+	Scenario Scenario         `json:"scenario"`
+	Activity activity.Summary `json:"activity"`
+	Months   []string         `json:"months"`
+	// ActualMonths は実績の月（決算確定月以前）。金額は実績で、入力できない
+	ActualMonths []string    `json:"actual_months"`
+	Editable     bool        `json:"editable"`
+	Drivers      []driverRow `json:"drivers"`
+	Amounts      []amountRow `json:"amounts"`
+	Condition    *string     `json:"condition"`
 }
 
 // getValues は GET /api/scenarios/{id}/activities/{aid}。
@@ -116,12 +118,13 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 		return valuesView{}, err
 	}
 	v := valuesView{
-		Scenario: s,
-		Activity: a,
-		Months:   calc.FiscalMonths(s.FiscalYear),
-		Editable: a.CanEdit && !s.IsLocked && s.ScenarioKind != "actual",
-		Drivers:  []driverRow{},
-		Amounts:  []amountRow{},
+		Scenario:     s,
+		Activity:     a,
+		Months:       calc.FiscalMonths(s.FiscalYear),
+		ActualMonths: s.ActualMonths(),
+		Editable:     a.CanEdit && !s.IsLocked && canEditScenario(u, s),
+		Drivers:      []driverRow{},
+		Amounts:      []amountRow{},
 	}
 
 	// ドライバーと値
@@ -176,7 +179,14 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 	return v, nil
 }
 
+// canEditScenario は、ユーザーがシナリオの数値を入力できるか（ロックと施策の権限は別に判定する）。
+// 作成中のシナリオは施策の編集権限があれば入力でき、それ以外のシナリオは FP&A のみが入力できる。
+func canEditScenario(u auth.User, s Scenario) bool {
+	return s.IsActive || u.Role == auth.RoleFPAAdmin
+}
+
 // loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
+// 決算確定月以前の月は実績（scenario_amounts ビュー、source は actual）で、科目への直接入力として返す。
 func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64) ([]amountRow, error) {
 	rows := map[int64]*amountRow{}
 	lineOf := map[int64]*lineRow{}
@@ -218,7 +228,7 @@ func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64)
 
 	frows, err := h.db.QueryContext(ctx, `
 		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
-		FROM budget_facts WHERE scenario_id = ? AND activity_id = ? ORDER BY target_month`, scenarioID, activityID)
+		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ? ORDER BY target_month`, scenarioID, activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,8 +293,8 @@ func (h *Handler) editTx(r *http.Request, scenarioID, activityID int64, reason s
 		if s.IsLocked {
 			return httpx.Conflict("ロックされたシナリオは変更できません")
 		}
-		if s.ScenarioKind == "actual" {
-			return httpx.Conflict("実績シナリオの数値は取込でのみ登録できます")
+		if !canEditScenario(u, s) {
+			return httpx.Conflict("作成中ではないシナリオの数値は FP&A のみが入力できます")
 		}
 		a, err := activity.LockForEdit(ctx, tx, u, activityID)
 		if err != nil {
@@ -324,11 +334,15 @@ type cellInput struct {
 	ProvisionalReason string `json:"provisional_reason"`
 }
 
-// validateCell は月と「仮の値」の入力を検証する。仮の値には理由が必須。
-func validateCell(v httpx.Validator, prefix string, c *cellInput, months []string) {
+// validateCell は月と「仮の値」の入力を検証する。入力できるのは計画値の月（決算確定月より後）だけ。仮の値には理由が必須。
+func validateCell(v httpx.Validator, prefix string, c *cellInput, s Scenario) {
 	c.TargetMonth = strings.TrimSpace(c.TargetMonth)
-	if !slices.Contains(months, c.TargetMonth) {
+	months := calc.FiscalMonths(s.FiscalYear)
+	switch {
+	case !slices.Contains(months, c.TargetMonth):
 		v.Add(prefix+".target_month", fmt.Sprintf("対象月は %s〜%s の YYYY-MM で指定してください", months[0], months[len(months)-1]))
+	case !slices.Contains(s.PlanMonths(), c.TargetMonth):
+		v.Add(prefix+".target_month", fmt.Sprintf("%s は決算確定月（%s）以前の実績の月のため入力できません", c.TargetMonth, derefStr(s.ActualThrough)))
 	}
 	c.ProvisionalReason = v.OptionalText(prefix+".provisional_reason", "仮の値の理由", c.ProvisionalReason, maxReasonLen)
 	if c.IsProvisional && c.ProvisionalReason == "" {
@@ -394,7 +408,6 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 		}
 		rows.Close()
 
-		months := calc.FiscalMonths(s.FiscalYear)
 		v := httpx.Validator{}
 		seen := map[string]bool{}
 		parsed := make([]string, len(req.Values))
@@ -404,7 +417,7 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 			if !drivers[in.DriverID] {
 				v.Add(prefix+".driver_id", "この施策のドライバーを指定してください")
 			}
-			validateCell(v, prefix, &in.cellInput, months)
+			validateCell(v, prefix, &in.cellInput, s)
 			key := fmt.Sprintf("%d/%s", in.DriverID, in.TargetMonth)
 			if seen[key] {
 				v.Add(prefix, "同じドライバー・月が重複しています")
@@ -537,7 +550,6 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
-		months := calc.FiscalMonths(s.FiscalYear)
 		v := httpx.Validator{}
 		seen := map[string]bool{}
 		amounts := make([]string, len(req.Amounts))
@@ -558,7 +570,7 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 					v.Add(prefix+".line_id", "内訳「"+l.Name+"」は計算式で反映するため直接入力できません")
 				}
 			}
-			validateCell(v, prefix, &in.cellInput, months)
+			validateCell(v, prefix, &in.cellInput, s)
 			key := fmt.Sprintf("%d/%d/%s", in.SubjectID, deref(in.LineID), in.TargetMonth)
 			if seen[key] {
 				v.Add(prefix, "同じ科目・内訳・月が重複しています")

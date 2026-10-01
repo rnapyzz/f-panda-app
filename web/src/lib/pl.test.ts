@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AmountRow } from '../api/types.ts'
-import { buildPl, defaultFiscalYear, defaultScenarios, periodsOf, sumOver } from './pl.ts'
+import { buildPl, defaultFiscalYear, periodsOf, sumOver } from './pl.ts'
 
 const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03']
 
@@ -94,11 +94,4 @@ test('defaultFiscalYear: 4月始まりの今の年度、なければ最新', () 
   assert.equal(defaultFiscalYear([2025, 2026], new Date(2026, 2, 1)), 2025)
   assert.equal(defaultFiscalYear([2024, 2027], new Date(2026, 9, 1)), 2027)
   assert.equal(defaultFiscalYear([], new Date(2026, 9, 1)), undefined)
-})
-
-test('defaultScenarios: 基準は予算、比較は実績以外で最新', () => {
-  const s = (id: number, scenario_kind: string) => ({ id, scenario_kind })
-  assert.deepEqual(defaultScenarios([s(1, 'forecast'), s(2, 'budget'), s(3, 'actual'), s(4, 'forecast')]), { base: s(2, 'budget'), latest: s(4, 'forecast') })
-  assert.deepEqual(defaultScenarios([s(2, 'budget')]), { base: s(2, 'budget'), latest: s(2, 'budget') })
-  assert.deepEqual(defaultScenarios([]), { base: undefined, latest: undefined })
 })
