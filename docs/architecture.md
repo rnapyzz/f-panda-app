@@ -63,7 +63,7 @@
 
 ## マスタ管理 API
 
-組織・セグメント・ユニット・勘定科目・ユーザーの CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
+組織・セグメント・ユニット・勘定科目・ユーザー・確度の段階の CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
 
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
@@ -71,6 +71,7 @@
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
+| 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{code}`（名前・標準の確率 0〜1・判定基準・表示順。参照されている段階は削除できない） |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
 - 組織・セグメント・ユニット・勘定科目はコードを持つ（一意）。組織・セグメント・ユニットは、作成時にコードが空なら `ORG-0001` / `SEG-0001` / `UNIT-0001` 形式で自動採番し、更新時に空なら変更しない
@@ -93,7 +94,7 @@
 | 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
-| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するかを内訳ごとに設定） |
+| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
 - 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・内訳を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
@@ -102,8 +103,8 @@
   - 施策コード: 半角英数字・`-`・`_`、50文字以内、全体で一意。作成時に空欄なら `ACT-0001` 形式で自動採番
   - 外部コード: 空白・カンマ・引用符を除く100文字以内、全体で一意。施策コードと同じ値は不可
   - ステータス: `planned` / `in_progress` / `completed` / `on_hold` / `cancelled`
-  - 確度: 0〜1、小数点以下4桁まで。日付は `YYYY-MM-DD`。プロジェクト型は開始日・終了日が必須
-  - ドライバー code: 英小文字で始まる英小文字・数字・`_`、施策内で一意。`probability` は予約語
+  - 確度: 確度の段階のコード（`confidence_level`、例: `C`）。日付は `YYYY-MM-DD`。プロジェクト型は開始日・終了日が必須
+  - ドライバー code: 英小文字で始まる英小文字・数字・`_`、施策内で一意
   - マイルストーンのステータス: `not_started` / `in_progress` / `completed` / `delayed`
 - 計算式は `internal/formula` で解析・評価する（`math/big.Rat` による誤差のない計算、四捨五入は `RoundHalfUp`）。登録時に構文と、未定義のドライバーを使っていないかを検証する
 - 内訳の計算式（反映しない式を含む）で使われているドライバーは、code の変更・削除ができない。値が登録済みのドライバーも削除できない
@@ -152,6 +153,7 @@
 - 各シナリオの金額は、決算確定月以前は実績、それより後は計画値（着地見込の指定は廃止）
 - `include_actual=true`: 実績データ（取込済みの月）を系列に加える
 - `unit_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
+- `measure`: `full`（満額、既定）/ `weighted`（加重見込）/ `optimistic`（楽観）/ `pessimistic`（悲観）。確度の段階と見通しの種類による算出は docs/plan.md「2.8」。実績の月はどれも実績の金額
 - レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
@@ -169,12 +171,17 @@
 
 ## リスク API
 
-`GET /api/reports/risk?scenario_id=&optimistic_id=&pessimistic_id=`（ログインユーザー全員）
+`GET /api/reports/risk?scenario_id=`（ログインユーザー全員）。詳細はリスク画面の仕様を詰めてから確定する（docs/plan.md「8. 未決事項」）。
 
-- 基準シナリオ（必須）と、楽観・悲観として比べるシナリオ（任意、基準と同じ年度。種別は問わない）を指定する
-- 施策ごとに、確度・前提条件、基準／楽観／悲観の年間の収益・費用、基準の仮の値（件数・金額・理由）、注意が必要なマイルストーン、シナリオごとの想定条件を返す
-- 注意が必要なマイルストーン: 完了していないもののうち、期日超過（`overdue`）・状態が遅延（`delayed`）・30日以内に期日（`upcoming`）。日付は日本時間
-- 確度帯の集計、振れ幅（楽観と悲観の差）の計算、並べ替えは画面側で行う
+- 基準シナリオ（必須）について、施策ごとに次を返す
+  - 確度の段階・前提条件
+  - 楽観・基準（加重見込）・悲観の年間の収益・費用（docs/plan.md「2.8」）
+  - 段階別・見通しの種類別の金額
+  - 客観的なシグナル: マイルストーンの遅れ・後ろ倒し、見込の修正履歴、見込の当たり具合
+- マイルストーンの遅れ: 完了していないもののうち、期日超過（`overdue`）・状態が遅延（`delayed`）・30日以内に期日（`upcoming`）。日付は日本時間
+- マイルストーンの後ろ倒し: 監査ログの `activity_milestones` の更新のうち、`due_date` を後ろにずらしたもの
+- 見込の修正履歴・当たり具合: 同じ年度のシナリオ（エイリアス・作成日の順）と実績データから算出する
+- 並べ替え・表示の集計は画面側で行う
 
 ## 変更履歴 API
 
