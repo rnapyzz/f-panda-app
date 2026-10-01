@@ -14,7 +14,7 @@ test('実績 CSV を確認してから取り込める。取り込んだ実績は
   await page.getByRole('button', { name: '追加', exact: true }).click()
   await expect(page.getByText(external, { exact: true })).toBeVisible()
 
-  await page.goto('/scenarios')
+  await page.goto('/admin/scenarios')
   await page.getByRole('button', { name: '実績を取り込む' }).click()
   const dialog = page.getByRole('dialog', { name: '実績 CSV の取込' })
   const upload = (csv: string) => dialog.getByLabel('CSV ファイル').setInputFiles({ name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })

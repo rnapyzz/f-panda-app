@@ -246,8 +246,10 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) active(w http.ResponseWriter, r *http.Request) error {
 	s, err := scanScenario(h.db.QueryRowContext(r.Context(), scenarioSelect+" WHERE is_active"))
 	if errors.Is(err, sql.ErrNoRows) {
-		httpx.WriteJSON(w, http.StatusOK, nil)
-		return nil
+		// 未設定は null を返す（WriteJSON は nil のとき本文を書かないため、直接書く）
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, err := w.Write([]byte("null\n"))
+		return err
 	}
 	if err != nil {
 		return err

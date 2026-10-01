@@ -35,3 +35,8 @@ export function fiscalMonths(fiscalYear: number): string[] {
     return m > 12 ? `${fiscalYear + 1}-${String(m - 12).padStart(2, '0')}` : `${fiscalYear}-${String(m).padStart(2, '0')}`
   })
 }
+
+/** 今日が属する年度（4月開始） */
+export function currentFiscalYear(today = new Date()): number {
+  return today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
+}

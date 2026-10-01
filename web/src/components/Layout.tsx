@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { roleLabels } from '../api/types'
+import { useActiveScenario } from '../lib/activeScenario'
 import { useAuth, useCurrentUser } from '../lib/auth'
+import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
 import { Link, useLocation } from '../lib/router'
 import {
   IconActivities,
+  IconAdmin,
   IconClose,
   IconCollapse,
   IconHistory,
@@ -21,7 +24,7 @@ import {
 import { cx } from './ui'
 
 type NavItem = { to: string; label: string; icon: (p: { className?: string }) => ReactNode }
-type NavGroup = { label: string; items: NavItem[] }
+type NavGroup = { label: string; items: NavItem[]; adminOnly?: boolean }
 
 const navGroups: NavGroup[] = [
   {
@@ -51,6 +54,11 @@ const navGroups: NavGroup[] = [
       { to: '/masters/subjects', label: '勘定科目', icon: IconSubjects },
       { to: '/masters/users', label: 'ユーザー', icon: IconUsers },
     ],
+  },
+  {
+    label: '管理',
+    adminOnly: true,
+    items: [{ to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin }],
   },
 ]
 
@@ -127,8 +135,42 @@ export function Layout({ children }: { children: ReactNode }) {
       )}
 
       <main className="min-w-0 flex-1">
+        <ActiveScenarioBar />
         <div className="mx-auto max-w-[1440px] px-4 py-6 md:px-6">{children}</div>
       </main>
+    </div>
+  )
+}
+
+/** 作成中のシナリオ（アプリ全体での入力の対象）を、すべての画面の上部に表示する */
+function ActiveScenarioBar() {
+  const { active } = useActiveScenario()
+  const user = useCurrentUser()
+  if (active === undefined) return null
+  return (
+    <div className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-1.5 text-xs text-emerald-900 md:px-6" role="status" aria-label="作成中のシナリオ">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-semibold">✎ 作成中</span>
+        {active ? (
+          <>
+            <Link to={`/scenarios/${active.id}`} className="font-medium underline-offset-2 hover:underline">
+              {scenarioLabel(active)}
+            </Link>
+            <span className="text-emerald-700">
+              {active.fiscal_year}年度・{actualThroughLabel(active.actual_through)}
+            </span>
+          </>
+        ) : (
+          <span className="text-emerald-700">
+            なし（数値を入力できるのは FP&A のみです）
+            {user.role === 'fpa_admin' && (
+              <Link to="/admin/scenarios" className="ml-2 font-medium underline">
+                シナリオ管理で指定する
+              </Link>
+            )}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -167,7 +209,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3" aria-label="メインメニュー">
-        {navGroups.map((g) => (
+        {navGroups.filter((g) => !g.adminOnly || user.role === 'fpa_admin').map((g) => (
           <div key={g.label} className="mb-3">
             {collapsed ? (
               <div className="mx-3 mb-2 border-t border-slate-100" aria-hidden="true" />

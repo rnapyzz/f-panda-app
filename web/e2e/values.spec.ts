@@ -131,9 +131,10 @@ test('ロックしたシナリオは参照のみになる', async ({ page }) => 
   const a = api(page)
   const scenario = await a.post('/scenarios', { name: `E2Eロック ${f.run}`, fiscal_year: 2026 })
 
-  await page.goto(`/scenarios/${scenario.id}`)
-  await page.getByRole('button', { name: '🔒 ロックする' }).click()
-  await expect(page.getByText('このシナリオはロックされています')).toBeVisible()
+  await page.goto('/admin/scenarios')
+  await page.getByRole('combobox', { name: '年度' }).selectOption('2026')
+  await page.getByRole('button', { name: `E2Eロック ${f.run}をロック` }).click()
+  await expect(page.getByRole('button', { name: `E2Eロック ${f.run}のロックを解除` })).toBeVisible()
 
   await page.goto(`/scenarios/${scenario.id}/activities/${activity.id}`)
   await expect(page.getByText('このシナリオはロックされているため、参照のみです。')).toBeVisible()

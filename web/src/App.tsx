@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Layout } from './components/Layout'
 import { Loading, PageHeader } from './components/ui'
+import { ActiveScenarioProvider } from './lib/activeScenario'
 import { AuthProvider, useAuth } from './lib/auth'
 import { matchPath, Redirect, useLocation } from './lib/router'
 import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
@@ -13,6 +14,7 @@ import { UsersPage } from './pages/masters/UsersPage'
 import { HistoryPage } from './pages/history/HistoryPage'
 import { ReportPage } from './pages/reports/ReportPage'
 import { RiskPage } from './pages/reports/RiskPage'
+import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
 import { ValuesPage } from './pages/scenarios/ValuesPage'
@@ -26,6 +28,7 @@ const routes: Route[] = [
   { path: '/scenarios', render: () => <ScenarioListPage /> },
   { path: '/scenarios/:id', render: (p) => <ScenarioDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios/:sid/activities/:aid', render: (p) => <ValuesPage key={`${p.sid}/${p.aid}`} scenarioId={p.sid} activityId={p.aid} /> },
+  { path: '/admin/scenarios', render: () => <ScenarioAdminPage /> },
   { path: '/reports', render: () => <ReportPage /> },
   { path: '/history', render: () => <HistoryPage /> },
   { path: '/risks', render: () => <RiskPage /> },
@@ -53,13 +56,17 @@ function Screen() {
   if (user === undefined) return <Loading />
   if (user === null) return <LoginPage />
 
+  let page: ReactNode = <PageHeader title="ページが見つかりません" description="URL を確認してください。" />
   for (const r of routes) {
     const params = matchPath(r.path, pathname)
-    if (params) return <Layout>{r.render(params)}</Layout>
+    if (params) {
+      page = r.render(params)
+      break
+    }
   }
   return (
-    <Layout>
-      <PageHeader title="ページが見つかりません" description="URL を確認してください。" />
-    </Layout>
+    <ActiveScenarioProvider>
+      <Layout>{page}</Layout>
+    </ActiveScenarioProvider>
   )
 }
