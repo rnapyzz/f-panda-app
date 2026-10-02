@@ -100,7 +100,7 @@ func (h *Handler) getValues(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	view, err := h.loadValues(r.Context(), u, scenarioID, activityID)
+	view, err := h.loadValues(r.Context(), h.db, u, scenarioID, activityID)
 	if err != nil {
 		return err
 	}
@@ -108,12 +108,19 @@ func (h *Handler) getValues(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activityID int64) (valuesView, error) {
-	s, err := findScenario(ctx, h.db, scenarioID, "")
+// queryer は *sql.DB と *sql.Tx の共通部分。
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// loadValues は数値入力画面のデータを読み込む。q はトランザクション（試算）でもよい。
+func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenarioID, activityID int64) (valuesView, error) {
+	s, err := findScenario(ctx, q, scenarioID, "")
 	if err != nil {
 		return valuesView{}, err
 	}
-	a, err := activity.Load(ctx, h.db, u, activityID)
+	a, err := activity.Load(ctx, q, u, activityID)
 	if err != nil {
 		return valuesView{}, err
 	}
@@ -128,13 +135,13 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 	}
 
 	// ドライバーと値
-	rows, err := h.db.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT d.id, d.code, d.name, d.driver_kind, COALESCE(d.unit, ''),
 		       DATE_FORMAT(v.target_month, '%Y-%m'), v.value, v.is_provisional, COALESCE(v.provisional_reason, '')
 		FROM activity_drivers d
 		LEFT JOIN driver_values v ON v.activity_driver_id = d.id AND v.scenario_id = ?
 		WHERE d.activity_id = ?
-		ORDER BY d.id, v.target_month`, scenarioID, activityID)
+		ORDER BY d.sort_order, d.id, v.target_month`, scenarioID, activityID)
 	if err != nil {
 		return valuesView{}, err
 	}
@@ -164,12 +171,12 @@ func (h *Handler) loadValues(ctx context.Context, u auth.User, scenarioID, activ
 	}
 
 	// 金額: 内訳がある科目と、金額がある科目
-	if v.Amounts, err = h.loadAmounts(ctx, scenarioID, activityID); err != nil {
+	if v.Amounts, err = loadAmounts(ctx, q, scenarioID, activityID); err != nil {
 		return valuesView{}, err
 	}
 
 	var cond string
-	err = h.db.QueryRowContext(ctx, "SELECT description FROM scenario_conditions WHERE scenario_id = ? AND activity_id = ?", scenarioID, activityID).Scan(&cond)
+	err = q.QueryRowContext(ctx, "SELECT description FROM scenario_conditions WHERE scenario_id = ? AND activity_id = ?", scenarioID, activityID).Scan(&cond)
 	switch {
 	case err == nil:
 		v.Condition = &cond
@@ -187,7 +194,7 @@ func canEditScenario(u auth.User, s Scenario) bool {
 
 // loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
 // 決算確定月以前の月は実績（scenario_amounts ビュー、source は actual）で、科目への直接入力として返す。
-func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64) ([]amountRow, error) {
+func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) ([]amountRow, error) {
 	rows := map[int64]*amountRow{}
 	lineOf := map[int64]*lineRow{}
 	get := func(subjectID int64) *amountRow {
@@ -199,7 +206,7 @@ func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64)
 		return r
 	}
 
-	lrows, err := h.db.QueryContext(ctx, `
+	lrows, err := q.QueryContext(ctx, `
 		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled
 		FROM activity_lines WHERE activity_id = ? ORDER BY subject_id, sort_order, id`, activityID)
 	if err != nil {
@@ -226,7 +233,7 @@ func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64)
 		}
 	}
 
-	frows, err := h.db.QueryContext(ctx, `
+	frows, err := q.QueryContext(ctx, `
 		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
 		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ? ORDER BY target_month`, scenarioID, activityID)
 	if err != nil {
@@ -255,7 +262,7 @@ func (h *Handler) loadAmounts(ctx context.Context, scenarioID, activityID int64)
 	}
 
 	// 科目の情報を付けて、区分（収益 → 費用）・表示順・コードの順に並べる
-	srows, err := h.db.QueryContext(ctx, "SELECT id, code, name, category FROM subjects ORDER BY category, sort_order, code")
+	srows, err := q.QueryContext(ctx, "SELECT id, code, name, category FROM subjects ORDER BY category, sort_order, code")
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +316,7 @@ func (h *Handler) respondValues(w http.ResponseWriter, r *http.Request, scenario
 	if err != nil {
 		return err
 	}
-	view, err := h.loadValues(r.Context(), u, scenarioID, activityID)
+	view, err := h.loadValues(r.Context(), h.db, u, scenarioID, activityID)
 	if err != nil {
 		return err
 	}
@@ -377,7 +384,7 @@ type driverValueRecord struct {
 	ProvisionalReason string `json:"provisional_reason"`
 }
 
-// putDriverValues は PUT /api/scenarios/{id}/activities/{aid}/driver-values。
+// putDriverValues は PUT /api/scenarios/{id}/activities/{aid}/driver-values（?dry_run=true で試算）。
 // 指定した（ドライバー, 月）の値を登録・更新・削除（value: null）し、計算式の金額を再計算する。変更理由が必須。
 func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error {
 	scenarioID, activityID, err := pathIDs(r)
@@ -388,10 +395,20 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
+	// dry_run=true は試算: 保存したときと同じ検証・再計算を行い、結果を返してロールバックする（変更理由は不要）
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+	if dryRun {
+		req.Reason = "試算"
+	}
 	if err := checkBatch(len(req.Values), req.Reason); err != nil {
 		return err
 	}
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
 
+	var preview valuesView
 	err = h.editTx(r, scenarioID, activityID, req.Reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
 		drivers := map[int64]bool{}
 		rows, err := tx.QueryContext(ctx, "SELECT id FROM activity_drivers WHERE activity_id = ?", activityID)
@@ -490,8 +507,21 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 				return err
 			}
 		}
-		return calc.Recalculate(ctx, tx, rec, scenarioID, activityID)
+		if err := calc.Recalculate(ctx, tx, rec, scenarioID, activityID); err != nil {
+			return err
+		}
+		if !dryRun {
+			return nil
+		}
+		if preview, err = h.loadValues(ctx, tx, u, scenarioID, activityID); err != nil {
+			return err
+		}
+		return errDryRun // 試算の結果を読んでからロールバックする
 	})
+	if dryRun && errors.Is(err, errDryRun) {
+		httpx.WriteJSON(w, http.StatusOK, preview)
+		return nil
+	}
 	if err != nil {
 		return err
 	}

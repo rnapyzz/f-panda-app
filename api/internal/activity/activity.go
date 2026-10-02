@@ -58,6 +58,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	handle("DELETE /api/activities/{id}/milestones/{mid}", h.deleteMilestone)
 
 	handle("POST /api/activities/{id}/drivers", h.createDriver)
+	handle("PUT /api/activities/{id}/drivers/order", h.reorderDrivers)
 	handle("PUT /api/activities/{id}/drivers/{did}", h.updateDriver)
 	handle("DELETE /api/activities/{id}/drivers/{did}", h.deleteDriver)
 

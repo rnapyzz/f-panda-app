@@ -643,3 +643,81 @@ func TestRecalculateOnlyPlanMonths(t *testing.T) {
 		t.Errorf("4月 = %s（want 1000、変わらない）、5月 = %s（want 2000）", april, may)
 	}
 }
+
+func TestReorderDrivers(t *testing.T) {
+	f := newScenarioFixture(t)
+	base := fmt.Sprintf("/api/activities/%d", f.formulaAct)
+	extra := f.admin.mustCreate(base+"/drivers", map[string]any{"code": "discount", "name": "値引き", "driver_kind": "value"})
+	codes := func() string {
+		var out []string
+		for _, d := range f.viewer.mustGet(f.valuesPath(f.budget, f.formulaAct))["drivers"].([]any) {
+			out = append(out, d.(map[string]any)["code"].(string))
+		}
+		return fmt.Sprint(out)
+	}
+	if got := codes(); got != "[unit_price volume discount]" {
+		t.Fatalf("初期の順 = %s（作成順）", got)
+	}
+
+	// 担当者が並び替えられる。施策詳細にも反映される
+	status, body := f.member.do("PUT", base+"/drivers/order", map[string]any{"ids": []int64{extra, f.priceID, f.volumeID}})
+	if status != http.StatusOK || len(body["items"].([]any)) != 3 {
+		t.Fatalf("並び替え: status = %d, body = %v", status, body)
+	}
+	if got := codes(); got != "[discount unit_price volume]" {
+		t.Errorf("並び替え後 = %s", got)
+	}
+	if d := f.viewer.mustGet(base)["drivers"].([]any)[0].(map[string]any); d["code"] != "discount" {
+		t.Errorf("施策詳細の先頭 = %v", d["code"])
+	}
+
+	for name, ids := range map[string][]int64{
+		"不足":      {extra, f.priceID},
+		"重複":      {extra, extra, f.priceID},
+		"他施策の ID": {extra, f.priceID, 99999},
+	} {
+		if status, body := f.member.do("PUT", base+"/drivers/order", map[string]any{"ids": ids}); status != http.StatusUnprocessableEntity || detail(body, "ids") == "" {
+			t.Errorf("%s: status = %d, body = %v", name, status, body)
+		}
+	}
+	if status, _ := f.member2.do("PUT", base+"/drivers/order", map[string]any{"ids": []int64{f.priceID, f.volumeID, extra}}); status != http.StatusForbidden {
+		t.Errorf("担当外の並び替え: status = %d, want 403", status)
+	}
+}
+
+func TestDriverValuesDryRun(t *testing.T) {
+	f := newScenarioFixture(t)
+	path := f.valuesPath(f.budget, f.formulaAct) + "/driver-values"
+	values := []map[string]any{
+		{"driver_id": f.priceID, "target_month": "2026-10", "value": 1000},
+		{"driver_id": f.volumeID, "target_month": "2026-10", "value": 3},
+	}
+	var before int
+	f.env.QueryRow("SELECT COUNT(*) FROM change_sets").Scan(&before)
+
+	// 試算は理由なしで、計算式の金額を返す（1000 * 3 * 0.5 = 1500）
+	status, body := f.member.do("PUT", path+"?dry_run=true", map[string]any{"values": values})
+	if status != http.StatusOK {
+		t.Fatalf("試算: status = %d, body = %v", status, body)
+	}
+	if got, _ := lineAmountOf(body, f.salesLine, "2026-10"); got != "1500" {
+		t.Errorf("試算の金額 = %q, want 1500", got)
+	}
+	// 何も保存されず、変更履歴も残らない
+	if got, _ := lineAmountOf(f.member.mustGet(f.valuesPath(f.budget, f.formulaAct)), f.salesLine, "2026-10"); got != "" {
+		t.Errorf("試算の後の金額 = %q, want なし", got)
+	}
+	var after int
+	f.env.QueryRow("SELECT COUNT(*) FROM change_sets").Scan(&after)
+	if after != before {
+		t.Errorf("変更セットが %d 件増えた", after-before)
+	}
+	// 試算でも検証は行う。編集できないユーザーは試算もできない
+	bad := []map[string]any{{"driver_id": f.priceID, "target_month": "2026-10", "value": "0.1234567"}}
+	if status, body := f.member.do("PUT", path+"?dry_run=true", map[string]any{"values": bad}); status != http.StatusUnprocessableEntity || detail(body, "values[0].value") == "" {
+		t.Errorf("不正な値の試算: status = %d, body = %v", status, body)
+	}
+	if status, _ := f.member2.do("PUT", path+"?dry_run=true", map[string]any{"values": values}); status != http.StatusForbidden {
+		t.Errorf("担当外の試算: status = %d, want 403", status)
+	}
+}

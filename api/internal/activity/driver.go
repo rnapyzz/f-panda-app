@@ -27,6 +27,7 @@ type driver struct {
 	Name       string `json:"name"`
 	DriverKind string `json:"driver_kind"`
 	Unit       string `json:"unit"`
+	SortOrder  int    `json:"sort_order"`
 	timestamps
 }
 
@@ -38,16 +39,16 @@ type driverRequest struct {
 	Reason     string `json:"reason"`
 }
 
-const driverSelect = "SELECT id, activity_id, code, name, driver_kind, COALESCE(unit, ''), created_at, updated_at FROM activity_drivers"
+const driverSelect = "SELECT id, activity_id, code, name, driver_kind, COALESCE(unit, ''), sort_order, created_at, updated_at FROM activity_drivers"
 
 func scanDriver(row interface{ Scan(...any) error }) (driver, error) {
 	var d driver
-	err := row.Scan(&d.ID, &d.ActivityID, &d.Code, &d.Name, &d.DriverKind, &d.Unit, &d.CreatedAt, &d.UpdatedAt)
+	err := row.Scan(&d.ID, &d.ActivityID, &d.Code, &d.Name, &d.DriverKind, &d.Unit, &d.SortOrder, &d.CreatedAt, &d.UpdatedAt)
 	return d, err
 }
 
 func listDrivers(ctx context.Context, q querier, activityID int64) ([]driver, error) {
-	rows, err := q.QueryContext(ctx, driverSelect+" WHERE activity_id = ? ORDER BY id", activityID)
+	rows, err := q.QueryContext(ctx, driverSelect+" WHERE activity_id = ? ORDER BY sort_order, id", activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +111,9 @@ func (h *Handler) createDriver(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO activity_drivers (activity_id, code, name, driver_kind, unit) VALUES (?, ?, ?, ?, ?)",
-			activityID, req.Code, req.Name, req.DriverKind, dbx.NullString(req.Unit),
+			`INSERT INTO activity_drivers (activity_id, code, name, driver_kind, unit, sort_order)
+			 SELECT ?, ?, ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1 FROM activity_drivers WHERE activity_id = ?`,
+			activityID, req.Code, req.Name, req.DriverKind, dbx.NullString(req.Unit), activityID,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "このコードは施策内で既に使われています"})
@@ -272,4 +274,71 @@ func codeUsedInFormulas(ctx context.Context, tx *sql.Tx, activityID int64, code 
 		}
 	}
 	return false, nil
+}
+
+// reorderDrivers は PUT /api/activities/{id}/drivers/order。ドライバーの表示順を、指定した ID の順に並べ替える。
+// すべてのドライバーの ID を1回ずつ指定する。表示だけの変更なので変更理由は任意。
+func (h *Handler) reorderDrivers(w http.ResponseWriter, r *http.Request) error {
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
+	activityID, err := httpx.PathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var req struct {
+		IDs    []int64 `json:"ids"`
+		Reason string  `json:"reason"`
+	}
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+
+	ctx := r.Context()
+	var items []driver
+	err = inTx(r, h.db, u, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		if _, err := lockEditable(ctx, tx, u, activityID); err != nil {
+			return err
+		}
+		current, err := listDrivers(ctx, tx, activityID)
+		if err != nil {
+			return err
+		}
+		byID := map[int64]driver{}
+		for _, d := range current {
+			byID[d.ID] = d
+		}
+		seen := map[int64]bool{}
+		for _, id := range req.IDs {
+			if _, ok := byID[id]; !ok || seen[id] {
+				return httpx.Validation(map[string]string{"ids": "この施策のドライバーを、重複なく指定してください"})
+			}
+			seen[id] = true
+		}
+		if len(req.IDs) != len(current) {
+			return httpx.Validation(map[string]string{"ids": "すべてのドライバーを指定してください"})
+		}
+		for i, id := range req.IDs {
+			before := byID[id]
+			if before.SortOrder == i+1 {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE activity_drivers SET sort_order = ? WHERE id = ?", i+1, id); err != nil {
+				return err
+			}
+			after := before
+			after.SortOrder = i + 1
+			if err := rec.Update(ctx, "activity_drivers", id, before, after); err != nil {
+				return err
+			}
+		}
+		items, err = listDrivers(ctx, tx, activityID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	httpx.WriteList(w, items)
+	return nil
 }

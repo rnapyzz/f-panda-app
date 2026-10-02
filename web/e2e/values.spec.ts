@@ -39,6 +39,12 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   await page.keyboard.type('999')
   await expect(fx).toHaveAccessibleName(`${f.revenueName} 月額利用料 4月: 未入力`)
 
+  // 試算できない値は、どのセルの何が問題かを表示する
+  await gridCell(page, '月額単価 4月').click()
+  await page.keyboard.type('0.1234567')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('status', { name: '試算の状態' })).toContainText('試算できません: 月額単価 4月: 小数点以下は6桁までで入力してください')
+
   // スプレッドシートのように、選んで入力し Tab で右へ、Enter で確定する
   await gridCell(page, '月額単価 4月').click()
   await page.keyboard.type('50,000')
@@ -55,6 +61,12 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   await page.keyboard.press('Enter') // 下の「その他」へ移る
   await page.keyboard.type('1000')
   await page.keyboard.press('Enter')
+
+  // 保存前に、計算式の内訳の試算が表示される（50,000 × 12 = 600,000）
+  await expect(gridCell(page, `${f.revenueName} 月額利用料 4月`)).toHaveAccessibleName(`${f.revenueName} 月額利用料 4月: 600,000`)
+  await expect(page.getByRole('status', { name: '試算の状態' })).toContainText('保存前の試算')
+  // 科目の合計にも試算が入る = 600,000 + 100,000 + 1,000
+  await expect(page.getByRole('row', { name: new RegExp(`^${f.revenueName} .*合計`) }).locator('td').first()).toHaveText('701,000')
 
   const save = page.getByRole('button', { name: '保存', exact: true })
   await expect(page.getByText('6 件の変更')).toBeVisible()
@@ -122,6 +134,33 @@ test('範囲の選択・右方向へのコピー・貼り付け・消去・元�
   await expect(page.getByText('11 件を保存しました')).toBeVisible()
   // 1,000 × 9 か月 + 2,000 − 500
   await expect(page.getByRole('row', { name: new RegExp(`^${rev}`) }).locator('td').last()).toHaveText('10,500')
+})
+
+test('ドライバーの行をドラッグや矢印キーで並び替えられる', async ({ page }) => {
+  await login(page)
+  const f = await seedMasters(page)
+  const a = api(page)
+  const activity = await createActivity(page, f)
+  for (const [code, name] of [['price', '単価'], ['volume', '件数'], ['churn', '解約率']]) {
+    await a.post(`/activities/${activity.id}/drivers`, { code, name, driver_kind: 'kpi' })
+  }
+  const scenario = await a.post('/scenarios', { name: `E2E並び替え ${f.run}`, fiscal_year: 2026 })
+  await page.goto(`/scenarios/${scenario.id}/activities/${activity.id}`)
+  const grid = page.getByRole('grid', { name: 'ドライバー・KPI' })
+  const names = () => grid.getByRole('rowheader').allInnerTexts()
+  await expect.poll(names).toEqual([expect.stringContaining('単価'), expect.stringContaining('件数'), expect.stringContaining('解約率')])
+
+  // 「解約率」を先頭へドラッグ
+  await page.getByRole('button', { name: /^解約率を並び替え/ }).dragTo(grid.getByRole('rowheader').first())
+  await expect.poll(names).toEqual([expect.stringContaining('解約率'), expect.stringContaining('単価'), expect.stringContaining('件数')])
+
+  // 「件数」を ↑ キーで1つ上へ
+  await page.getByRole('button', { name: /^件数を並び替え/ }).press('ArrowUp')
+  await expect.poll(names).toEqual([expect.stringContaining('解約率'), expect.stringContaining('件数'), expect.stringContaining('単価')])
+
+  // 保存されているので、開き直しても同じ順
+  await page.reload()
+  await expect.poll(names).toEqual([expect.stringContaining('解約率'), expect.stringContaining('件数'), expect.stringContaining('単価')])
 })
 
 test('ロックしたシナリオは参照のみになる', async ({ page }) => {
