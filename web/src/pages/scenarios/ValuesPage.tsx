@@ -546,7 +546,7 @@ function ValuesEditor({
             {previewing
               ? '試算中…'
               : activePreview?.error
-                ? `試算できません: ${activePreview.error instanceof ApiError ? activePreview.error.message : '通信に失敗しました'}`
+                ? `試算できません: ${previewErrorMessage(activePreview.error, driverItems, v)}`
                 : '色の付いた fx のセルは、保存前の試算です（まだ保存していません）。'}
           </p>
         )}
@@ -778,6 +778,21 @@ function DragHandle({
       ⋮⋮
     </button>
   )
+}
+
+/**
+ * 試算のエラーを、どのセルの何が問題かが分かる文にする（例: 「月額単価 5月: 小数点以下は6桁までで入力してください」）。
+ * 422 の見出し（入力内容に誤りがあります）だけでは理由が分からないため、項目ごとのメッセージを使う。
+ */
+function previewErrorMessage(err: unknown, items: { driver_id: number; target_month: string }[], v: ValuesView): string {
+  if (!(err instanceof ApiError)) return '通信に失敗しました'
+  const messages = Object.entries(err.details).map(([field, msg]) => {
+    const m = field.match(/^values\[(\d+)\]/)
+    const item = m ? items[Number(m[1])] : undefined
+    const driver = item && v.drivers.find((d) => d.id === item.driver_id)
+    return driver ? `${driver.name} ${monthLabel(item.target_month)}: ${msg}` : msg
+  })
+  return messages.length > 0 ? [...new Set(messages)].slice(0, 3).join(' ／ ') : err.message
 }
 
 /** 試算の結果から、計算式で反映する内訳のセルを取り出す */

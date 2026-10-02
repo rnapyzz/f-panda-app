@@ -39,6 +39,12 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   await page.keyboard.type('999')
   await expect(fx).toHaveAccessibleName(`${f.revenueName} 月額利用料 4月: 未入力`)
 
+  // 試算できない値は、どのセルの何が問題かを表示する
+  await gridCell(page, '月額単価 4月').click()
+  await page.keyboard.type('0.1234567')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('status', { name: '試算の状態' })).toContainText('試算できません: 月額単価 4月: 小数点以下は6桁までで入力してください')
+
   // スプレッドシートのように、選んで入力し Tab で右へ、Enter で確定する
   await gridCell(page, '月額単価 4月').click()
   await page.keyboard.type('50,000')
