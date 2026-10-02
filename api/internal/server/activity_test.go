@@ -136,8 +136,7 @@ func TestActivityValidation(t *testing.T) {
 		{"プロジェクト型の期間なし", map[string]any{"activity_type": "project"}, "ACT-2", "start_date"},
 		{"終了日が開始日より前", map[string]any{"start_date": "2026-10-01", "end_date": "2026-09-30"}, "ACT-2", "end_date"},
 		{"日付形式", map[string]any{"start_date": "2026/10/01"}, "ACT-2", "start_date"},
-		{"確度が範囲外", map[string]any{"probability": 1.5}, "ACT-2", "probability"},
-		{"確度の桁数", map[string]any{"probability": 0.12345}, "ACT-2", "probability"},
+		{"確度の段階が未登録", map[string]any{"confidence_level": "Z"}, "ACT-2", "confidence_level"},
 		{"存在しない担当者", map[string]any{"owner_user_id": 99999}, "ACT-2", "owner_user_id"},
 	}
 	for _, tt := range tests {
@@ -149,30 +148,30 @@ func TestActivityValidation(t *testing.T) {
 
 	// プロジェクト型は期間を入れれば作成でき、確度は小数4桁で返る
 	status, body := f.admin.do("POST", "/api/activities", activityBody(f.fn1, "PRJ-1", map[string]any{
-		"activity_type": "project", "start_date": "2026-04-01", "end_date": "2027-03-31", "probability": 0.7,
+		"activity_type": "project", "start_date": "2026-04-01", "end_date": "2027-03-31", "confidence_level": "B",
 	}))
 	if status != http.StatusCreated {
 		t.Fatalf("プロジェクト型の作成: status = %d, body = %v", status, body)
 	}
-	if body["probability"] != 0.7 || body["end_date"] != "2027-03-31" {
+	if body["confidence_level"] != "B" || body["end_date"] != "2027-03-31" {
 		t.Errorf("作成結果 = %v", body)
 	}
 }
 
 func TestActivityChangesRequireReason(t *testing.T) {
 	f := newActivityFixture(t)
-	id := f.admin.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"probability": 0.5}))
+	id := f.admin.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"confidence_level": "C"}))
 	path := fmt.Sprintf("/api/activities/%d", id)
 
 	// 名称だけの変更は理由不要
-	if status, body := f.admin.do("PUT", path, activityBody(f.fn1, "ACT-1", map[string]any{"probability": 0.5, "name": "改名"})); status != http.StatusOK {
+	if status, body := f.admin.do("PUT", path, activityBody(f.fn1, "ACT-1", map[string]any{"confidence_level": "C", "name": "改名"})); status != http.StatusOK {
 		t.Errorf("名称変更: status = %d, body = %v", status, body)
 	}
 
 	for name, overrides := range map[string]map[string]any{
-		"確度":   {"probability": 0.8},
-		"前提条件": {"probability": 0.5, "assumptions": "大型案件の受注が前提"},
-		"期間":   {"probability": 0.5, "start_date": "2026-10-01"},
+		"確度":   {"confidence_level": "B"},
+		"前提条件": {"confidence_level": "C", "assumptions": "大型案件の受注が前提"},
+		"期間":   {"confidence_level": "C", "start_date": "2026-10-01"},
 	} {
 		body := activityBody(f.fn1, "ACT-1", overrides)
 		body["name"] = "改名"
@@ -185,7 +184,7 @@ func TestActivityChangesRequireReason(t *testing.T) {
 			t.Errorf("%s の変更（理由あり）: status = %d, body = %v", name, status, res)
 		}
 		// 次のケースのために元に戻す
-		reset := activityBody(f.fn1, "ACT-1", map[string]any{"probability": 0.5, "name": "改名", "reason": "元に戻す"})
+		reset := activityBody(f.fn1, "ACT-1", map[string]any{"confidence_level": "C", "name": "改名", "reason": "元に戻す"})
 		f.admin.do("PUT", path, reset)
 	}
 
@@ -211,7 +210,6 @@ func TestDriversAndLines(t *testing.T) {
 	}{
 		"コード重複": {map[string]any{"code": "volume", "name": "x", "driver_kind": "kpi"}, "code"},
 		"コード形式": {map[string]any{"code": "Volume", "name": "x", "driver_kind": "kpi"}, "code"},
-		"予約語":   {map[string]any{"code": "probability", "name": "x", "driver_kind": "kpi"}, "code"},
 		"種別不正":  {map[string]any{"code": "x", "name": "x", "driver_kind": "money"}, "driver_kind"},
 	} {
 		if status, body := f.member.do("POST", base+"/drivers", tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
@@ -238,12 +236,12 @@ func TestDriversAndLines(t *testing.T) {
 
 	// 直接入力の内訳は理由なしで作れる。計算式で反映する内訳は理由が必須
 	f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "スポット"})
-	lid := f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price * volume * probability", "formula_enabled": true, "reason": "式で算出する"})
+	lid := f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "利用料", "expression": "unit_price * volume * 2", "formula_enabled": true, "reason": "式で算出する"})
 	if status, body := f.member.do("POST", lbase, map[string]any{"subject_id": sales, "name": "利用料"}); status != http.StatusUnprocessableEntity || detail(body, "name") == "" {
 		t.Errorf("同名の内訳: status = %d, body = %v", status, body)
 	}
 	lpath := fmt.Sprintf("%s/%d", lbase, lid)
-	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume * probability", "formula_enabled": true}); status != http.StatusOK {
+	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume * 2", "formula_enabled": true}); status != http.StatusOK {
 		t.Errorf("名前だけの変更（理由なし）: status = %d, body = %v", status, body)
 	}
 	if status, body := f.member.do("PUT", lpath, map[string]any{"name": "月額利用料", "expression": "unit_price * volume", "formula_enabled": true}); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {

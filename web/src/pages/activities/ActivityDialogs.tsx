@@ -195,9 +195,9 @@ export function LineDialog({
           label="計算式"
           required={formulaEnabled}
           error={fieldError(error, 'expression')}
-          hint="四則演算（+ - * /）と括弧が使えます。結果は円未満を四捨五入します。費用はマイナスで計上する場合、式の先頭に - を付けます"
+          hint="四則演算（+ - * /）と括弧が使えます。結果は円未満を四捨五入します。金額は満額で算出します（確度は集計時に加重します）"
         >
-          {(p) => <Input {...p} ref={inputRef} value={expression} onChange={(e) => setExpression(e.target.value)} className="font-mono" placeholder="unit_price * volume * probability" />}
+          {(p) => <Input {...p} ref={inputRef} value={expression} onChange={(e) => setExpression(e.target.value)} className="font-mono" placeholder="unit_price * volume" />}
         </Field>
         <div>
           <p className="mb-1 text-xs font-medium text-slate-500">使える名前（クリックで挿入）</p>
@@ -208,9 +208,6 @@ export function LineDialog({
                 <span className="ml-1 font-sans text-slate-400">{d.name}</span>
               </button>
             ))}
-            <button type="button" onClick={() => insert('probability')} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 hover:bg-indigo-50">
-              probability<span className="ml-1 font-sans text-slate-400">施策の確度</span>
-            </button>
           </div>
           {drivers.length === 0 && <p className="mt-1 text-xs text-amber-700">ドライバーが未登録です。計算式を使うには、先にドライバーを追加してください。</p>}
         </div>

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
@@ -43,15 +44,17 @@ type riskProvisional struct {
 
 // RiskActivity は施策ごとのリスク情報。
 type RiskActivity struct {
-	ID           int64        `json:"id"`
-	Code         string       `json:"code"`
-	Name         string       `json:"name"`
-	UnitID       int64        `json:"unit_id"`
-	OwnerUserID  *int64       `json:"owner_user_id"`
-	ActivityType string       `json:"activity_type"`
-	Status       string       `json:"status"`
-	Probability  *json.Number `json:"probability"`
-	Assumptions  string       `json:"assumptions"`
+	ID           int64  `json:"id"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	UnitID       int64  `json:"unit_id"`
+	OwnerUserID  *int64 `json:"owner_user_id"`
+	ActivityType string `json:"activity_type"`
+	Status       string `json:"status"`
+	// ConfidenceLevel は確度の段階、ConfidenceRate はその標準の確率
+	ConfidenceLevel string      `json:"confidence_level"`
+	ConfidenceRate  json.Number `json:"confidence_rate"`
+	Assumptions     string      `json:"assumptions"`
 
 	Base        pl  `json:"base"`
 	Optimistic  *pl `json:"optimistic"`
@@ -230,8 +233,8 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 
 func loadRiskActivities(ctx context.Context, db *sql.DB) ([]RiskActivity, map[int64]*RiskActivity, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, code, name, unit_id, owner_user_id, activity_type, status, probability, COALESCE(assumptions, '')
-		FROM activities ORDER BY code`)
+		SELECT a.id, a.code, a.name, a.unit_id, a.owner_user_id, a.activity_type, a.status, a.confidence_level, c.rate, COALESCE(a.assumptions, '')
+		FROM activities a JOIN confidence_levels c ON c.code = a.confidence_level ORDER BY a.code`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -240,18 +243,18 @@ func loadRiskActivities(ctx context.Context, db *sql.DB) ([]RiskActivity, map[in
 	for rows.Next() {
 		var a RiskActivity
 		var owner sql.NullInt64
-		var prob sql.NullString
-		if err := rows.Scan(&a.ID, &a.Code, &a.Name, &a.UnitID, &owner, &a.ActivityType, &a.Status, &prob, &a.Assumptions); err != nil {
+		var rate string
+		if err := rows.Scan(&a.ID, &a.Code, &a.Name, &a.UnitID, &owner, &a.ActivityType, &a.Status, &a.ConfidenceLevel, &rate, &a.Assumptions); err != nil {
 			return nil, nil, err
 		}
 		if owner.Valid {
 			o := owner.Int64
 			a.OwnerUserID = &o
 		}
-		if prob.Valid {
-			n := json.Number(prob.String)
-			a.Probability = &n
+		if strings.Contains(rate, ".") {
+			rate = strings.TrimRight(strings.TrimRight(rate, "0"), ".")
 		}
+		a.ConfidenceRate = json.Number(rate)
 		a.Base = pl{Revenue: "0", Expense: "0"}
 		a.Milestones = []riskMilestone{}
 		a.Conditions = map[string]string{}

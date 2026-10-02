@@ -90,9 +90,21 @@ export type Activity = Timestamps & {
   start_date: string | null
   end_date: string | null
   owner_user_id: number | null
-  probability: number | null
+  /** 確度の段階のコード（例: C） */
+  confidence_level: string
   assumptions: string
   can_edit: boolean
+}
+
+/** 確度の段階（判定基準つき）。FP&A がマスタで管理する */
+export type ConfidenceLevel = Timestamps & {
+  id: number
+  code: string
+  name: string
+  /** 標準の確率（0〜1） */
+  rate: number | string
+  criteria: string
+  sort_order: number
 }
 
 export type MilestoneStatus = 'not_started' | 'in_progress' | 'completed' | 'delayed'
@@ -240,7 +252,7 @@ export type ActivitySummary = {
   id: number
   code: string
   name: string
-  probability: number | null
+  confidence_level: string
   can_edit: boolean
 }
 
@@ -335,6 +347,7 @@ export const tableLabels: Record<string, string> = {
   segments: 'セグメント',
   organizations: '組織',
   subjects: '科目',
+  confidence_levels: '確度の段階',
   users: 'ユーザー',
 }
 
@@ -350,7 +363,9 @@ export type RiskActivity = {
   owner_user_id: number | null
   activity_type: ActivityType
   status: ActivityStatus
-  probability: number | null
+  confidence_level: string
+  /** 確度の段階の標準の確率（0〜1、文字列） */
+  confidence_rate: number | string
   assumptions: string
   base: PL
   optimistic: PL | null

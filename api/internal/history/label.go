@@ -54,13 +54,14 @@ func (h *Handler) newLabeler(ctx context.Context) (*labeler, error) {
 }
 
 var tableNouns = map[string]string{
-	"scenarios":     "シナリオ",
-	"units":         "ユニット",
-	"functions":     "ユニット", // 改称前（functions）の監査ログ用
-	"segments":      "セグメント",
-	"organizations": "組織",
-	"subjects":      "科目",
-	"users":         "ユーザー",
+	"scenarios":         "シナリオ",
+	"units":             "ユニット",
+	"functions":         "ユニット", // 改称前（functions）の監査ログ用
+	"segments":          "セグメント",
+	"organizations":     "組織",
+	"subjects":          "科目",
+	"confidence_levels": "確度の段階",
+	"users":             "ユーザー",
 }
 
 func (l *labeler) label(log Log) string {

@@ -1,12 +1,12 @@
 import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
-import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityStatus, type Unit, type List, type User } from '../../api/types'
+import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityStatus, type ConfidenceLevel, type Unit, type List, type User } from '../../api/types'
 import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
-import { formatPercent } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
+import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
 
 export const statusTone: Record<ActivityStatus, 'slate' | 'indigo' | 'green' | 'amber' | 'red'> = {
@@ -37,6 +37,7 @@ export function ActivityListPage() {
   const [q, setQ] = useState(filters.q)
 
   const activities = useApi<List<Activity>>(`/activities${query(filters)}`)
+  const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
   const unitName = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f.name])), [units.data])
@@ -62,11 +63,11 @@ export function ActivityListPage() {
               resource="activities"
               label="施策"
               canImport={me.role === 'fpa_admin'}
-              columns="code,name,unit_code,activity_type,status,start_date,end_date,owner_email,probability,assumptions,external_codes"
+              columns="code,name,unit_code,activity_type,status,start_date,end_date,owner_email,confidence_level,assumptions,external_codes"
               notes={
                 <>
                   <p>code が空の行は新しい施策として追加し、施策コードを自動で採番します。</p>
-                  <p>probability は 0〜1（例: 0.7）、日付は YYYY-MM-DD。external_codes は外部コードを空白区切りで書くと施策に追加します（書いていない外部コードは外しません）。</p>
+                  <p>confidence_level は確度の段階のコード（例: C、空なら施策タイプの既定）、日付は YYYY-MM-DD。external_codes は外部コードを空白区切りで書くと施策に追加します（書いていない外部コードは外しません）。</p>
                 </>
               }
               onImported={() => activities.reload()}
@@ -162,7 +163,7 @@ export function ActivityListPage() {
                   </td>
                   <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-slate-600">{a.owner_user_id ? userName.get(a.owner_user_id) : ''}</td>
-                  <td className="text-right tabular-nums">{formatPercent(a.probability)}</td>
+                  <td className="text-right whitespace-nowrap tabular-nums">{confidenceLabel(a.confidence_level, levels.data?.items)}</td>
                 </tr>
               ))}
             </tbody>

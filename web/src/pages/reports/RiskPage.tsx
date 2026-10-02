@@ -137,7 +137,7 @@ function RiskView({ report }: { report: RiskReport }) {
       expense += BigInt(a.base.expense)
       provisional += BigInt(a.provisional.revenue) + BigInt(a.provisional.expense)
       provisionalCount += a.provisional.count
-      if (a.probability !== null && a.probability < LOW_PROBABILITY && r !== 0n) {
+      if (Number(a.confidence_rate) < LOW_PROBABILITY && r !== 0n) {
         lowRevenue += r
         lowCount++
       }
@@ -277,13 +277,13 @@ function ProbabilitySection({ report, totalRevenue }: { report: RiskReport; tota
   for (const a of report.activities) {
     const r = BigInt(a.base.revenue)
     if (r === 0n) continue
-    const i = a.probability === null ? bands.length : bands.findIndex((b) => b.test(a.probability!))
+    const i = bands.findIndex((b) => b.test(Number(a.confidence_rate)))
     buckets[i].revenue += r
     buckets[i].count++
   }
   const maxRevenue = buckets.reduce((m, b) => (b.revenue > m ? b.revenue : m), 0n) || 1n
   const low = report.activities
-    .filter((a) => a.probability !== null && a.probability < LOW_PROBABILITY && BigInt(a.base.revenue) !== 0n)
+    .filter((a) => Number(a.confidence_rate) < LOW_PROBABILITY && BigInt(a.base.revenue) !== 0n)
     .sort((x, y) => (BigInt(y.base.revenue) > BigInt(x.base.revenue) ? 1 : -1))
 
   return (
@@ -326,7 +326,7 @@ function ProbabilitySection({ report, totalRevenue }: { report: RiskReport; tota
                   <div className="flex items-baseline justify-between gap-3">
                     <ActivityLink a={a} scenarioId={report.base.id} />
                     <span className="shrink-0 tabular-nums">
-                      {formatYen(a.base.revenue)} 円<span className="ml-2 text-xs text-slate-500">確度 {formatPercent(a.probability)}</span>
+                      {formatYen(a.base.revenue)} 円<span className="ml-2 text-xs text-slate-500">確度 {a.confidence_level}（{formatPercent(Number(a.confidence_rate))}）</span>
                     </span>
                   </div>
                   {a.assumptions && <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-wrap text-slate-600">前提: {a.assumptions}</p>}

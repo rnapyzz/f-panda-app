@@ -12,9 +12,7 @@ package activity
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"math/big"
 	"net/http"
 	"slices"
 	"strconv"
@@ -23,7 +21,6 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
-	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
@@ -88,17 +85,18 @@ type timestamps struct {
 
 // activity は施策。
 type activity struct {
-	ID           int64        `json:"id"`
-	UnitID       int64        `json:"unit_id"`
-	Code         string       `json:"code"`
-	Name         string       `json:"name"`
-	ActivityType string       `json:"activity_type"`
-	Status       string       `json:"status"`
-	StartDate    *string      `json:"start_date"`
-	EndDate      *string      `json:"end_date"`
-	OwnerUserID  *int64       `json:"owner_user_id"`
-	Probability  *json.Number `json:"probability"`
-	Assumptions  string       `json:"assumptions"`
+	ID           int64   `json:"id"`
+	UnitID       int64   `json:"unit_id"`
+	Code         string  `json:"code"`
+	Name         string  `json:"name"`
+	ActivityType string  `json:"activity_type"`
+	Status       string  `json:"status"`
+	StartDate    *string `json:"start_date"`
+	EndDate      *string `json:"end_date"`
+	OwnerUserID  *int64  `json:"owner_user_id"`
+	// ConfidenceLevel は確度の段階のコード（confidence_levels.code）
+	ConfidenceLevel string `json:"confidence_level"`
+	Assumptions     string `json:"assumptions"`
 	timestamps
 
 	// unitOwnerID は所属するユニットの担当者。権限判定に使う。
@@ -121,17 +119,18 @@ type activityDetail struct {
 }
 
 type activityRequest struct {
-	UnitID       int64        `json:"unit_id"`
-	Code         string       `json:"code"`
-	Name         string       `json:"name"`
-	ActivityType string       `json:"activity_type"`
-	Status       string       `json:"status"`
-	StartDate    *string      `json:"start_date"`
-	EndDate      *string      `json:"end_date"`
-	OwnerUserID  *int64       `json:"owner_user_id"`
-	Probability  *json.Number `json:"probability"`
-	Assumptions  string       `json:"assumptions"`
-	Reason       string       `json:"reason"`
+	UnitID       int64   `json:"unit_id"`
+	Code         string  `json:"code"`
+	Name         string  `json:"name"`
+	ActivityType string  `json:"activity_type"`
+	Status       string  `json:"status"`
+	StartDate    *string `json:"start_date"`
+	EndDate      *string `json:"end_date"`
+	OwnerUserID  *int64  `json:"owner_user_id"`
+	// ConfidenceLevel は確度の段階のコード。空なら施策タイプの既定（プロジェクト型は C、それ以外は A）
+	ConfidenceLevel string `json:"confidence_level"`
+	Assumptions     string `json:"assumptions"`
+	Reason          string `json:"reason"`
 }
 
 type reasonRequest struct {
@@ -140,7 +139,7 @@ type reasonRequest struct {
 
 const activitySelect = `
 	SELECT a.id, a.unit_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
-	       a.owner_user_id, a.probability, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
+	       a.owner_user_id, a.confidence_level, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
 	       un.owner_user_id
 	FROM activities a JOIN units un ON un.id = a.unit_id`
 
@@ -148,9 +147,8 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	var a activity
 	var start, end sql.NullTime
 	var owner, fnOwner sql.NullInt64
-	var prob sql.NullString
 	err := row.Scan(&a.ID, &a.UnitID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
-		&owner, &prob, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
+		&owner, &a.ConfidenceLevel, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
 	if err != nil {
 		return a, err
 	}
@@ -158,10 +156,6 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	a.EndDate = formatDate(end)
 	a.OwnerUserID = dbx.PtrInt64(owner)
 	a.unitOwnerID = dbx.PtrInt64(fnOwner)
-	if prob.Valid {
-		n := json.Number(prob.String)
-		a.Probability = &n
-	}
 	return a, nil
 }
 
@@ -227,15 +221,15 @@ func lockUnit(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err erro
 
 // Summary は他のパッケージ（シナリオの値入力など）が使う施策の要約。
 type Summary struct {
-	ID          int64        `json:"id"`
-	Code        string       `json:"code"`
-	Name        string       `json:"name"`
-	Probability *json.Number `json:"probability"`
-	CanEdit     bool         `json:"can_edit"`
+	ID              int64  `json:"id"`
+	Code            string `json:"code"`
+	Name            string `json:"name"`
+	ConfidenceLevel string `json:"confidence_level"`
+	CanEdit         bool   `json:"can_edit"`
 }
 
 func summarize(u auth.User, a activity) Summary {
-	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, Probability: a.Probability, CanEdit: canEdit(u, a)}
+	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, ConfidenceLevel: a.ConfidenceLevel, CanEdit: canEdit(u, a)}
 }
 
 // Load は施策の要約を返す。存在しなければ 404。
@@ -403,13 +397,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if err := checkOwner(ctx, tx, in.OwnerUserID); err != nil {
 			return err
 		}
+		if err := checkConfidenceLevel(ctx, tx, in.ConfidenceLevel); err != nil {
+			return err
+		}
 		insert := func() (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
-				                        owner_user_id, probability, assumptions)
+				                        owner_user_id, confidence_level, assumptions)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-				dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions),
+				dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions),
 			)
 		}
 		var res sql.Result
@@ -501,12 +498,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if err := checkOwner(ctx, tx, in.OwnerUserID); err != nil {
 			return err
 		}
+		if err := checkConfidenceLevel(ctx, tx, in.ConfidenceLevel); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `
 			UPDATE activities SET unit_id = ?, code = ?, name = ?, activity_type = ?, status = ?,
-			       start_date = ?, end_date = ?, owner_user_id = ?, probability = ?, assumptions = ?
+			       start_date = ?, end_date = ?, owner_user_id = ?, confidence_level = ?, assumptions = ?
 			WHERE id = ?`,
 			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions), id,
+			dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions), id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この施策コードは既に使われています"})
@@ -517,14 +517,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if updated, err = findActivity(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		if err := rec.Update(ctx, "activities", id, before, updated); err != nil {
-			return err
-		}
-		// 確度が変わると、確度（probability）を使う計算式の金額も変わる。
-		if !sameProbability(before.Probability, in.Probability) {
-			return calc.RecalculateActivity(ctx, tx, rec, id)
-		}
-		return nil
+		return rec.Update(ctx, "activities", id, before, updated)
 	})
 	if err != nil {
 		return err
@@ -631,29 +624,30 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 
 // activityInput は検証・正規化済みの入力。
 type activityInput struct {
-	UnitID       int64
-	Code         string
-	Name         string
-	ActivityType string
-	Status       string
-	StartDate    sql.NullString
-	EndDate      sql.NullString
-	OwnerUserID  *int64
-	Probability  sql.NullString // DECIMAL(5,4) の文字列表現
-	Assumptions  string
+	UnitID          int64
+	Code            string
+	Name            string
+	ActivityType    string
+	Status          string
+	StartDate       sql.NullString
+	EndDate         sql.NullString
+	OwnerUserID     *int64
+	ConfidenceLevel string
+	Assumptions     string
 }
 
 // validateActivity は施策の入力を検証する。allowEmptyCode なら施策コードの空欄を許す（自動採番する）。
 func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, error) {
 	v := httpx.Validator{}
 	in := activityInput{
-		UnitID:       req.UnitID,
-		Code:         strings.TrimSpace(req.Code),
-		Name:         v.Text("name", "施策名", req.Name, maxNameLen),
-		ActivityType: req.ActivityType,
-		Status:       req.Status,
-		OwnerUserID:  req.OwnerUserID,
-		Assumptions:  v.OptionalText("assumptions", "前提条件", req.Assumptions, maxAssumptionsLen),
+		UnitID:          req.UnitID,
+		Code:            strings.TrimSpace(req.Code),
+		Name:            v.Text("name", "施策名", req.Name, maxNameLen),
+		ActivityType:    req.ActivityType,
+		Status:          req.Status,
+		OwnerUserID:     req.OwnerUserID,
+		Assumptions:     v.OptionalText("assumptions", "前提条件", req.Assumptions, maxAssumptionsLen),
+		ConfidenceLevel: strings.TrimSpace(req.ConfidenceLevel),
 	}
 	if in.UnitID <= 0 {
 		v.Add("unit_id", "ユニットを選択してください")
@@ -683,37 +677,38 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 		}
 	}
 
-	if req.Probability != nil {
-		p, ok := new(big.Rat).SetString(string(*req.Probability))
-		switch {
-		case !ok:
-			v.Add("probability", "確度は0〜1の数値で入力してください")
-		case p.Sign() < 0 || p.Cmp(big.NewRat(1, 1)) > 0:
-			v.Add("probability", "確度は0〜1の範囲で入力してください")
-		case !new(big.Rat).Mul(p, big.NewRat(10000, 1)).IsInt():
-			v.Add("probability", "確度は小数点以下4桁までで入力してください")
-		default:
-			in.Probability = sql.NullString{String: p.FloatString(4), Valid: true}
-		}
+	if in.ConfidenceLevel == "" {
+		in.ConfidenceLevel = DefaultConfidenceLevel(in.ActivityType)
 	}
 	return in, v.Err()
 }
 
-// needsReason は変更理由が必須になる項目（確度・前提条件・期間）が変わるかを返す。
+// DefaultConfidenceLevel は確度の段階を指定しなかったときの既定（docs/plan.md「10. 既存データの移行」と同じ）。
+func DefaultConfidenceLevel(activityType string) string {
+	if activityType == "project" {
+		return "C"
+	}
+	return "A"
+}
+
+// checkConfidenceLevel は確度の段階がマスタにあることを確認する。
+func checkConfidenceLevel(ctx context.Context, tx *sql.Tx, code string) error {
+	n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM confidence_levels WHERE code = ?", code)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return httpx.Validation(map[string]string{"confidence_level": "確度の段階「" + code + "」は登録されていません"})
+	}
+	return nil
+}
+
+// needsReason は変更理由が必須になる項目（確度の段階・前提条件・期間）が変わるかを返す。
 func needsReason(before activity, in activityInput) bool {
-	return !sameProbability(before.Probability, in.Probability) ||
+	return before.ConfidenceLevel != in.ConfidenceLevel ||
 		before.Assumptions != in.Assumptions ||
 		!sameDate(before.StartDate, in.StartDate) ||
 		!sameDate(before.EndDate, in.EndDate)
-}
-
-func sameProbability(before *json.Number, after sql.NullString) bool {
-	if before == nil || !after.Valid {
-		return before == nil && !after.Valid
-	}
-	a, _ := new(big.Rat).SetString(string(*before))
-	b, _ := new(big.Rat).SetString(after.String)
-	return a != nil && b != nil && a.Cmp(b) == 0
 }
 
 func sameDate(before *string, after sql.NullString) bool {

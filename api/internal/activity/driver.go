@@ -19,10 +19,6 @@ var driverKinds = []string{"value", "cost", "kpi"}
 // driverCodePattern はドライバーの code（計算式で参照する識別子）の形式。
 var driverCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,49}$`)
 
-// reservedIdents は計算式で予約されている識別子。ドライバーの code には使えない。
-// probability は施策の確度（activities.probability）を参照する。
-var reservedIdents = []string{"probability"}
-
 // driver は施策のドライバー定義。
 type driver struct {
 	ID         int64  `json:"id"`
@@ -82,8 +78,6 @@ func validateDriver(req driverRequest) (driverRequest, error) {
 	switch {
 	case !driverCodePattern.MatchString(req.Code):
 		v.Add("code", "コードは半角英小文字で始まる、英小文字・数字・アンダースコアの50文字以内で入力してください")
-	case slices.Contains(reservedIdents, req.Code):
-		v.Add("code", req.Code+" は予約語のため使えません")
 	}
 	if !slices.Contains(driverKinds, req.DriverKind) {
 		v.Add("driver_kind", "種別は value / cost / kpi のいずれかを指定してください")

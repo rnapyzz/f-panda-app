@@ -3,16 +3,13 @@ package activity
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
-	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/csvio"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
@@ -24,7 +21,7 @@ import (
 
 var activityColumns = []string{
 	"code", "name", "unit_code", "activity_type", "status", "start_date", "end_date",
-	"owner_email", "probability", "assumptions", "external_codes",
+	"owner_email", "confidence_level", "assumptions", "external_codes",
 }
 
 // export は GET /api/activities/export。
@@ -32,7 +29,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 	rows, err := h.db.QueryContext(r.Context(), `
 		SELECT a.code, a.name, un.code, a.activity_type, a.status,
 		       COALESCE(DATE_FORMAT(a.start_date, '%Y-%m-%d'), ''), COALESCE(DATE_FORMAT(a.end_date, '%Y-%m-%d'), ''),
-		       COALESCE(usr.email, ''), COALESCE(CAST(a.probability AS CHAR), ''), COALESCE(a.assumptions, ''),
+		       COALESCE(usr.email, ''), a.confidence_level, COALESCE(a.assumptions, ''),
 		       COALESCE((SELECT GROUP_CONCAT(e.code ORDER BY e.code SEPARATOR ' ') FROM activity_external_codes e WHERE e.activity_id = a.id), '')
 		FROM activities a
 		JOIN units un ON un.id = a.unit_id
@@ -43,7 +40,6 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer rows.Close()
 	var out [][]string
-	probCol := slices.Index(activityColumns, "probability")
 	for rows.Next() {
 		rec := make([]string, len(activityColumns))
 		dest := make([]any, len(rec))
@@ -53,7 +49,6 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) error {
 		if err := rows.Scan(dest...); err != nil {
 			return err
 		}
-		rec[probCol] = string(trimDecimal(rec[probCol])) // 確度 0.7000 → 0.7
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -105,6 +100,10 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+		levels, err := idIndex(ctx, tx, "SELECT code, id FROM confidence_levels")
+		if err != nil {
+			return err
+		}
 
 		errs := &csvio.RowErrors{}
 		var items []activityImportItem
@@ -129,10 +128,7 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) error {
 					*d.dst = &s
 				}
 			}
-			if s := row.Get("probability"); s != "" {
-				n := json.Number(s)
-				req.Probability = &n
-			}
+			req.ConfidenceLevel = row.Get("confidence_level")
 
 			v := httpx.Validator{}
 			if id, ok := units[row.Get("unit_code")]; ok {
@@ -169,6 +165,9 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) error {
 				}
 			} else if err != nil {
 				return err
+			}
+			if _, ok := levels[in.ConfidenceLevel]; err == nil && !ok {
+				v.Add("confidence_level", "確度の段階 "+strconv.Quote(in.ConfidenceLevel)+" は登録されていません")
 			}
 			if verr := v.Err(); verr != nil {
 				errs.AddDetails(row.Line, verr)
@@ -262,10 +261,10 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
-			                        owner_user_id, probability, assumptions)
+			                        owner_user_id, confidence_level, assumptions)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions))
+			dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions))
 		if err != nil {
 			return false, false, 0, err
 		}
@@ -280,16 +279,16 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 	same := before.UnitID == in.UnitID && before.Name == in.Name && before.ActivityType == in.ActivityType &&
 		before.Status == in.Status && sameDate(before.StartDate, in.StartDate) && sameDate(before.EndDate, in.EndDate) &&
 		sameOwner(before.OwnerUserID, in.OwnerUserID) &&
-		sameProbability(before.Probability, in.Probability) && before.Assumptions == in.Assumptions
+		before.ConfidenceLevel == in.ConfidenceLevel && before.Assumptions == in.Assumptions
 	if same {
 		return false, false, before.ID, nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE activities SET unit_id = ?, name = ?, activity_type = ?, status = ?, start_date = ?, end_date = ?,
-		       owner_user_id = ?, probability = ?, assumptions = ?
+		       owner_user_id = ?, confidence_level = ?, assumptions = ?
 		WHERE id = ?`,
 		in.UnitID, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-		dbx.NullInt64(in.OwnerUserID), in.Probability, dbx.NullString(in.Assumptions), before.ID); err != nil {
+		dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions), before.ID); err != nil {
 		return false, false, 0, err
 	}
 	after, err := findActivity(ctx, tx, before.ID, "")
@@ -298,12 +297,6 @@ func (h *Handler) upsertActivity(ctx context.Context, tx *sql.Tx, rec *audit.Rec
 	}
 	if err := rec.Update(ctx, "activities", before.ID, before, after); err != nil {
 		return false, false, 0, err
-	}
-	// 確度が変わると、確度（probability）を使う計算式の金額も変わる
-	if !sameProbability(before.Probability, in.Probability) {
-		if err := calc.RecalculateActivity(ctx, tx, rec, before.ID); err != nil {
-			return false, false, 0, err
-		}
 	}
 	return true, false, before.ID, nil
 }
@@ -332,12 +325,4 @@ func idIndex(ctx context.Context, tx *sql.Tx, query string) (map[string]int64, e
 		out[k] = id
 	}
 	return out, rows.Err()
-}
-
-// trimDecimal は DECIMAL の文字列から末尾の 0 を取り除く（0.7000 → 0.7）。
-func trimDecimal(s string) json.Number {
-	if strings.Contains(s, ".") {
-		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
-	}
-	return json.Number(s)
 }
