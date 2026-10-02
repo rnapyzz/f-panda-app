@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
 import { categoryLabels, type AmountRow, type ConfidenceLevel, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
@@ -63,7 +63,7 @@ function ValuesEditor({
   subjects: Subject[]
   scenarios: Scenario[]
   setData: (v: ValuesView) => void
-  reload: () => void
+  reload: () => Promise<void>
 }) {
   const { active } = useActiveScenario()
   const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
@@ -75,6 +75,10 @@ function ValuesEditor({
   const [cellErrors, setCellErrors] = useState<Map<CellKey, string>>(new Map())
   const [saving, setSaving] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
+  const [driverOrder, setDriverOrder] = useState<number[] | null>(null)
+  const [orderError, setOrderError] = useState<unknown>(null)
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
 
   // 元に戻す・やり直すための、編集内容の履歴
   const past = useRef<Map<CellKey, CellEdit>[]>([])
@@ -97,7 +101,14 @@ function ValuesEditor({
   }, [v])
 
   const serverCell = (k: CellKey): CellEdit => server.get(k) ?? { value: '', is_provisional: false, provisional_reason: '' }
-  const cell = (k: CellKey): CellEdit => edits.get(k) ?? serverCell(k)
+  const cell = (k: CellKey): CellEdit => {
+    const e = edits.get(k)
+    if (e) return e
+    if (activePreview?.cells && formulaKeys.has(k)) return activePreview.cells.get(k) ?? { value: '', is_provisional: false, provisional_reason: '' }
+    return serverCell(k)
+  }
+  /** 試算で、保存済みの金額から変わるセル */
+  const isPreviewed = (k: CellKey) => !!activePreview?.cells && formulaKeys.has(k) && normalize(cell(k).value) !== serverCell(k).value
   const isChanged = (k: CellKey) => {
     const e = edits.get(k)
     if (!e) return false
@@ -106,6 +117,38 @@ function ValuesEditor({
   }
   const changedKeys = [...edits.keys()].filter(isChanged)
   const dirty = changedKeys.length > 0
+
+  // --- 保存前の試算（ドライバー値を変えたら、計算式の内訳の金額をサーバーで試算する） ---
+  const driverItems = changedKeys
+    .filter((k) => k.startsWith('d:'))
+    .map((k) => {
+      const [, id, month] = k.split(':')
+      const e = edits.get(k)!
+      const value = normalize(e.value)
+      return { driver_id: Number(id), target_month: month, value: value === '' ? null : value, is_provisional: e.is_provisional, provisional_reason: e.is_provisional ? e.provisional_reason : '' }
+    })
+  const driverPayload = JSON.stringify(driverItems)
+  const [preview, setPreview] = useState<{ payload: string; cells?: Map<CellKey, ServerCell>; error?: unknown } | null>(null)
+  useEffect(() => {
+    if (driverPayload === '[]' || !v.editable) return
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.put<ValuesView>(`${path}/driver-values?dry_run=true`, { values: JSON.parse(driverPayload) })
+        if (!cancelled) setPreview({ payload: driverPayload, cells: formulaCells(res) })
+      } catch (err) {
+        if (!cancelled) setPreview({ payload: driverPayload, error: err })
+      }
+    }, 400)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [driverPayload, path, v.editable])
+  // 今の入力に対する試算だけを使う（入力が変わったら、次の試算が届くまで「試算中」）
+  const activePreview = driverItems.length > 0 && preview?.payload === driverPayload ? preview : null
+  const previewing = driverItems.length > 0 && v.editable && !activePreview
+  const formulaKeys = new Set<CellKey>(v.amounts.flatMap((a) => a.lines.filter((l) => l.formula_enabled).flatMap((l) => v.months.map((m) => `a:${a.subject_id}:${l.id}:${m}` as CellKey))))
 
   // 未保存の変更があるときは、ページを離れる前に確認する
   useEffect(() => {
@@ -187,6 +230,26 @@ function ValuesEditor({
       { row: r, lineId: 0, label: `${r.name} その他`, title: 'その他', sub: '科目への直接入力', editable: true, indent: true },
     ]
   })
+  // ドライバーの並び（ドラッグで並び替えた直後は、保存が終わるまでその順で表示する）
+  const drivers = driverOrder ? driverOrder.map((id) => v.drivers.find((d) => d.id === id)!).filter(Boolean) : v.drivers
+  const canReorder = v.activity.can_edit && v.drivers.length > 1
+  const moveDriver = async (from: number, to: number) => {
+    if (from === to || to < 0 || to >= drivers.length) return
+    const ids = drivers.map((d) => d.id)
+    const [moved] = ids.splice(from, 1)
+    ids.splice(to, 0, moved)
+    setDriverOrder(ids)
+    setOrderError(null)
+    try {
+      await api.put(`/activities/${v.activity.id}/drivers/order`, { ids })
+      await reload()
+    } catch (err) {
+      setOrderError(err)
+    } finally {
+      setDriverOrder(null)
+    }
+  }
+
   const readonlyKeys = new Set<CellKey>(sheetLines.filter((l) => !l.editable).flatMap((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)))
   const sheetOptions = {
     isEditable: (k: CellKey) => editable && !readonlyKeys.has(k) && !actualMonths.has(monthOf(k)),
@@ -196,7 +259,7 @@ function ValuesEditor({
     onUndo: undo,
     onRedo: redo,
   }
-  const driverSheet = useSheet<CellKey>({ ...sheetOptions, grid: v.drivers.map((d) => v.months.map((m) => `d:${d.id}:${m}` as CellKey)) })
+  const driverSheet = useSheet<CellKey>({ ...sheetOptions, grid: drivers.map((d) => v.months.map((m) => `d:${d.id}:${m}` as CellKey)) })
   const amountSheet = useSheet<CellKey>({ ...sheetOptions, grid: sheetLines.map((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)) })
 
   /** 金額を入力・表示する1行 */
@@ -215,7 +278,7 @@ function ValuesEditor({
             display={formatYen(cell(k).value)}
             editable={editable && l.editable && !actualMonths.has(m)}
             provisional={cell(k).is_provisional}
-            changed={isChanged(k)}
+            changed={isChanged(k) || isPreviewed(k)}
             error={cellErrors.get(k)}
           />
         )
@@ -380,9 +443,44 @@ function ValuesEditor({
           </p>
         ) : (
           <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months} actualMonths={actualMonths}>
-            {v.drivers.map((d, r) => (
-              <tr key={d.id}>
-                <RowHeader title={d.name} sub={`${d.code}${d.unit ? `（${d.unit}）` : ''}`} />
+            {drivers.map((d, r) => (
+              <tr
+                key={d.id}
+                onDragOver={(e) => {
+                  if (dragFrom === null) return
+                  e.preventDefault()
+                  setDragOver(r)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragFrom !== null) moveDriver(dragFrom, r)
+                  setDragFrom(null)
+                  setDragOver(null)
+                }}
+                className={cx(dragOver === r && dragFrom !== null && dragFrom !== r && (dragFrom < r ? 'shadow-[inset_0_-2px_0_0_var(--color-indigo-500)]' : 'shadow-[inset_0_2px_0_0_var(--color-indigo-500)]'))}
+              >
+                <RowHeader
+                  title={d.name}
+                  sub={`${d.code}${d.unit ? `（${d.unit}）` : ''}`}
+                  handle={
+                    canReorder && (
+                      <DragHandle
+                        label={`${d.name}を並び替え`}
+                        onDragStart={(e) => {
+                          setDragFrom(r)
+                          const row = (e.currentTarget as HTMLElement).closest('tr')
+                          if (row) e.dataTransfer.setDragImage(row, 16, 16)
+                          e.dataTransfer.effectAllowed = 'move'
+                        }}
+                        onDragEnd={() => {
+                          setDragFrom(null)
+                          setDragOver(null)
+                        }}
+                        onMove={(delta) => moveDriver(r, r + delta)}
+                      />
+                    )
+                  }
+                />
                 {v.months.map((m, c) => {
                   const k: CellKey = `d:${d.id}:${m}`
                   return (
@@ -405,6 +503,12 @@ function ValuesEditor({
             ))}
           </Grid>
         )}
+        {canReorder && <p className="mt-2 text-xs text-slate-400">行の左端の ⋮⋮ をドラッグすると並び替えられます（選んで ↑↓ キーでも移動できます）。</p>}
+        {orderError ? (
+          <div className="mt-2">
+            <ErrorMessage error={orderError} />
+          </div>
+        ) : null}
       </Card>
 
       <Card
@@ -433,10 +537,19 @@ function ValuesEditor({
           {hasFormulaLines && (
             <>
               {' '}
-              <span className="rounded bg-indigo-50 px-1 font-mono text-indigo-700">fx</span> の内訳は計算式で算出します。ドライバー値を保存すると再計算されます。
+              <span className="rounded bg-indigo-50 px-1 font-mono text-indigo-700">fx</span> の内訳は計算式で算出します。ドライバー値を変えると、保存前に試算した金額を表示します。
             </>
           )}
         </p>
+        {hasFormulaLines && driverItems.length > 0 && (
+          <p className="mb-3 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800" role="status" aria-label="試算の状態">
+            {previewing
+              ? '試算中…'
+              : activePreview?.error
+                ? `試算できません: ${activePreview.error instanceof ApiError ? activePreview.error.message : '通信に失敗しました'}`
+                : '色の付いた fx のセルは、保存前の試算です（まだ保存していません）。'}
+          </p>
+        )}
         {amountRows.length === 0 ? (
           <p className="text-sm text-slate-500">金額はまだありません。{editable ? '「＋ 科目を追加」から入力する科目を選んでください。' : ''}</p>
         ) : (
@@ -617,13 +730,68 @@ function Grid({
   )
 }
 
-function RowHeader({ title, sub, indent }: { title: ReactNode; sub: string; indent?: boolean }) {
+function RowHeader({ title, sub, indent, handle }: { title: ReactNode; sub: string; indent?: boolean; handle?: ReactNode }) {
   return (
-    <th scope="row" className={cx('sticky left-0 z-10 border-b border-slate-100 bg-white py-1 pr-3 text-left font-normal', indent ? 'pl-7' : 'pl-3')}>
-      <div className="text-sm font-medium whitespace-nowrap text-slate-800">{title}</div>
-      <div className="font-mono text-xs whitespace-nowrap text-slate-400">{sub}</div>
+    <th scope="row" className={cx('sticky left-0 z-10 border-b border-slate-100 bg-white py-1 pr-3 text-left font-normal', handle ? 'pl-1' : indent ? 'pl-7' : 'pl-3')}>
+      <div className="flex items-center gap-1">
+        {handle}
+        <div>
+          <div className="text-sm font-medium whitespace-nowrap text-slate-800">{title}</div>
+          <div className="font-mono text-xs whitespace-nowrap text-slate-400">{sub}</div>
+        </div>
+      </div>
     </th>
   )
+}
+
+/** 行を並び替えるつまみ。ドラッグするか、フォーカスして ↑↓ キーで動かす */
+function DragHandle({
+  label,
+  onDragStart,
+  onDragEnd,
+  onMove,
+}: {
+  label: string
+  onDragStart: (e: DragEvent<HTMLButtonElement>) => void
+  onDragEnd: () => void
+  onMove: (delta: number) => void
+}) {
+  return (
+    <button
+      type="button"
+      draggable
+      aria-label={`${label}（ドラッグ、または ↑↓ キー）`}
+      title="ドラッグで並び替え"
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // グリッドの矢印キー操作に渡さない
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          e.stopPropagation()
+          onMove(e.key === 'ArrowUp' ? -1 : 1)
+        }
+      }}
+      className="cursor-grab rounded px-1 py-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+    >
+      ⋮⋮
+    </button>
+  )
+}
+
+/** 試算の結果から、計算式で反映する内訳のセルを取り出す */
+function formulaCells(view: ValuesView): Map<CellKey, ServerCell> {
+  const m = new Map<CellKey, ServerCell>()
+  for (const a of view.amounts) {
+    for (const l of a.lines) {
+      if (!l.formula_enabled) continue
+      for (const c of l.values) {
+        m.set(`a:${a.subject_id}:${l.id}:${c.target_month}`, { value: String(c.amount), is_provisional: c.is_provisional, provisional_reason: c.provisional_reason, source: c.source })
+      }
+    }
+  }
+  return m
 }
 
 function ConditionCard({ path, condition, editable, onSaved }: { path: string; condition: string | null; editable: boolean; onSaved: (v: ValuesView) => void }) {
