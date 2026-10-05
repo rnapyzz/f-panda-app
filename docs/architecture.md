@@ -94,6 +94,8 @@
 | 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
+| 重点施策       | `PUT /api/activities/{id}/priority`（`is_priority`。施策の作成・削除の権限が必要。変更履歴に残す） |
+| ウォッチ       | `PUT/DELETE /api/activities/{id}/watch`（ログインユーザー本人の印。施策の一覧・詳細に `is_watched` を返す） |
 | 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
@@ -126,7 +128,8 @@
 | `PUT .../activities/{aid}/condition`                          | 想定条件の登録（空文字で削除）               | 施策の編集権限 |
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
 | `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
-| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・説明の有無、今回・基準・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差 | 全員（範囲はロールで決まる） |
+| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差 | 全員（範囲はロールで決まる） |
+| `GET /api/scenarios/{id}/milestones?activity_ids=` | ホームのマイルストーン（docs/plan.md「2.11」）。完了していないマイルストーンと、期日超過・遅延・期日が近い・後ろ倒し（前回見込の作成以降の回数と日数） | 全員 |
 
 - 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
 - ドライバー値は小数点以下6桁まで、金額は円単位の整数（マイナス可）
