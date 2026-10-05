@@ -106,6 +106,8 @@ func (l *labeler) label(log Log) string {
 		return fmt.Sprintf("（削除されたドライバー #%d） / %s", id, rec.str("target_month"))
 	case "scenario_conditions":
 		return activity() + " / 想定条件"
+	case "activity_scenario_notes":
+		return activity() + " / 差異の説明・更新の完了"
 	}
 	if noun, ok := tableNouns[log.TableName]; ok {
 		if name := rec.str("name"); name != "" {

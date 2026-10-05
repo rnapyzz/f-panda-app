@@ -258,6 +258,40 @@ export type ActivitySummary = {
   can_edit: boolean
 }
 
+/** 差異の要因の分類 */
+export type NoteCause = 'timing' | 'volume' | 'new' | 'lost' | 'assumption' | 'other'
+
+export const noteCauseLabels: Record<NoteCause, string> = {
+  timing: '時期のずれ',
+  volume: '数量・単価の増減',
+  new: '新規',
+  lost: '失注・解約',
+  assumption: '前提の変化',
+  other: 'その他',
+}
+
+/** 施策 × シナリオの状態 */
+export type NoteStatus = 'not_started' | 'in_progress' | 'completed'
+
+export const noteStatusLabels: Record<NoteStatus, string> = {
+  not_started: '未着手',
+  in_progress: '入力中',
+  completed: '完了',
+}
+
+/** 施策 × シナリオの差異の説明と更新の状態 */
+export type ActivityNote = {
+  scenario_id: number
+  activity_id: number
+  explanation: string
+  causes: NoteCause[]
+  status: NoteStatus
+  completed_at: string | null
+  completed_by: number | null
+  completed_by_name: string
+  last_edited_at: string | null
+}
+
 /** GET /scenarios/{id}/activities/{aid} */
 export type ValuesView = {
   scenario: Scenario
@@ -269,6 +303,7 @@ export type ValuesView = {
   drivers: DriverRow[]
   amounts: AmountRow[]
   condition: string | null
+  note: ActivityNote
 }
 
 export type ImportResult = {
@@ -350,6 +385,7 @@ export const tableLabels: Record<string, string> = {
   organizations: '組織',
   subjects: '科目',
   confidence_levels: '確度の段階',
+  activity_scenario_notes: '差異の説明・更新の完了',
   users: 'ユーザー',
 }
 

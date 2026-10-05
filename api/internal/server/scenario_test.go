@@ -756,3 +756,81 @@ func TestPreviousScenario(t *testing.T) {
 		}
 	}
 }
+
+func TestNoteAndCompletion(t *testing.T) {
+	f := newScenarioFixture(t)
+	vpath := f.valuesPath(f.budget, f.manualAct)
+	status := func() string { return f.viewer.mustGet(vpath)["note"].(map[string]any)["status"].(string) }
+	if got := status(); got != "not_started" {
+		t.Fatalf("初期の状態 = %s, want not_started", got)
+	}
+
+	// 数値を変えると入力中
+	f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "見込更新", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-10", "amount": 1000}}})
+	if got := status(); got != "in_progress" {
+		t.Errorf("数値の変更後 = %s, want in_progress", got)
+	}
+
+	// 差異の説明と要因の分類
+	for name, tc := range map[string]struct {
+		body  map[string]any
+		field string
+	}{
+		"要因の分類が不正": {map[string]any{"explanation": "x", "causes": []string{"weather"}}, "causes"},
+	} {
+		if status, body := f.member.do("PUT", vpath+"/note", tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
+			t.Errorf("%s: status = %d, body = %v", name, status, body)
+		}
+	}
+	st, body := f.member.do("PUT", vpath+"/note", map[string]any{"explanation": "A社の受注が11月にずれた", "causes": []string{"new", "timing"}})
+	n := body["note"].(map[string]any)
+	if st != http.StatusOK || n["explanation"] != "A社の受注が11月にずれた" || fmt.Sprint(n["causes"]) != "[timing new]" {
+		t.Fatalf("説明の保存: status = %d, note = %v", st, n)
+	}
+
+	// 完了にすると、完了した人と日時が残る
+	st, body = f.member.do("POST", vpath+"/complete", nil)
+	n = body["note"].(map[string]any)
+	if st != http.StatusOK || n["status"] != "completed" || n["completed_by"] != float64(f.memberID) || n["completed_at"] == nil {
+		t.Fatalf("完了: status = %d, note = %v", st, n)
+	}
+	// 完了の後に数値を変えると入力中に戻る（試算では戻らない）
+	f.member.do("PUT", f.valuesPath(f.budget, f.formulaAct)+"/driver-values?dry_run=true", map[string]any{"values": []map[string]any{{"driver_id": f.priceID, "target_month": "2026-10", "value": 1}}})
+	f.member.do("PUT", vpath+"/amounts", map[string]any{"reason": "追加", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-11", "amount": 500}}})
+	if got := status(); got != "in_progress" {
+		t.Errorf("完了後の数値の変更 = %s, want in_progress", got)
+	}
+	// 説明を変えても入力中に戻る。完了の取り消しもできる
+	f.member.do("POST", vpath+"/complete", nil)
+	f.member.do("PUT", vpath+"/note", map[string]any{"explanation": "A社の受注が12月にずれた", "causes": []string{"timing"}})
+	if got := status(); got != "in_progress" {
+		t.Errorf("完了後の説明の変更 = %s, want in_progress", got)
+	}
+	f.member.do("POST", vpath+"/complete", nil)
+	if st, body := f.member.do("DELETE", vpath+"/complete", nil); st != http.StatusOK || body["note"].(map[string]any)["status"] != "in_progress" {
+		t.Errorf("完了の取り消し: status = %d, body = %v", st, body)
+	}
+
+	// 権限は数値の入力と同じ
+	if st, _ := f.member2.do("PUT", vpath+"/note", map[string]any{"explanation": "x"}); st != http.StatusForbidden {
+		t.Errorf("担当外の説明: status = %d, want 403", st)
+	}
+	if st, _ := f.viewer.do("POST", vpath+"/complete", nil); st != http.StatusForbidden {
+		t.Errorf("閲覧者の完了: status = %d, want 403", st)
+	}
+	// 何も変えずに完了にもできる（見込を変えなかった施策）
+	if st, body := f.member.do("POST", f.valuesPath(f.budget, f.formulaAct)+"/complete", nil); st != http.StatusOK || body["note"].(map[string]any)["status"] != "completed" {
+		t.Errorf("変更なしで完了: status = %d, body = %v", st, body)
+	}
+	// ロック済みでは完了の操作もできない
+	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", f.budget), nil)
+	if st, _ := f.member.do("DELETE", vpath+"/complete", nil); st != http.StatusConflict {
+		t.Errorf("ロック済みの完了の取り消し: status = %d, want 409", st)
+	}
+	// 変更履歴に残る
+	var logs int
+	f.env.QueryRow("SELECT COUNT(*) FROM audit_logs WHERE table_name = 'activity_scenario_notes'").Scan(&logs)
+	if logs == 0 {
+		t.Error("差異の説明・完了の監査ログがない")
+	}
+}

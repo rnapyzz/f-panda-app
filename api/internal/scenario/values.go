@@ -87,6 +87,8 @@ type valuesView struct {
 	Drivers      []driverRow `json:"drivers"`
 	Amounts      []amountRow `json:"amounts"`
 	Condition    *string     `json:"condition"`
+	// Note は差異の説明と更新の状態（docs/plan.md「2.10」）
+	Note note `json:"note"`
 }
 
 // getValues は GET /api/scenarios/{id}/activities/{aid}。
@@ -181,6 +183,9 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 	case err == nil:
 		v.Condition = &cond
 	case !errors.Is(err, sql.ErrNoRows):
+		return valuesView{}, err
+	}
+	if v.Note, _, err = loadNote(ctx, q, scenarioID, activityID, ""); err != nil {
 		return valuesView{}, err
 	}
 	return v, nil
@@ -285,7 +290,19 @@ func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) (
 // --- 更新の共通処理 ---
 
 // editTx はシナリオと施策を行ロックし、数値を編集できることを確認してから fn を実行する。
+// 数値を変更したら、施策 × シナリオの変更日時を記録して完了を取り消す（入力中に戻す）。
 func (h *Handler) editTx(r *http.Request, scenarioID, activityID int64, reason string,
+	fn func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error) error {
+	return h.editTxRaw(r, scenarioID, activityID, reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
+		if err := fn(ctx, tx, rec, s, a); err != nil {
+			return err
+		}
+		return markEdited(ctx, tx, rec, scenarioID, activityID)
+	})
+}
+
+// editTxRaw は editTx から、変更日時の記録を除いたもの（説明・完了の操作で使う）。
+func (h *Handler) editTxRaw(r *http.Request, scenarioID, activityID int64, reason string,
 	fn func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error) error {
 	u, err := currentUser(r)
 	if err != nil {
