@@ -721,3 +721,38 @@ func TestDriverValuesDryRun(t *testing.T) {
 		t.Errorf("担当外の試算: status = %d, want 403", status)
 	}
 }
+
+func TestPreviousScenario(t *testing.T) {
+	f := newScenarioFixture(t)
+	get := func(id int64) map[string]any { return f.viewer.mustGet(fmt.Sprintf("/api/scenarios/%d", id)) }
+
+	// 複製して作ると、前回見込は複製元
+	oct := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	if got := get(oct)["previous_scenario_id"]; got != float64(f.budget) {
+		t.Errorf("複製で作った前回見込 = %v, want 予算", got)
+	}
+	// 明示すれば複製元と別でもよい。複製しなければ未設定
+	nov := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "11月見込", "fiscal_year": 2026, "base_scenario_id": f.budget, "previous_scenario_id": oct})
+	if got := get(nov)["previous_scenario_id"]; got != float64(oct) {
+		t.Errorf("指定した前回見込 = %v, want 10月見込", got)
+	}
+	if got := get(f.budget)["previous_scenario_id"]; got != nil {
+		t.Errorf("複製せずに作った前回見込 = %v, want なし", got)
+	}
+
+	// 変更・解除
+	path := fmt.Sprintf("/api/scenarios/%d", nov)
+	if status, body := f.admin.do("PUT", path, map[string]any{"name": "11月見込", "previous_scenario_id": f.budget}); status != http.StatusOK || body["previous_scenario_id"] != float64(f.budget) {
+		t.Errorf("変更: status = %d, body = %v", status, body)
+	}
+	if status, body := f.admin.do("PUT", path, map[string]any{"name": "11月見込", "previous_scenario_id": nil}); status != http.StatusOK || body["previous_scenario_id"] != nil {
+		t.Errorf("解除: status = %d, body = %v", status, body)
+	}
+
+	other := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "fiscal_year": 2027})
+	for name, prev := range map[string]int64{"自分自身": nov, "年度違い": other, "存在しない": 99999} {
+		if status, body := f.admin.do("PUT", path, map[string]any{"name": "11月見込", "previous_scenario_id": prev}); status != http.StatusUnprocessableEntity || detail(body, "previous_scenario_id") == "" {
+			t.Errorf("%s: status = %d, body = %v", name, status, body)
+		}
+	}
+}

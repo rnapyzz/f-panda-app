@@ -63,52 +63,66 @@ function addInto(dst: Map<string, bigint>, src: Map<string, bigint>, sign = 1n) 
   for (const [k, v] of src) dst.set(k, (dst.get(k) ?? 0n) + v * sign)
 }
 
-function sumNodes(id: string, label: string, measure: PlNode['measure'], children: PlNode[]): PlNode {
-  const node: PlNode = { id, label, measure, children, base: new Map(), latest: new Map() }
-  for (const c of children) {
-    addInto(node.base, c.base)
-    addInto(node.latest, c.latest)
-  }
+/** N 系列の P/L の1行。values[i] は系列 i の月 → 金額 */
+export type SeriesPlNode = {
+  id: string
+  label: string
+  sub?: string
+  measure: SubjectCategory | 'profit'
+  children: SeriesPlNode[]
+  values: Map<string, bigint>[]
+}
+
+function sumSeries(id: string, label: string, measure: SeriesPlNode['measure'], children: SeriesPlNode[], n: number): SeriesPlNode {
+  const node: SeriesPlNode = { id, label, measure, children, values: Array.from({ length: n }, () => new Map()) }
+  for (const c of children) c.values.forEach((v, i) => addInto(node.values[i], v))
   return node
 }
 
 /**
- * 2つのシナリオの金額（数値入力 API の amounts）から P/L を組み立てる。
+ * 複数のシナリオの金額（数値入力 API の amounts）から P/L を組み立てる。
  * 収益・費用 → 科目 → 内訳（内訳のある科目は、内訳と「その他」＝科目への直接入力）の木と、利益の行を返す。
- * 科目・内訳は、どちらかのシナリオにあれば行にする。
+ * 科目・内訳は、どれかの系列にあれば行にする。
  */
-export function buildPl(base: AmountRow[], latest: AmountRow[]): PlNode[] {
-  const subjects = new Map<number, { row: AmountRow; base?: AmountRow; latest?: AmountRow }>()
-  for (const r of base) subjects.set(r.subject_id, { row: r, base: r })
-  for (const r of latest) {
-    const s = subjects.get(r.subject_id)
-    if (s) s.latest = r
-    else subjects.set(r.subject_id, { row: r, latest: r })
-  }
+export function buildSeriesPl(series: AmountRow[][]): SeriesPlNode[] {
+  const n = series.length
+  const subjects = new Map<number, { row: AmountRow; rows: (AmountRow | undefined)[] }>()
+  series.forEach((rows, i) => {
+    for (const r of rows) {
+      const s = subjects.get(r.subject_id) ?? { row: r, rows: Array(n).fill(undefined) }
+      s.rows[i] = r
+      subjects.set(r.subject_id, s)
+    }
+  })
 
-  const subjectNode = ({ row, base: b, latest: l }: { row: AmountRow; base?: AmountRow; latest?: AmountRow }): PlNode => {
+  const subjectNode = ({ row, rows }: { row: AmountRow; rows: (AmountRow | undefined)[] }): SeriesPlNode => {
     const id = `s:${row.subject_id}`
-    const lineIds = [...new Set([...(b?.lines ?? []), ...(l?.lines ?? [])].map((x) => x.id))]
-    const direct: PlNode = { id: `${id}:0`, label: 'その他', sub: '科目への直接入力', measure: row.category, children: [], base: toMap(b?.values), latest: toMap(l?.values) }
+    const lineIds = [...new Set(rows.flatMap((r) => r?.lines ?? []).map((x) => x.id))]
+    const direct: SeriesPlNode = { id: `${id}:0`, label: 'その他', sub: '科目への直接入力', measure: row.category, children: [], values: rows.map((r) => toMap(r?.values)) }
     if (lineIds.length === 0) return { ...direct, id, label: row.name, sub: row.code }
-    const lines: PlNode[] = lineIds.map((lid) => {
-      const bl = b?.lines.find((x) => x.id === lid)
-      const ll = l?.lines.find((x) => x.id === lid)
-      return { id: `${id}:${lid}`, label: (ll ?? bl)!.name, measure: row.category, children: [], base: toMap(bl?.values), latest: toMap(ll?.values) }
+    const lines: SeriesPlNode[] = lineIds.map((lid) => {
+      const ls = rows.map((r) => r?.lines.find((x) => x.id === lid))
+      return { id: `${id}:${lid}`, label: ls.find(Boolean)!.name, measure: row.category, children: [], values: ls.map((l) => toMap(l?.values)) }
     })
-    if (direct.base.size > 0 || direct.latest.size > 0) lines.push(direct)
-    return { ...sumNodes(id, row.name, row.category, lines), sub: row.code }
+    if (direct.values.some((v) => v.size > 0)) lines.push(direct)
+    return { ...sumSeries(id, row.name, row.category, lines, n), sub: row.code }
   }
 
   const all = [...subjects.values()].map(subjectNode)
-  const revenue = sumNodes('revenue', '収益', 'revenue', all.filter((n) => n.measure === 'revenue'))
-  const expense = sumNodes('expense', '費用', 'expense', all.filter((n) => n.measure === 'expense'))
-  const profit: PlNode = { id: 'profit', label: '利益', sub: '収益 − 費用', measure: 'profit', children: [], base: new Map(), latest: new Map() }
-  addInto(profit.base, revenue.base)
-  addInto(profit.base, expense.base, -1n)
-  addInto(profit.latest, revenue.latest)
-  addInto(profit.latest, expense.latest, -1n)
+  const revenue = sumSeries('revenue', '収益', 'revenue', all.filter((x) => x.measure === 'revenue'), n)
+  const expense = sumSeries('expense', '費用', 'expense', all.filter((x) => x.measure === 'expense'), n)
+  const profit: SeriesPlNode = { id: 'profit', label: '利益', sub: '収益 − 費用', measure: 'profit', children: [], values: Array.from({ length: n }, () => new Map()) }
+  profit.values.forEach((v, i) => {
+    addInto(v, revenue.values[i])
+    addInto(v, expense.values[i], -1n)
+  })
   return [revenue, expense, profit]
+}
+
+/** 2つのシナリオ（基準・最新）の P/L。buildSeriesPl の2系列版 */
+export function buildPl(base: AmountRow[], latest: AmountRow[]): PlNode[] {
+  const convert = (x: SeriesPlNode): PlNode => ({ id: x.id, label: x.label, sub: x.sub, measure: x.measure, children: x.children.map(convert), base: x.values[0], latest: x.values[1] })
+  return buildSeriesPl([base, latest]).map(convert)
 }
 
 /** 期間の月の合計 */

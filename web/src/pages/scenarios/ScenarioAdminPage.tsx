@@ -139,6 +139,7 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
               <tr>
                 <th>シナリオ名</th>
                 <th>エイリアス</th>
+                <th>前回見込</th>
                 <th>決算確定月</th>
                 <th>状態</th>
                 <th />
@@ -153,6 +154,7 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
                     </Link>
                   </td>
                   <td>{s.plan_role ? planRoleLabels[s.plan_role] : <span className="text-slate-400">—</span>}</td>
+                  <td className="text-slate-600">{s.previous_scenario_id ? scenarios.find((x) => x.id === s.previous_scenario_id)?.name : <span className="text-slate-400">—</span>}</td>
                   <td className="whitespace-nowrap">
                     {s.actual_through ? yearMonthLabel(s.actual_through) : <span className="text-slate-400">未設定</span>}
                     {s.actual_through && !s.is_locked && (!lastImported || s.actual_through > lastImported) && (
