@@ -29,6 +29,7 @@ import { creatableUnits, statusTone } from './ActivityListPage'
 import { DriverDialog, LineDialog, MilestoneDialog } from './ActivityDialogs'
 import { ActivityPlCard } from './ActivityPlCard'
 import { ExternalCodesCard } from './ExternalCodesCard'
+import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
 
 const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 'green', delayed: 'red' } as const
 
@@ -114,8 +115,10 @@ export function ActivityDetailPage({ id }: { id: string }) {
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-2">
+            <WatchButton activityId={a.id} name={a.name} watched={a.is_watched} className="text-xl" />
             {a.name}
             <Badge tone={statusTone[a.status]}>{activityStatusLabels[a.status]}</Badge>
+            {a.is_priority && <PriorityBadge />}
           </span>
         }
         description={<span className="font-mono">{a.code}</span>}
@@ -137,6 +140,11 @@ export function ActivityDetailPage({ id }: { id: string }) {
             {canEdit && (
               <Button variant="primary" onClick={() => setEditing(true)}>
                 編集
+              </Button>
+            )}
+            {a.can_manage && (
+              <Button onClick={() => run(() => api.put(`${base}/priority`, { is_priority: !a.is_priority }).then(reload))}>
+                {a.is_priority ? '重点施策から外す' : '重点施策にする'}
               </Button>
             )}
             {canDelete && (

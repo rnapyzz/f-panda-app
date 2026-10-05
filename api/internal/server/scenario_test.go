@@ -885,6 +885,10 @@ func TestActivityStatus(t *testing.T) {
 	if items["SAAS-1"]["status"] != "completed" {
 		t.Errorf("SAAS-1 の状態 = %v, want completed", items["SAAS-1"]["status"])
 	}
+	// 期初計画（budget）の合計と、修正計画がないこと
+	if revenue(prj["initial"]) != "2000" || prj["revised"] != nil || body["initial"].(map[string]any)["id"] != float64(f.budget) {
+		t.Errorf("期初計画 = %v / 修正計画 = %v", prj["initial"], prj["revised"])
+	}
 
 	// 範囲の既定: マネージャーは所管ユニット、閲覧者は全体、担当外の担当者は0件
 	if body := f.manager1.mustGet(path); body["scope"] != "units" || len(body["items"].([]any)) != 2 {

@@ -5,6 +5,7 @@ import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityS
 import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { Link, navigate, useLocation } from '../../lib/router'
+import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
 import { useApi } from '../../lib/useApi'
 import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
@@ -32,6 +33,8 @@ export function ActivityListPage() {
     activity_type: search.get('activity_type') ?? '',
     status: search.get('status') ?? '',
     owner_user_id: search.get('owner_user_id') ?? '',
+    priority: search.get('priority') ?? '',
+    watched: search.get('watched') ?? '',
     q: search.get('q') ?? '',
   }
   const [q, setQ] = useState(filters.q)
@@ -125,6 +128,14 @@ export function ActivityListPage() {
             />
             自分の担当のみ
           </label>
+          <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
+            <input type="checkbox" className="size-4 rounded border-slate-300" checked={filters.priority === 'true'} onChange={(e) => setFilter('priority', e.target.checked ? 'true' : '')} />
+            重点施策のみ
+          </label>
+          <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
+            <input type="checkbox" className="size-4 rounded border-slate-300" checked={filters.watched === 'true'} onChange={(e) => setFilter('watched', e.target.checked ? 'true' : '')} />
+            ウォッチのみ
+          </label>
         </div>
       </Card>
 
@@ -139,6 +150,7 @@ export function ActivityListPage() {
           <Table>
             <thead>
               <tr>
+                <th className="w-8" />
                 <th className="w-32">コード</th>
                 <th>施策名</th>
                 <th>タイプ</th>
@@ -151,11 +163,17 @@ export function ActivityListPage() {
             <tbody>
               {activities.data.items.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50">
+                  <td>
+                    <WatchButton activityId={a.id} name={a.name} watched={a.is_watched} onChange={() => filters.watched && activities.reload()} />
+                  </td>
                   <td className="font-mono text-xs">{a.code}</td>
                   <td>
-                    <Link to={`/activities/${a.id}`} className="font-medium text-indigo-700 hover:underline">
-                      {a.name}
-                    </Link>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Link to={`/activities/${a.id}`} className="font-medium text-indigo-700 hover:underline">
+                        {a.name}
+                      </Link>
+                      {a.is_priority && <PriorityBadge />}
+                    </span>
                   </td>
                   <td className="text-slate-600">{activityTypeLabels[a.activity_type]}</td>
                   <td>

@@ -404,3 +404,57 @@ func TestListActivities(t *testing.T) {
 		t.Errorf("不正な unit_id: status = %d, want 400", status)
 	}
 }
+
+func TestPriorityAndWatch(t *testing.T) {
+	f := newActivityFixture(t)
+	id := f.manager1.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"owner_user_id": f.memberID}))
+	base := fmt.Sprintf("/api/activities/%d", id)
+
+	// 重点施策: 所管ユニットのマネージャー・FP&A が設定できる。担当者・他ユニットのマネージャーは不可
+	for name, c := range map[string]*client{"担当者": f.member, "他ユニットのマネージャー": f.manager2, "閲覧者": f.viewer} {
+		if status, _ := c.do("PUT", base+"/priority", map[string]any{"is_priority": true}); status != http.StatusForbidden {
+			t.Errorf("%s の重点施策の設定: status = %d, want 403", name, status)
+		}
+	}
+	if status, body := f.manager1.do("PUT", base+"/priority", map[string]any{"is_priority": true}); status != http.StatusOK || body["is_priority"] != true {
+		t.Fatalf("重点施策の設定: status = %d, body = %v", status, body)
+	}
+	if got := f.viewer.mustGet(base); got["is_priority"] != true || got["can_manage"] != false {
+		t.Errorf("閲覧者から見た施策 = is_priority %v, can_manage %v", got["is_priority"], got["can_manage"])
+	}
+	items := f.viewer.mustGet("/api/activities?priority=true")["items"].([]any)
+	if len(items) != 1 {
+		t.Errorf("重点施策の絞り込み = %d件, want 1", len(items))
+	}
+
+	// ウォッチ: だれでも付けられ、本人にだけ見える
+	if status, _ := f.viewer.do("PUT", base+"/watch", nil); status != http.StatusOK {
+		t.Errorf("閲覧者のウォッチ: status = %d", status)
+	}
+	if got := f.viewer.mustGet(base)["is_watched"]; got != true {
+		t.Errorf("本人の is_watched = %v, want true", got)
+	}
+	if got := f.member.mustGet(base)["is_watched"]; got != false {
+		t.Errorf("他の人の is_watched = %v, want false", got)
+	}
+	if n := len(f.viewer.mustGet("/api/activities?watched=true")["items"].([]any)); n != 1 {
+		t.Errorf("ウォッチの絞り込み = %d件, want 1", n)
+	}
+	f.viewer.do("PUT", base+"/watch", nil) // 2回付けても1件
+	if status, _ := f.viewer.do("DELETE", base+"/watch", nil); status != http.StatusOK {
+		t.Errorf("ウォッチの解除: status = %d", status)
+	}
+	if n := len(f.viewer.mustGet("/api/activities?watched=true")["items"].([]any)); n != 0 {
+		t.Errorf("解除後のウォッチ = %d件, want 0", n)
+	}
+	if status, _ := f.viewer.do("PUT", "/api/activities/99999/watch", nil); status != http.StatusNotFound {
+		t.Errorf("存在しない施策のウォッチ: status = %d, want 404", status)
+	}
+
+	// 重点施策の変更は変更履歴に残る
+	var n int
+	f.env.QueryRow("SELECT COUNT(*) FROM audit_logs WHERE table_name = 'activities' AND record_id = ? AND action = 'update'", id).Scan(&n)
+	if n != 1 {
+		t.Errorf("重点施策の監査ログ = %d件, want 1", n)
+	}
+}
