@@ -116,14 +116,17 @@
 | ------------------------------------------------------------- | -------------------------------------------- | -------------- |
 | `GET /api/scenarios`（`fiscal_year` で絞り込み）              | 一覧（エイリアス・決算確定月・作成中を含む） | 全員           |
 | `GET /api/scenarios/active`                                   | 作成中のシナリオ（未設定なら `null`）        | 全員           |
-| `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製。`plan_role`・`actual_through` も指定できる） | FP&A           |
-| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、決算確定月（`actual_through`、変更は理由必須）の変更 | 全員 / FP&A    |
+| `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製。`plan_role`・`actual_through`・`previous_scenario_id`（前回見込、省略時は複製元）も指定できる） | FP&A           |
+| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、前回見込（`previous_scenario_id`）、決算確定月（`actual_through`、変更は理由必須）の変更 | 全員 / FP&A    |
 | `POST /api/scenarios/{id}/activate`                           | 作成中に指定（前の作成中は外れる）           | FP&A           |
 | `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
 | `PUT .../activities/{aid}/condition`                          | 想定条件の登録（空文字で削除）               | 施策の編集権限 |
+| `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
+| `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
+| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・説明の有無、今回・基準・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差 | 全員（範囲はロールで決まる） |
 
 - 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
 - ドライバー値は小数点以下6桁まで、金額は円単位の整数（マイナス可）
