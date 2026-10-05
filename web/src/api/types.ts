@@ -421,3 +421,37 @@ export type RiskReport = {
   pessimistic: { id: number; name: string; plan_role: PlanRole | null } | null
   activities: RiskActivity[]
 }
+
+// --- ホーム ---
+
+export type PLTotals = { revenue: string; expense: string }
+
+export type ScenarioRef = { id: number; name: string; plan_role: PlanRole | null; actual_through: string | null }
+
+/** ホームの1行（施策 × シナリオの状態と、基準・前回見込との差） */
+export type ActivityProgress = {
+  activity_id: number
+  code: string
+  name: string
+  unit_id: number
+  owner_user_id: number | null
+  status: NoteStatus
+  has_explanation: boolean
+  last_edited_at: string | null
+  completed_at: string | null
+  current: PLTotals
+  base: PLTotals | null
+  previous: PLTotals | null
+  /** 新しく実績になった月の、前回見込の計画値と実績の差 */
+  accuracy: { plan: PLTotals; actual: PLTotals; rate: number | null; large: boolean } | null
+}
+
+/** GET /scenarios/{id}/activity-status */
+export type ActivityProgressReport = {
+  scenario: Scenario
+  scope: 'mine' | 'units' | 'all'
+  base: ScenarioRef | null
+  previous: ScenarioRef | null
+  new_actual_months: string[]
+  items: ActivityProgress[]
+}

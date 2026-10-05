@@ -5,6 +5,7 @@ import { ActiveScenarioProvider } from './lib/activeScenario'
 import { AuthProvider, useAuth } from './lib/auth'
 import { matchPath, Redirect, useLocation } from './lib/router'
 import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
+import { HomePage } from './pages/HomePage'
 import { ActivityListPage } from './pages/activities/ActivityListPage'
 import { LoginPage } from './pages/LoginPage'
 import { ConfidenceLevelsPage } from './pages/masters/ConfidenceLevelsPage'
@@ -23,7 +24,7 @@ import { ValuesPage } from './pages/scenarios/ValuesPage'
 type Route = { path: string; render: (params: Record<string, string>) => ReactNode }
 
 const routes: Route[] = [
-  { path: '/', render: () => <Redirect to="/activities" /> },
+  { path: '/', render: () => <HomePage /> },
   { path: '/activities', render: () => <ActivityListPage /> },
   { path: '/activities/:id', render: (p) => <ActivityDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios', render: () => <ScenarioListPage /> },

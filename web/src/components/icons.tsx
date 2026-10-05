@@ -142,3 +142,11 @@ export const IconConfidence = (p: P) => (
     <path d="M4 20h16" />
   </Icon>
 )
+
+/** ホーム: 家 */
+export const IconHome = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 11l8-7 8 7" />
+    <path d="M6 9.5V20h12V9.5M10 20v-5h4v5" />
+  </Icon>
+)
