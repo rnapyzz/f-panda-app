@@ -29,24 +29,39 @@ type line struct {
 	Name           string `json:"name"`
 	Expression     string `json:"expression"`
 	FormulaEnabled bool   `json:"formula_enabled"`
-	SortOrder      int    `json:"sort_order"`
+	// ConfidenceLevel は内訳の確度の段階。nil なら施策の段階を使う
+	ConfidenceLevel *string `json:"confidence_level"`
+	// Outlook は見通しの種類（base: ベース / addon: アドオン / downside: ダウンサイド）
+	Outlook   string `json:"outlook"`
+	SortOrder int    `json:"sort_order"`
 	timestamps
 }
+
+// outlooks は見通しの種類。
+var outlooks = []string{"base", "addon", "downside"}
 
 type lineRequest struct {
 	SubjectID      int64  `json:"subject_id"` // 作成時のみ
 	Name           string `json:"name"`
 	Expression     string `json:"expression"`
 	FormulaEnabled bool   `json:"formula_enabled"`
-	SortOrder      int    `json:"sort_order"`
-	Reason         string `json:"reason"`
+	// ConfidenceLevel は確度の段階のコード。空なら施策の段階を使う
+	ConfidenceLevel string `json:"confidence_level"`
+	// Outlook は見通しの種類。空ならベース
+	Outlook   string `json:"outlook"`
+	SortOrder int    `json:"sort_order"`
+	Reason    string `json:"reason"`
 }
 
-const lineSelect = "SELECT id, activity_id, subject_id, name, COALESCE(expression, ''), formula_enabled, sort_order, created_at, updated_at FROM activity_lines"
+const lineSelect = "SELECT id, activity_id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook, sort_order, created_at, updated_at FROM activity_lines"
 
 func scanLine(row interface{ Scan(...any) error }) (line, error) {
 	var l line
-	err := row.Scan(&l.ID, &l.ActivityID, &l.SubjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &l.SortOrder, &l.CreatedAt, &l.UpdatedAt)
+	var level sql.NullString
+	err := row.Scan(&l.ID, &l.ActivityID, &l.SubjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook, &l.SortOrder, &l.CreatedAt, &l.UpdatedAt)
+	if level.Valid {
+		l.ConfidenceLevel = &level.String
+	}
 	return l, err
 }
 
@@ -79,6 +94,22 @@ func findLine(ctx context.Context, tx *sql.Tx, activityID, id int64) (line, erro
 func validateLine(ctx context.Context, tx *sql.Tx, activityID int64, req *lineRequest) error {
 	v := httpx.Validator{}
 	req.Name = v.Text("name", "内訳名", req.Name, 100)
+	req.ConfidenceLevel = strings.TrimSpace(req.ConfidenceLevel)
+	if req.ConfidenceLevel != "" {
+		n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM confidence_levels WHERE code = ?", req.ConfidenceLevel)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			v.Add("confidence_level", "確度の段階「"+req.ConfidenceLevel+"」は登録されていません")
+		}
+	}
+	if req.Outlook == "" {
+		req.Outlook = "base"
+	}
+	if !slices.Contains(outlooks, req.Outlook) {
+		v.Add("outlook", "見通しの種類は base（ベース）/ addon（アドオン）/ downside（ダウンサイド）のいずれかを指定してください")
+	}
 	req.Expression = v.OptionalText("expression", "計算式", req.Expression, maxExpressionLen)
 	if req.FormulaEnabled && req.Expression == "" {
 		v.Add("expression", "計算式で反映するには、計算式を入力してください")
@@ -147,8 +178,8 @@ func (h *Handler) createLine(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-			activityID, req.SubjectID, req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, req.SortOrder)
+			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			activityID, req.SubjectID, req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, req.SortOrder)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "この科目に同じ名前の内訳があります"})
 		}
@@ -175,7 +206,7 @@ func (h *Handler) createLine(w http.ResponseWriter, r *http.Request) error {
 }
 
 // updateLine は PUT /api/activities/{id}/lines/{lid}。科目は変えられない。
-// 計算式・反映の有無を変える場合は変更理由が必須（金額に影響するため）。
+// 計算式・反映の有無・確度の段階・見通しの種類を変える場合は変更理由が必須（金額や加重見込に影響するため）。
 // 反映をやめた内訳の金額はそのまま残り、以後は直接入力で編集できる。
 func (h *Handler) updateLine(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
@@ -209,14 +240,16 @@ func (h *Handler) updateLine(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		formulaChanged := before.Expression != req.Expression || before.FormulaEnabled != req.FormulaEnabled
-		if formulaChanged {
+		// 確度の段階・見通しの種類も、加重見込や楽観・悲観に影響するため理由が必須（docs/plan.md「2.7」）
+		levelChanged := derefString(before.ConfidenceLevel) != req.ConfidenceLevel || before.Outlook != req.Outlook
+		if formulaChanged || levelChanged {
 			if err := requireReason(req.Reason); err != nil {
 				return err
 			}
 		}
 		_, err = tx.ExecContext(ctx,
-			"UPDATE activity_lines SET name = ?, expression = ?, formula_enabled = ?, sort_order = ? WHERE id = ?",
-			req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, req.SortOrder, id)
+			"UPDATE activity_lines SET name = ?, expression = ?, formula_enabled = ?, confidence_level = ?, outlook = ?, sort_order = ? WHERE id = ?",
+			req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, req.SortOrder, id)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "この科目に同じ名前の内訳があります"})
 		}
@@ -317,4 +350,11 @@ func (h *Handler) deleteLine(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

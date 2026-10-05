@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
-import { categoryLabels, type AmountRow, type ConfidenceLevel, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
+import { categoryLabels, outlookLabels, type AmountRow, type ConfidenceLevel, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
@@ -241,7 +241,7 @@ function ValuesEditor({
             {l.name}
           </>
         ),
-        sub: l.formula_enabled ? l.expression : '直接入力',
+        sub: `${l.formula_enabled ? l.expression : '直接入力'} ／ ${outlookLabels[l.outlook]}・${l.confidence_level ?? v.activity.confidence_level}`,
         editable: !l.formula_enabled,
         indent: true,
       })),

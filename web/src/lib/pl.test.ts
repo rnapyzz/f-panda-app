@@ -38,7 +38,7 @@ test('buildPl: 収益・費用 → 科目 → 内訳と「その他」、利益'
       name: '売上',
       category: 'revenue',
       values: [cell('2026-04', 1000)],
-      lines: [{ id: 10, name: '月額利用料', expression: 'a * b', formula_enabled: true, values: [cell('2026-04', 5000), cell('2026-05', 5000)] }],
+      lines: [{ id: 10, name: '月額利用料', expression: 'a * b', formula_enabled: true, confidence_level: null, outlook: 'base' as const, values: [cell('2026-04', 5000), cell('2026-05', 5000)] }],
     },
     { subject_id: 2, code: '8110', name: '外注費', category: 'expense', values: [cell('2026-04', 3000)], lines: [] },
   ]
@@ -51,8 +51,8 @@ test('buildPl: 収益・費用 → 科目 → 内訳と「その他」、利益'
       category: 'revenue',
       values: [],
       lines: [
-        { id: 10, name: '月額利用料', expression: 'a * b', formula_enabled: true, values: [cell('2026-04', 6000)] },
-        { id: 11, name: '初期費用', expression: '', formula_enabled: false, values: [cell('2026-04', 200)] },
+        { id: 10, name: '月額利用料', expression: 'a * b', formula_enabled: true, confidence_level: null, outlook: 'base' as const, values: [cell('2026-04', 6000)] },
+        { id: 11, name: '初期費用', expression: '', formula_enabled: false, confidence_level: null, outlook: 'base' as const, values: [cell('2026-04', 200)] },
       ],
     },
     { subject_id: 3, code: '8120', name: '広告費', category: 'expense', values: [cell('2026-05', 400)], lines: [] },
@@ -82,7 +82,7 @@ test('buildPl: 収益・費用 → 科目 → 内訳と「その他」、利益'
 })
 
 test('buildPl: 内訳のある科目で「その他」が空なら行にしない', () => {
-  const rows: AmountRow[] = [{ subject_id: 1, code: '4110', name: '売上', category: 'revenue', values: [], lines: [{ id: 10, name: 'x', expression: '', formula_enabled: false, values: [] }] }]
+  const rows: AmountRow[] = [{ subject_id: 1, code: '4110', name: '売上', category: 'revenue', values: [], lines: [{ id: 10, name: 'x', expression: '', formula_enabled: false, confidence_level: null, outlook: 'base' as const, values: [] }] }]
   assert.deepEqual(
     buildPl(rows, [])[0].children[0].children.map((c) => c.label),
     ['x'],

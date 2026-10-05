@@ -135,6 +135,21 @@ export type Driver = Timestamps & {
 }
 
 /** 金額の内訳。施策 × 科目の下に複数持てる。formula_enabled なら計算式で算出した金額を反映する */
+/** 見通しの種類（docs/plan.md「2.8」） */
+export type Outlook = 'base' | 'addon' | 'downside'
+
+export const outlookLabels: Record<Outlook, string> = {
+  base: 'ベース',
+  addon: 'アドオン',
+  downside: 'ダウンサイド',
+}
+
+export const outlookDescriptions: Record<Outlook, string> = {
+  base: 'トレンドの延長。既存の契約・顧客から見込める分',
+  addon: '新しい活動・追加要件による上積み',
+  downside: '環境変化・不利な出来事による減少（金額はマイナスで入力）',
+}
+
 export type Line = Timestamps & {
   id: number
   activity_id: number
@@ -142,6 +157,9 @@ export type Line = Timestamps & {
   name: string
   expression: string
   formula_enabled: boolean
+  /** 内訳の確度の段階。null なら施策の段階 */
+  confidence_level: string | null
+  outlook: Outlook
   sort_order: number
 }
 
@@ -243,6 +261,8 @@ export type AmountLine = {
   name: string
   expression: string
   formula_enabled: boolean
+  confidence_level: string | null
+  outlook: Outlook
   values: AmountCell[]
 }
 

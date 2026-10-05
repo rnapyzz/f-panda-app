@@ -458,3 +458,64 @@ func TestPriorityAndWatch(t *testing.T) {
 		t.Errorf("重点施策の監査ログ = %d件, want 1", n)
 	}
 }
+
+func TestLineConfidenceAndOutlook(t *testing.T) {
+	f := newActivityFixture(t)
+	sales := f.admin.mustCreate("/api/subjects", map[string]any{"code": "4110", "name": "売上", "category": "revenue"})
+	id := f.admin.mustCreate("/api/activities", activityBody(f.fn1, "ACT-1", map[string]any{"owner_user_id": f.memberID}))
+	lbase := fmt.Sprintf("/api/activities/%d/lines", id)
+
+	// 既定: 段階は施策の段階（null）、見通しの種類はベース
+	lid := f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "既存顧客"})
+	line := func() map[string]any {
+		for _, l := range f.viewer.mustGet(fmt.Sprintf("/api/activities/%d", id))["lines"].([]any) {
+			if m := l.(map[string]any); m["id"] == float64(lid) {
+				return m
+			}
+		}
+		t.Fatal("内訳が見つからない")
+		return nil
+	}
+	if l := line(); l["confidence_level"] != nil || l["outlook"] != "base" {
+		t.Errorf("既定 = %v / %v, want null / base", l["confidence_level"], l["outlook"])
+	}
+
+	for name, tc := range map[string]struct {
+		body  map[string]any
+		field string
+	}{
+		"未登録の段階":    {map[string]any{"subject_id": sales, "name": "x", "confidence_level": "Z"}, "confidence_level"},
+		"見通しの種類が不正": {map[string]any{"subject_id": sales, "name": "x", "outlook": "upside"}, "outlook"},
+	} {
+		if status, body := f.member.do("POST", lbase, tc.body); status != http.StatusUnprocessableEntity || detail(body, tc.field) == "" {
+			t.Errorf("%s: status = %d, body = %v", name, status, body)
+		}
+	}
+	f.member.mustCreate(lbase, map[string]any{"subject_id": sales, "name": "解約リスク", "confidence_level": "D", "outlook": "downside"})
+
+	// 段階・見通しの種類の変更は理由が必須
+	lpath := fmt.Sprintf("%s/%d", lbase, lid)
+	change := map[string]any{"name": "既存顧客", "confidence_level": "B", "outlook": "addon"}
+	if status, body := f.member.do("PUT", lpath, change); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
+		t.Errorf("理由なしの変更: status = %d, body = %v", status, body)
+	}
+	change["reason"] = "追加発注の内示"
+	if status, body := f.member.do("PUT", lpath, change); status != http.StatusOK || body["confidence_level"] != "B" || body["outlook"] != "addon" {
+		t.Errorf("変更: status = %d, body = %v", status, body)
+	}
+	// 数値入力画面の内訳にも返る
+	scenario := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "予算", "fiscal_year": 2026})
+	for _, row := range f.viewer.mustGet(fmt.Sprintf("/api/scenarios/%d/activities/%d", scenario, id))["amounts"].([]any) {
+		for _, l := range row.(map[string]any)["lines"].([]any) {
+			if m := l.(map[string]any); m["id"] == float64(lid) && (m["confidence_level"] != "B" || m["outlook"] != "addon") {
+				t.Errorf("数値入力の内訳 = %v", m)
+			}
+		}
+	}
+	// 内訳から使われている段階は削除できない
+	var levelID int64
+	f.env.QueryRow("SELECT id FROM confidence_levels WHERE code = 'D'").Scan(&levelID)
+	if status, _ := f.admin.do("DELETE", fmt.Sprintf("/api/confidence-levels/%d", levelID), nil); status != http.StatusConflict {
+		t.Errorf("内訳で使われている段階の削除: status = %d, want 409", status)
+	}
+}
