@@ -1,6 +1,6 @@
 // ホームの一覧の計算（利益・差・並べ替え）。金額は BigInt で扱う。
 
-import type { ActivityProgress, NoteStatus, PLTotals } from '../api/types.ts'
+import { noteCauseLabels, type ActivityProgress, type NoteCause, type NoteStatus, type PLTotals } from '../api/types.ts'
 
 export function profitOf(t: PLTotals | null | undefined): bigint | null {
   return t ? BigInt(t.revenue) - BigInt(t.expense) : null
@@ -89,4 +89,90 @@ export function sumTotals(rows: UnitTotals[], has: Record<Exclude<Plans, 'curren
     }
   }
   return t
+}
+
+/** 変動のサマリーの1施策 */
+export type ChangeItem = { item: ActivityProgress; diff: bigint }
+
+export type ChangeSummary = {
+  /** 前回見込があるか（なければ変動を出さない） */
+  hasPrevious: boolean
+  profitDiff: bigint
+  revenueDiff: bigint
+  /** 期初計画との利益の差の合計（期初計画がなければ null） */
+  initialDiff: bigint | null
+  increased: number
+  decreased: number
+  /** 利益の変動の大きい施策（上位） */
+  top: ChangeItem[]
+  /** 要因別の利益の変動。single は要因1つ、multiple は複数、none は要因なし（重ねて数えない） */
+  byCause: { key: NoteCause | 'multiple' | 'none'; diff: bigint; count: number }[]
+  /** 変動があるのに説明のない施策の数 */
+  unexplained: number
+  /** 未完了の施策の数 */
+  open: number
+}
+
+/** 前回見込 → 今回の変動を、施策別・要因別にまとめる（docs/plan.md「2.11」の ②） */
+export function summarizeChanges(items: ActivityProgress[], limit = 5): ChangeSummary {
+  const changes: ChangeItem[] = []
+  let profitTotal = 0n
+  let revenueTotal = 0n
+  let initialTotal: bigint | null = null
+  const byCause = new Map<NoteCause | 'multiple' | 'none', { diff: bigint; count: number }>()
+  let hasPrevious = false
+  for (const it of items) {
+    const d = profitDiff(it.current, it.initial)
+    if (d !== null) initialTotal = (initialTotal ?? 0n) + d
+    if (!it.previous) continue
+    hasPrevious = true
+    const diff = profitDiff(it.current, it.previous)!
+    profitTotal += diff
+    revenueTotal += BigInt(it.current.revenue) - BigInt(it.previous.revenue)
+    if (diff === 0n) continue
+    changes.push({ item: it, diff })
+    const key = it.causes.length === 0 ? 'none' : it.causes.length === 1 ? it.causes[0] : 'multiple'
+    const c = byCause.get(key) ?? { diff: 0n, count: 0 }
+    c.diff += diff
+    c.count++
+    byCause.set(key, c)
+  }
+  const absDiff = (x: bigint) => (x < 0n ? -x : x)
+  const top = [...changes].sort((a, b) => (absDiff(b.diff) > absDiff(a.diff) ? 1 : absDiff(b.diff) < absDiff(a.diff) ? -1 : a.item.code.localeCompare(b.item.code))).slice(0, limit)
+  return {
+    hasPrevious,
+    profitDiff: profitTotal,
+    revenueDiff: revenueTotal,
+    initialDiff: initialTotal,
+    increased: changes.filter((c) => c.diff > 0n).length,
+    decreased: changes.filter((c) => c.diff < 0n).length,
+    top,
+    byCause: [...byCause.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => (absDiff(b.diff) > absDiff(a.diff) ? 1 : absDiff(b.diff) < absDiff(a.diff) ? -1 : 0)),
+    unexplained: changes.filter((c) => !c.item.has_explanation).length,
+    open: items.filter((it) => it.status !== 'completed').length,
+  }
+}
+
+/** 金額を「−1,200万円」のように短く表す（1万円未満は円のまま）。文章のサマリー用 */
+export function compactYen(v: bigint): string {
+  const sign = v < 0n ? '−' : v > 0n ? '+' : ''
+  const abs = v < 0n ? -v : v
+  if (abs < 10000n) return `${sign}${abs.toLocaleString('ja-JP')}円`
+  const man = (abs + 5000n) / 10000n // 万円未満を四捨五入
+  return `${sign}${man.toLocaleString('ja-JP')}万円`
+}
+
+/** 文章のサマリー（決まった型で組み立てる。docs/plan.md「2.11」の ②） */
+export function summaryText(s: ChangeSummary): string {
+  const parts = [`前回見込から利益 ${compactYen(s.profitDiff)}（売上 ${compactYen(s.revenueDiff)}）。`, `増加 ${s.increased}施策・減少 ${s.decreased}施策。`]
+  if (s.top.length > 0) {
+    const main = s.top.slice(0, 3).map((c) => {
+      const causes = c.item.causes.map((x) => noteCauseLabels[x]).join('・')
+      return `${c.item.name} ${compactYen(c.diff)}${causes ? `（${causes}）` : ''}`
+    })
+    parts.push(`主な変動: ${main.join('、')}。`)
+  }
+  const notes = [s.unexplained > 0 && `説明のない施策 ${s.unexplained}件`, s.open > 0 && `未完了 ${s.open}件`].filter(Boolean)
+  if (notes.length > 0) parts.push(`${notes.join('、')}。`)
+  return parts.join('')
 }

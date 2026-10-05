@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // scenarioFixture は、計算式で金額を算出する内訳を持つ施策（formula）と直接入力だけの施策（manual）を持つ。
@@ -902,5 +903,48 @@ func TestActivityStatus(t *testing.T) {
 	}
 	if status, _ := f.member.do("GET", path+"?scope=team", nil); status != http.StatusBadRequest {
 		t.Errorf("不正な scope: status = %d, want 400", status)
+	}
+}
+
+func TestHomeMilestones(t *testing.T) {
+	f := newScenarioFixture(t)
+	ms := fmt.Sprintf("/api/activities/%d/milestones", f.manualAct)
+	future := time.Now().AddDate(0, 3, 0).Format("2006-01-02")
+	soon := time.Now().AddDate(0, 0, 10).Format("2006-01-02")
+	late := f.member.mustCreate(ms, map[string]any{"name": "要件定義", "due_date": "2020-01-01"})
+	f.member.mustCreate(ms, map[string]any{"name": "設計", "due_date": soon})
+	moved := f.member.mustCreate(ms, map[string]any{"name": "リリース", "due_date": future})
+	done := f.member.mustCreate(ms, map[string]any{"name": "キックオフ", "due_date": "2020-01-01"})
+	f.member.do("PUT", fmt.Sprintf("%s/%d", ms, done), map[string]any{"name": "キックオフ", "due_date": "2020-01-01", "status": "completed"})
+
+	// 前回見込（予算）の作成以降に、リリースを2回後ろ倒し（+10日・+5日）、1回前倒し（数えない）
+	cur := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	due := func(days int) string { return time.Now().AddDate(0, 3, days).Format("2006-01-02") }
+	for _, d := range []int{10, 15, 12} {
+		if status, body := f.member.do("PUT", fmt.Sprintf("%s/%d", ms, moved), map[string]any{"name": "リリース", "due_date": due(d), "status": "in_progress", "reason": "顧客都合"}); status != http.StatusOK {
+			t.Fatalf("期日の変更: status = %d, body = %v", status, body)
+		}
+	}
+
+	body := f.viewer.mustGet(fmt.Sprintf("/api/scenarios/%d/milestones?activity_ids=%d,%d", cur, f.manualAct, f.formulaAct))
+	items := map[string]map[string]any{}
+	for _, it := range body["items"].([]any) {
+		m := it.(map[string]any)
+		items[m["name"].(string)] = m
+	}
+	if len(items) != 3 {
+		t.Fatalf("完了していないマイルストーン = %d件, want 3（%v）", len(items), body["items"])
+	}
+	if items["要件定義"]["overdue"] != true || items["要件定義"]["id"] != float64(late) {
+		t.Errorf("要件定義 = %v, want 期日超過", items["要件定義"])
+	}
+	if items["設計"]["upcoming"] != true || items["設計"]["overdue"] != false {
+		t.Errorf("設計 = %v, want 期日が近い", items["設計"])
+	}
+	if p := items["リリース"]["postponed"].(map[string]any); p["count"] != float64(2) || p["days"] != float64(15) {
+		t.Errorf("リリースの後ろ倒し = %v, want 2回・15日", p)
+	}
+	if body := f.viewer.mustGet(fmt.Sprintf("/api/scenarios/%d/milestones", cur)); len(body["items"].([]any)) != 0 {
+		t.Errorf("施策の指定なし = %v, want 0件", body["items"])
 	}
 }
