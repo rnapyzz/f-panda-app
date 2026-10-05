@@ -66,17 +66,19 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 
 // Scenario はシナリオ。
 type Scenario struct {
-	ID             int64     `json:"id"`
-	Name           string    `json:"name"`
-	FiscalYear     int       `json:"fiscal_year"`
-	PlanRole       *string   `json:"plan_role"`      // initial / revised / latest
-	ActualThrough  *string   `json:"actual_through"` // 決算確定月（YYYY-MM）。この月以前は実績
-	IsActive       bool      `json:"is_active"`      // 作成中
-	BaseScenarioID *int64    `json:"base_scenario_id"`
-	IsLocked       bool      `json:"is_locked"`
-	CreatedBy      int64     `json:"created_by"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             int64   `json:"id"`
+	Name           string  `json:"name"`
+	FiscalYear     int     `json:"fiscal_year"`
+	PlanRole       *string `json:"plan_role"`      // initial / revised / latest
+	ActualThrough  *string `json:"actual_through"` // 決算確定月（YYYY-MM）。この月以前は実績
+	IsActive       bool    `json:"is_active"`      // 作成中
+	BaseScenarioID *int64  `json:"base_scenario_id"`
+	// PreviousScenarioID は前回見込（同じ年度のシナリオ）。比較やホームで「前回締めた見込」として使う
+	PreviousScenarioID *int64    `json:"previous_scenario_id"`
+	IsLocked           bool      `json:"is_locked"`
+	CreatedBy          int64     `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // PlanMonths は計画値の月（決算確定月より後の月）。数値を入力できるのはこの月だけ。
@@ -91,14 +93,15 @@ func (s Scenario) ActualMonths() []string {
 }
 
 const scenarioSelect = `SELECT id, name, fiscal_year, plan_role, DATE_FORMAT(actual_through, '%Y-%m'), is_active,
-	base_scenario_id, is_locked, created_by, created_at, updated_at FROM scenarios`
+	base_scenario_id, previous_scenario_id, is_locked, created_by, created_at, updated_at FROM scenarios`
 
 func scanScenario(row interface{ Scan(...any) error }) (Scenario, error) {
 	var s Scenario
-	var base sql.NullInt64
+	var base, previous sql.NullInt64
 	var role, through sql.NullString
-	err := row.Scan(&s.ID, &s.Name, &s.FiscalYear, &role, &through, &s.IsActive, &base, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.Name, &s.FiscalYear, &role, &through, &s.IsActive, &base, &previous, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
 	s.BaseScenarioID = dbx.PtrInt64(base)
+	s.PreviousScenarioID = dbx.PtrInt64(previous)
 	s.PlanRole = ptrString(role)
 	s.ActualThrough = ptrString(through)
 	return s, err
@@ -123,9 +126,11 @@ type createRequest struct {
 	Name           string `json:"name"`
 	FiscalYear     int    `json:"fiscal_year"`
 	BaseScenarioID *int64 `json:"base_scenario_id"`
-	PlanRole       string `json:"plan_role"`      // 空ならエイリアスなし
-	ActualThrough  string `json:"actual_through"` // YYYY-MM。空なら未設定（12か月すべて計画値）
-	Reason         string `json:"reason"`
+	// PreviousScenarioID は前回見込。省略（null）なら複製元を使う
+	PreviousScenarioID *int64 `json:"previous_scenario_id"`
+	PlanRole           string `json:"plan_role"`      // 空ならエイリアスなし
+	ActualThrough      string `json:"actual_through"` // YYYY-MM。空なら未設定（12か月すべて計画値）
+	Reason             string `json:"reason"`
 }
 
 type reasonRequest struct {
@@ -298,10 +303,17 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if err := takeRole(ctx, tx, rec, req.FiscalYear, strings.TrimSpace(req.PlanRole), 0); err != nil {
 			return err
 		}
+		previous := req.PreviousScenarioID
+		if previous == nil {
+			previous = req.BaseScenarioID
+		}
+		if err := checkPrevious(ctx, tx, 0, req.FiscalYear, previous); err != nil {
+			return err
+		}
 
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, base_scenario_id, created_by) VALUES (?, ?, ?, ?, ?, ?)",
-			name, req.FiscalYear, role, through, dbx.NullInt64(req.BaseScenarioID), u.ID,
+			"INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, base_scenario_id, previous_scenario_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			name, req.FiscalYear, role, through, dbx.NullInt64(req.BaseScenarioID), dbx.NullInt64(previous), u.ID,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
@@ -360,10 +372,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req struct {
-		Name          string `json:"name"`
-		PlanRole      string `json:"plan_role"`
-		ActualThrough string `json:"actual_through"`
-		Reason        string `json:"reason"`
+		Name               string `json:"name"`
+		PlanRole           string `json:"plan_role"`
+		ActualThrough      string `json:"actual_through"`
+		PreviousScenarioID *int64 `json:"previous_scenario_id"` // null なら前回見込なし
+		Reason             string `json:"reason"`
 	}
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
@@ -390,10 +403,14 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 				return httpx.Validation(map[string]string{"reason": "決算確定月の変更には変更理由の入力が必要です"})
 			}
 		}
+		if err := checkPrevious(ctx, tx, id, before.FiscalYear, req.PreviousScenarioID); err != nil {
+			return err
+		}
 		if err := takeRole(ctx, tx, rec, before.FiscalYear, strings.TrimSpace(req.PlanRole), id); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ?, plan_role = ?, actual_through = ? WHERE id = ?", name, role, through, id)
+		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ?, plan_role = ?, actual_through = ?, previous_scenario_id = ? WHERE id = ?",
+			name, role, through, dbx.NullInt64(req.PreviousScenarioID), id)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
 		}
@@ -424,7 +441,36 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 
 // sameScenario は変更できる項目が同じかを返す。
 func sameScenario(a, b Scenario) bool {
-	return a.Name == b.Name && derefStr(a.PlanRole) == derefStr(b.PlanRole) && derefStr(a.ActualThrough) == derefStr(b.ActualThrough)
+	return a.Name == b.Name && derefStr(a.PlanRole) == derefStr(b.PlanRole) && derefStr(a.ActualThrough) == derefStr(b.ActualThrough) &&
+		derefID(a.PreviousScenarioID) == derefID(b.PreviousScenarioID)
+}
+
+func derefID(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// checkPrevious は前回見込が、自分以外の同じ年度のシナリオであることを確認する。self は更新対象（作成時は 0）。
+func checkPrevious(ctx context.Context, tx *sql.Tx, self int64, fiscalYear int, previous *int64) error {
+	if previous == nil {
+		return nil
+	}
+	if *previous == self {
+		return httpx.Validation(map[string]string{"previous_scenario_id": "前回見込に自分自身は選べません"})
+	}
+	p, err := findScenario(ctx, tx, *previous, "")
+	if httpx.IsNotFound(err) {
+		return httpx.Validation(map[string]string{"previous_scenario_id": "前回見込のシナリオが見つかりません"})
+	}
+	if err != nil {
+		return err
+	}
+	if p.FiscalYear != fiscalYear {
+		return httpx.Validation(map[string]string{"previous_scenario_id": "前回見込は同じ年度のシナリオを選んでください"})
+	}
+	return nil
 }
 
 func derefStr(p *string) string {

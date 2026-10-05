@@ -201,6 +201,8 @@ export type Scenario = Timestamps & {
   /** 作成中（アプリ全体で1つ） */
   is_active: boolean
   base_scenario_id: number | null
+  /** 前回見込（同じ年度のシナリオ）。比較やホームで「前回締めた見込」として使う */
+  previous_scenario_id: number | null
   is_locked: boolean
   created_by: number
 }

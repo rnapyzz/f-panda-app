@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AmountRow } from '../api/types.ts'
-import { buildPl, defaultFiscalYear, periodsOf, sumOver } from './pl.ts'
+import { buildPl, buildSeriesPl, defaultFiscalYear, periodsOf, sumOver } from './pl.ts'
 
 const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03']
 
@@ -94,4 +94,19 @@ test('defaultFiscalYear: 4月始まりの今の年度、なければ最新', () 
   assert.equal(defaultFiscalYear([2025, 2026], new Date(2026, 2, 1)), 2025)
   assert.equal(defaultFiscalYear([2024, 2027], new Date(2026, 9, 1)), 2027)
   assert.equal(defaultFiscalYear([], new Date(2026, 9, 1)), undefined)
+})
+
+test('buildSeriesPl: 3つの系列（今回・基準・前回見込）を同じ木に並べる', () => {
+  const row = (amount: number, month = '2026-04'): AmountRow => ({ subject_id: 1, code: '4110', name: '売上', category: 'revenue', values: [cell(month, amount)], lines: [] })
+  const cost = (amount: number): AmountRow => ({ subject_id: 2, code: '8110', name: '外注費', category: 'expense', values: [cell('2026-04', amount)], lines: [] })
+  const [revenue, , profit] = buildSeriesPl([[row(1200), cost(300)], [row(1000)], []])
+  assert.deepEqual(
+    revenue.values.map((v) => sumOver(v, months)),
+    [1200n, 1000n, 0n],
+  )
+  assert.deepEqual(
+    profit.values.map((v) => sumOver(v, months)),
+    [900n, 1000n, 0n],
+  )
+  assert.equal(revenue.children[0].values.length, 3)
 })

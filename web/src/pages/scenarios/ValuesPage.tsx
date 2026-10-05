@@ -7,7 +7,9 @@ import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/f
 import { useActiveScenario } from '../../lib/activeScenario'
 import { confidenceLabel } from '../../lib/confidence'
 import { Link, navigate } from '../../lib/router'
+import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { ComparisonCard } from './ComparisonCard'
 import { ScenarioBadges } from './ScenarioListPage'
 
 /** 1セルの入力内容。value が '' なら削除 */
@@ -67,6 +69,12 @@ function ValuesEditor({
 }) {
   const { active } = useActiveScenario()
   const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
+
+  // 比較するシナリオ: 基準（修正計画、なければ期初計画）と前回見込（シナリオに FP&A が指定）
+  const baseScenario = defaultScenarios(scenarios.filter((s) => s.fiscal_year === v.scenario.fiscal_year)).base
+  const previousScenario = scenarios.find((s) => s.id === v.scenario.previous_scenario_id)
+  const baseView = useApi<ValuesView>(baseScenario ? `/scenarios/${baseScenario.id}/activities/${v.activity.id}` : null)
+  const previousView = useApi<ValuesView>(previousScenario ? `/scenarios/${previousScenario.id}/activities/${v.activity.id}` : null)
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
   const [extraSubjects, setExtraSubjects] = useState<number[]>([])
   const [selected, setSelected] = useState<CellKey | null>(null)
@@ -205,6 +213,15 @@ function ValuesEditor({
   /** 科目の月の金額（内訳と科目への直接入力の合計） */
   const subjectMonth = (r: AmountRow, month: string) => [0, ...r.lines.map((l) => l.id)].reduce((sum, lineId) => sum + toBigInt(cell(`a:${r.subject_id}:${lineId}:${month}`).value), 0n)
   const monthTotal = (category: 'revenue' | 'expense', month: string) => amountRows.filter((r) => r.category === category).reduce((sum, r) => sum + subjectMonth(r, month), 0n)
+  /** 比較の「今回」: 画面で入力中の値（未保存の入力と保存前の試算を含む）を、数値入力 API の amounts と同じ形にする */
+  const currentRows: AmountRow[] = amountRows.map((r) => {
+    const valuesOf = (lineId: number) =>
+      v.months.flatMap((m) => {
+        const raw = normalize(cell(`a:${r.subject_id}:${lineId}:${m}`).value)
+        return /^-?\d+$/.test(raw) ? [{ target_month: m, amount: raw, source: 'manual' as const, is_provisional: false, provisional_reason: '' }] : []
+      })
+    return { ...r, values: valuesOf(0), lines: r.lines.map((l) => ({ ...l, values: valuesOf(l.id) })) }
+  })
   const rowTotal = (subjectId: number, lineId: number) => v.months.reduce((sum, m) => sum + toBigInt(cell(`a:${subjectId}:${lineId}:${m}`).value), 0n)
   const subjectTotal = (r: AmountRow) => v.months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
 
@@ -597,6 +614,23 @@ function ValuesEditor({
           </Grid>
         )}
       </Card>
+
+      <ComparisonCard
+        months={v.months}
+        current={currentRows}
+        compares={[
+          {
+            label: '基準',
+            rows: baseScenario ? baseView.data?.amounts : undefined,
+            note: baseScenario ? `${scenarioLabel(baseScenario)}${baseScenario.id === v.scenario.id ? '（このシナリオ）' : ''}` : '未設定（期初計画・修正計画のエイリアスがありません）',
+          },
+          {
+            label: '前回見込',
+            rows: previousScenario ? previousView.data?.amounts : undefined,
+            note: previousScenario ? scenarioLabel(previousScenario) : '未設定（シナリオ管理で指定します）',
+          },
+        ]}
+      />
 
       {selected && selectedInfo && (
         <Card title={`選択中のセル: ${selectedInfo.label}（${yearMonthLabel(selectedInfo.month)}）`} className="mb-4">

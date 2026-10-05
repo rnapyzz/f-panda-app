@@ -69,6 +69,26 @@ export function ScenarioRoleFields({
 }
 
 /** シナリオの作成。作成したらシナリオの詳細を開く（onCreated を指定したときはそれを呼ぶ） */
+/** 前回見込（同じ年度の、自分以外のシナリオ）の選択欄 */
+function PreviousScenarioField({ scenarios, self, fiscalYear, value, onChange, error }: { scenarios: Scenario[]; self?: number; fiscalYear: number; value: string; onChange: (v: string) => void; error: unknown }) {
+  return (
+    <Field label="前回見込" error={fieldError(error, 'previous_scenario_id')} hint="数値入力画面の比較やホームで、「前回締めた見込」として比べるシナリオです">
+      {(p) => (
+        <Select {...p} value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">（なし）</option>
+          {scenarios
+            .filter((s) => s.fiscal_year === fiscalYear && s.id !== self)
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+        </Select>
+      )}
+    </Field>
+  )
+}
+
 export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenarios: Scenario[]; onClose: () => void; onCreated?: (s: Scenario) => void }) {
   const [name, setName] = useState('')
   const [planRole, setPlanRole] = useState<PlanRole | ''>('')
@@ -79,6 +99,9 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
     return String(now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1)
   })
   const [baseId, setBaseId] = useState('')
+  // 前回見込は、選ぶまでは複製元に合わせる
+  const [pickedPrevious, setPickedPrevious] = useState<string | null>(null)
+  const previousId = pickedPrevious ?? baseId
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -108,6 +131,7 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
         name,
         fiscal_year: Number(fiscalYear),
         base_scenario_id: baseId ? Number(baseId) : null,
+        previous_scenario_id: previousId ? Number(previousId) : null,
         plan_role: planRole,
         actual_through: actualThrough,
         reason,
@@ -148,6 +172,7 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
               onChange={(e) => {
                 setFiscalYear(e.target.value)
                 setBaseId('')
+                setPickedPrevious(null)
               }}
               className="w-32"
             />
@@ -165,6 +190,7 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
             </Select>
           )}
         </Field>
+        <PreviousScenarioField scenarios={scenarios} fiscalYear={Number(fiscalYear)} value={previousId} onChange={setPickedPrevious} error={error} />
         <ScenarioRoleFields
           scenarios={scenarios}
           fiscalYear={Number(fiscalYear)}
@@ -175,18 +201,19 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
           error={error}
         />
         <Field label="変更理由（任意）">{(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}</Field>
-        <FormError error={error} fields={['name', 'fiscal_year', 'base_scenario_id', 'plan_role', 'actual_through']} />
+        <FormError error={error} fields={['name', 'fiscal_year', 'base_scenario_id', 'previous_scenario_id', 'plan_role', 'actual_through']} />
       </form>
     </Dialog>
   )
 }
 
-/** シナリオの設定（名称・エイリアス・決算確定月）の変更。決算確定月の変更は理由が必須 */
+/** シナリオの設定（名称・エイリアス・前回見込・決算確定月）の変更。決算確定月の変更は理由が必須 */
 export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenario: Scenario; onClose: () => void; onSaved: (s: Scenario) => void }) {
   const scenarios = useApi<List<Scenario>>('/scenarios')
   const [name, setName] = useState(scenario.name)
   const [planRole, setPlanRole] = useState<PlanRole | ''>(scenario.plan_role ?? '')
   const [actualThrough, setActualThrough] = useState(scenario.actual_through ?? '')
+  const [previousId, setPreviousId] = useState(scenario.previous_scenario_id ? String(scenario.previous_scenario_id) : '')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -196,7 +223,7 @@ export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenari
     setBusy(true)
     setError(null)
     try {
-      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, { name, plan_role: planRole, actual_through: actualThrough, reason }))
+      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, { name, plan_role: planRole, actual_through: actualThrough, previous_scenario_id: previousId ? Number(previousId) : null, reason }))
     } catch (err) {
       setError(err)
     } finally {
@@ -221,6 +248,7 @@ export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenari
         <Field label="シナリオ名" required error={fieldError(error, 'name')}>
           {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
+        <PreviousScenarioField scenarios={scenarios.data?.items ?? []} self={scenario.id} fiscalYear={scenario.fiscal_year} value={previousId} onChange={setPreviousId} error={error} />
         <ScenarioRoleFields
           scenarios={scenarios.data?.items ?? []}
           self={scenario.id}
@@ -237,7 +265,7 @@ export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenari
             {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" placeholder="例: 2026-09 決算確定" />}
           </Field>
         )}
-        <FormError error={error} fields={['name', 'plan_role', 'actual_through', 'reason']} />
+        <FormError error={error} fields={['name', 'previous_scenario_id', 'plan_role', 'actual_through', 'reason']} />
       </form>
     </Dialog>
   )
