@@ -48,6 +48,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/scenarios", read(h.list))
 	mux.Handle("GET /api/scenarios/active", read(h.active))
 	mux.Handle("GET /api/scenarios/{id}/activity-status", read(h.activityStatuses))
+	mux.Handle("GET /api/scenarios/{id}/milestones", read(h.milestones))
 	mux.Handle("POST /api/scenarios", write(h.create))
 	mux.Handle("GET /api/scenarios/{id}", read(h.get))
 	mux.Handle("PUT /api/scenarios/{id}", write(h.update))

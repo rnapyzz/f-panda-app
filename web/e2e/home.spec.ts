@@ -19,6 +19,7 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   expect(res.ok()).toBeTruthy()
   const current = await a.post('/scenarios', { name: `E2E今回 ${f.run}`, fiscal_year: 2026, base_scenario_id: previous.id, actual_through: '2026-04' })
   await a.post(`/scenarios/${current.id}/activate`, {})
+  await a.post(`/activities/${activity.id}/milestones`, { name: `E2E要件定義 ${f.run}`, due_date: '2020-01-01' })
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'ホーム' })).toBeVisible()
@@ -36,14 +37,25 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await expect(unitRow).toContainText('1,000,000')
   await expect(unitRow).toContainText('-200,000')
   await expect(unitRow).toContainText('-400,000')
-  // ユニット名を選ぶと、一覧がそのユニットに絞り込まれる
+  // ユニット名を選ぶと、一覧・サマリー・マイルストーンがそのユニットに絞り込まれる
   await unitRow.getByRole('button', { name: `E2E課 ${f.run}` }).click()
   await expect(page.getByRole('button', { name: `E2E課 ${f.run}`, pressed: true })).toBeVisible()
+
+  // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（−40万円）。説明がないので「要因なし」
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回見込から利益 −40万円')
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} −40万円`)
+  await expect(page.getByRole('list', { name: '変動の大きい施策' })).toContainText('差異の説明がありません')
+  await expect(page.getByRole('table', { name: '要因別の変動' })).toContainText('要因なし')
+
+  // マイルストーン: 変動上位の施策の、期日超過のマイルストーン
+  const milestoneRow = page.getByRole('row', { name: new RegExp(`E2E要件定義 ${f.run}`) })
+  await expect(milestoneRow).toContainText('期日超過')
+  await expect(milestoneRow).toContainText('変動上位')
 
   // 一覧: 自分のユニットに絞り込み、状態と差を確認する
   const unitFilter = page.getByRole('combobox', { name: 'ユニット' })
   if (await unitFilter.isVisible()) await unitFilter.selectOption({ label: `E2E課 ${f.run}` }) // ユニットが複数あるときだけ表示される
-  const row = page.getByRole('row', { name: new RegExp(activity.name) })
+  const row = page.getByRole('row', { name: new RegExp(activity.code) }) // 施策の一覧の行（コードを含む）
   await expect(row).toContainText('未着手')
   await expect(row).toContainText('800,000') // 今回（4月は実績）
   await expect(row).toContainText('-200,000') // 基準 1,000,000 との差

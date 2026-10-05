@@ -6,10 +6,12 @@ import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
 import { formatDateTime, formatYen, monthLabel } from '../lib/format'
-import { countByStatus, profitDiff, profitOf, sortStatuses, type SortMode } from '../lib/home'
+import { countByStatus, profitDiff, profitOf, sortStatuses, summarizeChanges, type SortMode } from '../lib/home'
 import { Link } from '../lib/router'
 import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
 import { useApi } from '../lib/useApi'
+import { ChangeSummaryCard } from './ChangeSummaryCard'
+import { MilestonesCard, type MilestoneTarget } from './MilestonesCard'
 import { ServiceStatusCard } from './ServiceStatusCard'
 
 type Scope = ActivityProgressReport['scope']
@@ -58,6 +60,15 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
   const items = sortStatuses(filtered, sort)
   const counts = countByStatus(filtered)
   const shownUnits = [...new Set(r.items.map((it) => it.unit_id))]
+  // 変動のサマリーとマイルストーンは、選んだユニット（なければ範囲全体）が対象
+  const changes = summarizeChanges(filtered)
+  const topIds = new Set(changes.top.map((c) => c.item.activity_id))
+  const milestoneTargets: MilestoneTarget[] = filtered
+    .map((it) => ({
+      item: it,
+      reasons: [topIds.has(it.activity_id) && ('変動上位' as const), it.is_priority && ('重点' as const), it.is_watched && ('ウォッチ' as const)].filter((x): x is '変動上位' | '重点' | 'ウォッチ' => !!x),
+    }))
+    .filter((t) => t.reasons.length > 0)
   const largeMisses = r.new_actual_months.length > 0 ? sortStatuses(filtered.filter((it) => it.accuracy?.large), 'previous') : []
 
   return (
@@ -103,7 +114,13 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
         </Card>
       )}
 
-      {scope !== 'mine' && <ServiceStatusCard report={r} items={r.items} units={units.data.items} selectedUnit={unitId} onSelectUnit={setUnitId} />}
+      {scope !== 'mine' && (
+        <>
+          <ServiceStatusCard report={r} items={r.items} units={units.data.items} selectedUnit={unitId} onSelectUnit={setUnitId} />
+          <ChangeSummaryCard summary={changes} scenarioId={r.scenario.id} ownerName={(it) => (it.owner_user_id ? userName.get(it.owner_user_id) ?? '' : '担当者未設定')} />
+          <MilestonesCard scenarioId={r.scenario.id} targets={milestoneTargets} />
+        </>
+      )}
 
       <Card
         title={

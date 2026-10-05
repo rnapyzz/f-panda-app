@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityProgress, NoteStatus } from '../api/types.ts'
-import { countByStatus, profitDiff, sortStatuses, sumTotals, totalsByUnit } from './home.ts'
+import { compactYen, countByStatus, profitDiff, sortStatuses, summarizeChanges, summaryText, sumTotals, totalsByUnit } from './home.ts'
 
 const item = (code: string, status: NoteStatus, current: number, base: number | null, previous: number | null = null): ActivityProgress => ({
   activity_id: code.length,
@@ -62,4 +62,45 @@ test('totalsByUnit・sumTotals: ユニットごとの売上・利益と、未完
   assert.deepEqual([u2.current.profit, u2.initial!.revenue], [150n, 0n]) // 施策に期初計画がなければ 0
   const total = sumTotals(rows, has)
   assert.deepEqual([total.count, total.open, total.current.profit, total.initial!.profit], [3, 2, 1650n, 1000n])
+})
+
+test('summarizeChanges: 施策別・要因別（重ねて数えない）・説明のない施策', () => {
+  const a = { ...item('A', 'completed', 1000, 0, 3000), causes: ['timing' as const], has_explanation: true, initial: { revenue: '2000', expense: '0' } }
+  const b = { ...item('B', 'in_progress', 500, 0, 300), causes: ['new' as const, 'volume' as const] }
+  const c = { ...item('C', 'in_progress', 800, 0, 900) }
+  const d = { ...item('D', 'completed', 100, 0, 100) } // 変動なし
+  const e = { ...item('E', 'in_progress', 100, 0, null) } // 前回見込なし
+  const s = summarizeChanges([a, b, c, d, e])
+  assert.equal(s.profitDiff, -2000n + 200n - 100n)
+  assert.deepEqual([s.increased, s.decreased, s.unexplained, s.open], [1, 2, 2, 3])
+  assert.deepEqual(
+    s.top.map((x) => [x.item.code, x.diff]),
+    [
+      ['A', -2000n],
+      ['B', 200n],
+      ['C', -100n],
+    ],
+  )
+  assert.deepEqual(
+    s.byCause.map((x) => [x.key, x.diff]),
+    [
+      ['timing', -2000n],
+      ['multiple', 200n],
+      ['none', -100n],
+    ],
+  )
+  assert.equal(s.initialDiff, -1000n)
+})
+
+test('compactYen', () => {
+  assert.equal(compactYen(-12_004_999n), '−1,200万円')
+  assert.equal(compactYen(15_000n), '+2万円')
+  assert.equal(compactYen(9_999n), '+9,999円')
+  assert.equal(compactYen(0n), '0円')
+})
+
+test('summaryText: 決まった型の文章', () => {
+  const a = { ...item('A', 'completed', 1000, 0, 12_001_000), name: 'A 案件', causes: ['timing' as const], has_explanation: true }
+  const b = { ...item('B', 'in_progress', 3_000_000, 0, 1_000_000), name: 'B 新規' }
+  assert.equal(summaryText(summarizeChanges([a, b])), '前回見込から利益 −1,000万円（売上 −1,000万円）。増加 1施策・減少 1施策。主な変動: A 案件 −1,200万円（時期のずれ）、B 新規 +200万円。説明のない施策 1件、未完了 1件。')
 })
