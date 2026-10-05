@@ -11,6 +11,7 @@ import {
   IconCollapse,
   IconConfidence,
   IconHistory,
+  IconHome,
   IconLogout,
   IconMenu,
   IconOrganizations,
@@ -31,6 +32,7 @@ const navGroups: NavGroup[] = [
   {
     label: '計画・入力',
     items: [
+      { to: '/', label: 'ホーム', icon: IconHome },
       { to: '/activities', label: '施策', icon: IconActivities },
       { to: '/scenarios', label: 'シナリオ', icon: IconScenarios },
     ],

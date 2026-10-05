@@ -834,3 +834,69 @@ func TestNoteAndCompletion(t *testing.T) {
 		t.Error("差異の説明・完了の監査ログがない")
 	}
 }
+
+func TestActivityStatus(t *testing.T) {
+	f := newScenarioFixture(t)
+	amount := func(sid, aid int64, month string, v int) {
+		t.Helper()
+		if status, body := f.admin.do("PUT", f.valuesPath(sid, aid)+"/amounts", map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": month, "amount": v}}}); status != http.StatusOK {
+			t.Fatalf("amounts: status = %d, body = %v", status, body)
+		}
+	}
+	// 基準（期初計画）: 4月 1000・5月 1000 → 前回見込: 4月を 1200 に → 今回: 前回見込を複製
+	amount(f.budget, f.manualAct, "2026-04", 1000)
+	amount(f.budget, f.manualAct, "2026-05", 1000)
+	prev := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "9月見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	amount(prev, f.manualAct, "2026-04", 1200)
+	cur := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": prev})
+	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", cur), nil)
+	// 4月の実績 900 を取り込み、今回の決算確定月を 4月にする
+	f.admin.upload("/api/actuals/import", "target_month,activity_code,subject_code,amount\n2026-04,PRJ-1,4110,900\n", "4月実績")
+	f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", cur), map[string]any{"name": "10月見込", "actual_through": "2026-04", "previous_scenario_id": prev, "reason": "4月決算確定"})
+	// 担当者が見込を更新し、別の施策は完了にする
+	f.member.do("PUT", f.valuesPath(cur, f.manualAct)+"/amounts", map[string]any{"reason": "上積み", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-05", "amount": 1500}}})
+	f.member.do("POST", f.valuesPath(cur, f.formulaAct)+"/complete", nil)
+
+	path := fmt.Sprintf("/api/scenarios/%d/activity-status", cur)
+	body := f.member.mustGet(path)
+	if body["scope"] != "mine" || fmt.Sprint(body["new_actual_months"]) != "[2026-04]" {
+		t.Errorf("scope = %v, new_actual_months = %v", body["scope"], body["new_actual_months"])
+	}
+	if b := body["base"].(map[string]any); b["id"] != float64(f.budget) {
+		t.Errorf("基準 = %v, want 期初計画", b)
+	}
+	items := map[string]map[string]any{}
+	for _, it := range body["items"].([]any) {
+		m := it.(map[string]any)
+		items[m["code"].(string)] = m
+	}
+	if len(items) != 2 {
+		t.Fatalf("担当施策 = %d件, want 2", len(items))
+	}
+	prj := items["PRJ-1"]
+	revenue := func(m any) string { return m.(map[string]any)["revenue"].(string) }
+	if prj["status"] != "in_progress" || revenue(prj["current"]) != "2400" || revenue(prj["base"]) != "2000" || revenue(prj["previous"]) != "2200" {
+		t.Errorf("PRJ-1 = status %v, 今回 %v, 基準 %v, 前回 %v（want in_progress, 900+1500, 2000, 1200+1000）", prj["status"], prj["current"], prj["base"], prj["previous"])
+	}
+	// 4月: 前回見込 1200 に対して実績 900 → 差 25%
+	if acc := prj["accuracy"].(map[string]any); acc["large"] != true || acc["rate"] != 25.0 || revenue(acc["actual"]) != "900" {
+		t.Errorf("PRJ-1 の当たり具合 = %v", acc)
+	}
+	if items["SAAS-1"]["status"] != "completed" {
+		t.Errorf("SAAS-1 の状態 = %v, want completed", items["SAAS-1"]["status"])
+	}
+
+	// 範囲の既定: マネージャーは所管ユニット、閲覧者は全体、担当外の担当者は0件
+	if body := f.manager1.mustGet(path); body["scope"] != "units" || len(body["items"].([]any)) != 2 {
+		t.Errorf("マネージャー: scope = %v, items = %d", body["scope"], len(body["items"].([]any)))
+	}
+	if body := f.viewer.mustGet(path); body["scope"] != "all" {
+		t.Errorf("閲覧者の scope = %v, want all", body["scope"])
+	}
+	if body := f.member2.mustGet(path); len(body["items"].([]any)) != 0 {
+		t.Errorf("担当外の担当者の施策 = %d件, want 0", len(body["items"].([]any)))
+	}
+	if status, _ := f.member.do("GET", path+"?scope=team", nil); status != http.StatusBadRequest {
+		t.Errorf("不正な scope: status = %d, want 400", status)
+	}
+}
