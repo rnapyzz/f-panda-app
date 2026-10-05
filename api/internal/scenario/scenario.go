@@ -62,6 +62,10 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/driver-values", read(h.putDriverValues))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/amounts", read(h.putAmounts))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/condition", read(h.putCondition))
+	mux.Handle("GET /api/scenarios/{id}/activities/{aid}/note", read(h.getNote))
+	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/note", read(h.putNote))
+	mux.Handle("POST /api/scenarios/{id}/activities/{aid}/complete", read(h.complete))
+	mux.Handle("DELETE /api/scenarios/{id}/activities/{aid}/complete", read(h.uncomplete))
 }
 
 // Scenario はシナリオ。

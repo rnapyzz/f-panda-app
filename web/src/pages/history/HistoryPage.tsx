@@ -6,6 +6,7 @@ import {
   categoryLabels,
   driverKindLabels,
   milestoneStatusLabels,
+  noteCauseLabels,
   roleLabels,
   planRoleLabels,
   tableLabels,
@@ -16,6 +17,7 @@ import {
   type List,
   type Scenario,
   type User,
+  type NoteCause,
 } from '../../api/types'
 import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
 import { formatDateTime, formatNumber, formatPercent, formatYen } from '../../lib/format'
@@ -273,6 +275,10 @@ const fieldLabels: Record<string, string> = {
   value: '値',
   probability: '確度', // 確度の段階を導入する前の変更履歴用
   confidence_level: '確度の段階',
+  explanation: '差異の説明',
+  causes: '要因の分類',
+  completed_at: '完了日時',
+  completed_by: '完了した人',
   rate: '標準の確率',
   criteria: '判定基準',
   assumptions: '前提条件',
@@ -337,6 +343,8 @@ function formatField(key: string, v: unknown): string {
   if (key === 'value') return formatNumber(String(v))
   if (key === 'probability') return formatPercent(v as number)
   if (valueLabels[key]?.[String(v)]) return valueLabels[key][String(v)]
+  if (key === 'causes' && Array.isArray(v)) return v.length === 0 ? '—' : v.map((c) => noteCauseLabels[c as NoteCause] ?? c).join('、')
+  if (key === 'completed_at') return formatDateTime(String(v))
   if (typeof v === 'object') {
     return Object.entries(v as Record<string, unknown>)
       .map(([k, n]) => `${tableLabels[k] ?? k} ${n}件`)

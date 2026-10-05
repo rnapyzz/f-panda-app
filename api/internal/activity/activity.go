@@ -560,6 +560,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 			{"SELECT COUNT(*) FROM budget_facts WHERE activity_id = ?", "金額データが登録されているため削除できません"},
 			{"SELECT COUNT(*) FROM driver_values v JOIN activity_drivers d ON d.id = v.activity_driver_id WHERE d.activity_id = ?", "ドライバー値が登録されているため削除できません"},
 			{"SELECT COUNT(*) FROM scenario_conditions WHERE activity_id = ?", "シナリオの想定条件が登録されているため削除できません"},
+			{"SELECT COUNT(*) FROM activity_scenario_notes WHERE activity_id = ? AND (explanation IS NOT NULL OR causes <> '' OR completed_at IS NOT NULL)", "差異の説明・更新の完了が記録されているため削除できません"},
 		} {
 			n, err := dbx.Count(ctx, tx, check.query, id)
 			if err != nil {
@@ -606,7 +607,8 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones"} {
+		// 残っている施策 × シナリオの記録は、変更した日時だけ（説明・完了なし）なので一緒に消す
+		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones", "activity_scenario_notes"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE activity_id = ?", id); err != nil {
 				return err
 			}

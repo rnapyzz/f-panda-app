@@ -10,6 +10,7 @@ import { Link, navigate } from '../../lib/router'
 import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 import { ComparisonCard } from './ComparisonCard'
+import { NoteCard } from './NoteCard'
 import { ScenarioBadges } from './ScenarioListPage'
 
 /** 1セルの入力内容。value が '' なら削除 */
@@ -630,6 +631,18 @@ function ValuesEditor({
             note: previousScenario ? scenarioLabel(previousScenario) : '未設定（シナリオ管理で指定します）',
           },
         ]}
+      />
+
+      <NoteCard
+        path={path}
+        view={v}
+        editable={editable}
+        dirty={dirty}
+        months={v.months}
+        current={currentRows}
+        base={baseScenario ? baseView.data?.amounts : undefined}
+        previous={previousScenario ? previousView.data?.amounts : undefined}
+        onSaved={setData}
       />
 
       {selected && selectedInfo && (
