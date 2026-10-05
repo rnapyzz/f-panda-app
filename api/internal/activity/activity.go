@@ -49,6 +49,9 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	handle("GET /api/activities/{id}", h.get)
 	handle("PUT /api/activities/{id}", h.update)
 	handle("DELETE /api/activities/{id}", h.delete)
+	handle("PUT /api/activities/{id}/priority", h.setPriority)
+	handle("PUT /api/activities/{id}/watch", h.watch)
+	handle("DELETE /api/activities/{id}/watch", h.unwatch)
 
 	handle("POST /api/activities/{id}/external-codes", h.createExternalCode)
 	handle("DELETE /api/activities/{id}/external-codes/{eid}", h.deleteExternalCode)
@@ -98,6 +101,8 @@ type activity struct {
 	// ConfidenceLevel は確度の段階のコード（confidence_levels.code）
 	ConfidenceLevel string `json:"confidence_level"`
 	Assumptions     string `json:"assumptions"`
+	// IsPriority は重点施策（共有の印）
+	IsPriority bool `json:"is_priority"`
 	timestamps
 
 	// unitOwnerID は所属するユニットの担当者。権限判定に使う。
@@ -108,6 +113,21 @@ type activity struct {
 type activityView struct {
 	activity
 	CanEdit bool `json:"can_edit"`
+	// CanManage は施策の作成・削除・重点施策の設定ができるか
+	CanManage bool `json:"can_manage"`
+	// IsWatched はログインユーザーがウォッチしているか（本人にだけ見える）
+	IsWatched bool `json:"is_watched"`
+}
+
+func viewOf(u auth.User, a activity, watched bool) activityView {
+	return activityView{activity: a, CanEdit: canEdit(u, a), CanManage: canManageUnit(u, a.unitOwnerID), IsWatched: watched}
+}
+
+// isWatched はユーザーが施策をウォッチしているかを返す。
+func isWatched(ctx context.Context, q dbx.Querier, userID, activityID int64) (bool, error) {
+	var n int
+	err := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM activity_watches WHERE user_id = ? AND activity_id = ?", userID, activityID).Scan(&n)
+	return n > 0, err
 }
 
 // activityDetail は施策の詳細（マイルストーン・ドライバー・計算式を含む）。
@@ -140,7 +160,7 @@ type reasonRequest struct {
 
 const activitySelect = `
 	SELECT a.id, a.unit_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
-	       a.owner_user_id, a.confidence_level, COALESCE(a.assumptions, ''), a.created_at, a.updated_at,
+	       a.owner_user_id, a.confidence_level, COALESCE(a.assumptions, ''), a.is_priority, a.created_at, a.updated_at,
 	       un.owner_user_id
 	FROM activities a JOIN units un ON un.id = a.unit_id`
 
@@ -149,7 +169,7 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	var start, end sql.NullTime
 	var owner, fnOwner sql.NullInt64
 	err := row.Scan(&a.ID, &a.UnitID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
-		&owner, &a.ConfidenceLevel, &a.Assumptions, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
+		&owner, &a.ConfidenceLevel, &a.Assumptions, &a.IsPriority, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
 	if err != nil {
 		return a, err
 	}
@@ -274,7 +294,8 @@ func inTx(r *http.Request, db *sql.DB, u auth.User, reason string, fn func(tx *s
 // --- 施策 ---
 
 // list は GET /api/activities。
-// クエリパラメーター unit_id / owner_user_id / activity_type / status / q（コード・名称の部分一致）で絞り込める。
+// クエリパラメーター unit_id / owner_user_id / activity_type / status / q（コード・名称の部分一致）、
+// priority=true（重点施策）/ watched=true（自分がウォッチしている施策）で絞り込める。
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	u, err := currentUser(r)
 	if err != nil {
@@ -299,6 +320,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 			args = append(args, s)
 		}
 	}
+	if q.Get("priority") == "true" {
+		where = append(where, "a.is_priority")
+	}
+	if q.Get("watched") == "true" {
+		where = append(where, "EXISTS (SELECT 1 FROM activity_watches w WHERE w.activity_id = a.id AND w.user_id = ?)")
+		args = append(args, u.ID)
+	}
 	if s := strings.TrimSpace(q.Get("q")); s != "" {
 		like := "%" + escapeLike(s) + "%"
 		where = append(where, "(a.code LIKE ? OR a.name LIKE ? OR EXISTS (SELECT 1 FROM activity_external_codes e WHERE e.activity_id = a.id AND e.code LIKE ?))")
@@ -310,6 +338,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	}
 	query += " ORDER BY a.code"
 
+	watched, err := h.watchedSet(r.Context(), u.ID)
+	if err != nil {
+		return err
+	}
 	rows, err := h.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
 		return err
@@ -321,7 +353,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		items = append(items, activityView{activity: a, CanEdit: canEdit(u, a)})
+		items = append(items, viewOf(u, a, watched[a.ID]))
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -345,7 +377,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	d := activityDetail{activityView: activityView{activity: a, CanEdit: canEdit(u, a)}}
+	watched, err := isWatched(ctx, h.db, u.ID, id)
+	if err != nil {
+		return err
+	}
+	d := activityDetail{activityView: viewOf(u, a, watched)}
 	if d.Milestones, err = listMilestones(ctx, h.db, id); err != nil {
 		return err
 	}
@@ -446,7 +482,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.WriteJSON(w, http.StatusCreated, activityView{activity: created, CanEdit: canEdit(u, created)})
+	httpx.WriteJSON(w, http.StatusCreated, viewOf(u, created, false))
 	return nil
 }
 
@@ -523,7 +559,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.WriteJSON(w, http.StatusOK, activityView{activity: updated, CanEdit: canEdit(u, updated)})
+	watched, err := isWatched(r.Context(), h.db, u.ID, updated.ID)
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, viewOf(u, updated, watched))
 	return nil
 }
 
@@ -608,7 +648,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		// 残っている施策 × シナリオの記録は、変更した日時だけ（説明・完了なし）なので一緒に消す
-		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones", "activity_scenario_notes"} {
+		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones", "activity_scenario_notes", "activity_watches"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE activity_id = ?", id); err != nil {
 				return err
 			}
@@ -758,4 +798,111 @@ func formatDate(t sql.NullTime) *string {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// --- 重点施策・ウォッチ（docs/plan.md「2.11」） ---
+
+// watchedSet はユーザーがウォッチしている施策の ID を返す。
+func (h *Handler) watchedSet(ctx context.Context, userID int64) (map[int64]bool, error) {
+	rows, err := h.db.QueryContext(ctx, "SELECT activity_id FROM activity_watches WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// setPriority は PUT /api/activities/{id}/priority。重点施策の印を付け外しする。
+// 施策の作成・削除の権限（所管ユニットのマネージャー、FP&A）が必要。変更は変更履歴に残す。
+func (h *Handler) setPriority(w http.ResponseWriter, r *http.Request) error {
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var req struct {
+		IsPriority bool   `json:"is_priority"`
+		Reason     string `json:"reason"`
+	}
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	var updated activity
+	err = inTx(r, h.db, u, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		before, err := findActivity(ctx, tx, id, " FOR UPDATE")
+		if err != nil {
+			return err
+		}
+		if !canManageUnit(u, before.unitOwnerID) {
+			return httpx.Forbidden()
+		}
+		updated = before
+		if before.IsPriority == req.IsPriority {
+			return nil
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE activities SET is_priority = ? WHERE id = ?", req.IsPriority, id); err != nil {
+			return err
+		}
+		if updated, err = findActivity(ctx, tx, id, ""); err != nil {
+			return err
+		}
+		return rec.Update(ctx, "activities", id, before, updated)
+	})
+	if err != nil {
+		return err
+	}
+	watched, err := isWatched(ctx, h.db, u.ID, id)
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, viewOf(u, updated, watched))
+	return nil
+}
+
+// watch は PUT /api/activities/{id}/watch。ログインユーザー本人のウォッチ（気になる施策）に加える。
+// 本人にだけ見える印なので、変更履歴には残さない。
+func (h *Handler) watch(w http.ResponseWriter, r *http.Request) error {
+	return h.setWatch(w, r, true)
+}
+
+// unwatch は DELETE /api/activities/{id}/watch。
+func (h *Handler) unwatch(w http.ResponseWriter, r *http.Request) error {
+	return h.setWatch(w, r, false)
+}
+
+func (h *Handler) setWatch(w http.ResponseWriter, r *http.Request, on bool) error {
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+	if _, err := findActivity(ctx, h.db, id, ""); err != nil {
+		return err
+	}
+	if on {
+		_, err = h.db.ExecContext(ctx, "INSERT IGNORE INTO activity_watches (user_id, activity_id) VALUES (?, ?)", u.ID, id)
+	} else {
+		_, err = h.db.ExecContext(ctx, "DELETE FROM activity_watches WHERE user_id = ? AND activity_id = ?", u.ID, id)
+	}
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"activity_id": id, "is_watched": on})
+	return nil
 }

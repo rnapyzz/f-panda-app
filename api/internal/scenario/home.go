@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
@@ -48,10 +49,16 @@ type activityStatus struct {
 	OwnerUserID    *int64     `json:"owner_user_id"`
 	Status         string     `json:"status"`
 	HasExplanation bool       `json:"has_explanation"`
+	Explanation    string     `json:"explanation"`
+	Causes         []string   `json:"causes"`
+	IsPriority     bool       `json:"is_priority"`
+	IsWatched      bool       `json:"is_watched"`
 	LastEditedAt   *time.Time `json:"last_edited_at"`
 	CompletedAt    *time.Time `json:"completed_at"`
 	Current        plTotals   `json:"current"`
 	Base           *plTotals  `json:"base"`
+	Initial        *plTotals  `json:"initial"` // 期初計画（マネージャーのサービスの状況）
+	Revised        *plTotals  `json:"revised"` // 修正計画
 	Previous       *plTotals  `json:"previous"`
 	Accuracy       *accuracy  `json:"accuracy"`
 }
@@ -60,6 +67,8 @@ type activityStatusResponse struct {
 	Scenario Scenario     `json:"scenario"`
 	Scope    string       `json:"scope"`
 	Base     *scenarioRef `json:"base"`
+	Initial  *scenarioRef `json:"initial"`
+	Revised  *scenarioRef `json:"revised"`
 	Previous *scenarioRef `json:"previous"`
 	// NewActualMonths は、前回見込より新しく実績になった月（実績のお知らせ）
 	NewActualMonths []string         `json:"new_actual_months"`
@@ -96,6 +105,12 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 	if resp.Base, err = baseScenarioOf(ctx, h.db, s.FiscalYear); err != nil {
 		return err
 	}
+	if resp.Initial, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "initial"); err != nil {
+		return err
+	}
+	if resp.Revised, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "revised"); err != nil {
+		return err
+	}
 	if s.PreviousScenarioID != nil {
 		p, err := findScenario(ctx, h.db, *s.PreviousScenarioID, "")
 		if err != nil {
@@ -119,12 +134,13 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 		where, args = " WHERE un.owner_user_id = ? OR a.owner_user_id = ?", []any{u.ID, u.ID}
 	}
 	rows, err := h.db.QueryContext(ctx, `
-		SELECT a.id, a.code, a.name, a.unit_id, a.owner_user_id,
-		       n.explanation IS NOT NULL AND n.explanation <> '', n.last_edited_at, n.completed_at
+		SELECT a.id, a.code, a.name, a.unit_id, a.owner_user_id, a.is_priority, w.user_id IS NOT NULL,
+		       COALESCE(n.explanation, ''), COALESCE(n.causes, ''), n.last_edited_at, n.completed_at
 		FROM activities a
 		JOIN units un ON un.id = a.unit_id
-		LEFT JOIN activity_scenario_notes n ON n.activity_id = a.id AND n.scenario_id = ?`+where+`
-		ORDER BY a.code`, append([]any{id}, args...)...)
+		LEFT JOIN activity_scenario_notes n ON n.activity_id = a.id AND n.scenario_id = ?
+		LEFT JOIN activity_watches w ON w.activity_id = a.id AND w.user_id = ?`+where+`
+		ORDER BY a.code`, append([]any{id, u.ID}, args...)...)
 	if err != nil {
 		return err
 	}
@@ -132,16 +148,20 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 	for rows.Next() {
 		var it activityStatus
 		var owner sql.NullInt64
-		var hasExpl sql.NullBool
+		var causes string
 		var edited, completed sql.NullTime
-		if err := rows.Scan(&it.ActivityID, &it.Code, &it.Name, &it.UnitID, &owner, &hasExpl, &edited, &completed); err != nil {
+		if err := rows.Scan(&it.ActivityID, &it.Code, &it.Name, &it.UnitID, &owner, &it.IsPriority, &it.IsWatched, &it.Explanation, &causes, &edited, &completed); err != nil {
 			rows.Close()
 			return err
 		}
 		if owner.Valid {
 			it.OwnerUserID = &owner.Int64
 		}
-		it.HasExplanation = hasExpl.Bool
+		it.HasExplanation = it.Explanation != ""
+		it.Causes = []string{}
+		if causes != "" {
+			it.Causes = strings.Split(causes, ",")
+		}
 		if edited.Valid {
 			it.LastEditedAt = &edited.Time
 		}
@@ -188,6 +208,16 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 			return err
 		}
 	}
+	if resp.Initial != nil {
+		if err := fill(resp.Initial.ID, func(it *activityStatus, t plTotals) { it.Initial = &t }); err != nil {
+			return err
+		}
+	}
+	if resp.Revised != nil {
+		if err := fill(resp.Revised.ID, func(it *activityStatus, t plTotals) { it.Revised = &t }); err != nil {
+			return err
+		}
+	}
 	if resp.Previous != nil {
 		if err := fill(resp.Previous.ID, func(it *activityStatus, t plTotals) { it.Previous = &t }); err != nil {
 			return err
@@ -227,6 +257,18 @@ func baseScenarioOf(ctx context.Context, db *sql.DB, fiscalYear int) (*scenarioR
 	s, err := scanScenario(db.QueryRowContext(ctx, scenarioSelect+`
 		WHERE fiscal_year = ?
 		ORDER BY CASE plan_role WHEN 'revised' THEN 0 WHEN 'initial' THEN 1 ELSE 2 END, id LIMIT 1`, fiscalYear))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &scenarioRef{ID: s.ID, Name: s.Name, PlanRole: s.PlanRole, ActualThrough: s.ActualThrough}, nil
+}
+
+// roleScenarioOf は年度でエイリアス（initial / revised）を持つシナリオを返す（なければ nil）。
+func roleScenarioOf(ctx context.Context, db *sql.DB, fiscalYear int, role string) (*scenarioRef, error) {
+	s, err := scanScenario(db.QueryRowContext(ctx, scenarioSelect+" WHERE fiscal_year = ? AND plan_role = ?", fiscalYear, role))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

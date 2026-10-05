@@ -29,6 +29,17 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await expect(notice).toContainText('4月の実績が反映されました')
   await expect(notice.getByRole('link', { name: activity.name })).toBeVisible()
 
+  // サービスの状況（FP&A は「すべて」）: ユニットごとの今回・期初計画・前回見込と差
+  const service = page.getByRole('table', { name: 'サービスの状況' })
+  const unitRow = service.getByRole('row', { name: new RegExp(`E2E課 ${f.run}`) })
+  await expect(unitRow).toContainText('800,000')
+  await expect(unitRow).toContainText('1,000,000')
+  await expect(unitRow).toContainText('-200,000')
+  await expect(unitRow).toContainText('-400,000')
+  // ユニット名を選ぶと、一覧がそのユニットに絞り込まれる
+  await unitRow.getByRole('button', { name: `E2E課 ${f.run}` }).click()
+  await expect(page.getByRole('button', { name: `E2E課 ${f.run}`, pressed: true })).toBeVisible()
+
   // 一覧: 自分のユニットに絞り込み、状態と差を確認する
   const unitFilter = page.getByRole('combobox', { name: 'ユニット' })
   if (await unitFilter.isVisible()) await unitFilter.selectOption({ label: `E2E課 ${f.run}` }) // ユニットが複数あるときだけ表示される

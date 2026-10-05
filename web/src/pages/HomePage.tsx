@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { query } from '../api/client'
 import { noteStatusLabels, type ActivityProgress, type ActivityProgressReport, type List, type Unit, type User } from '../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../components/ui'
+import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
 import { formatDateTime, formatYen, monthLabel } from '../lib/format'
@@ -9,6 +10,7 @@ import { countByStatus, profitDiff, profitOf, sortStatuses, type SortMode } from
 import { Link } from '../lib/router'
 import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
 import { useApi } from '../lib/useApi'
+import { ServiceStatusCard } from './ServiceStatusCard'
 
 type Scope = ActivityProgressReport['scope']
 
@@ -101,6 +103,8 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
         </Card>
       )}
 
+      {scope !== 'mine' && <ServiceStatusCard report={r} items={r.items} units={units.data.items} selectedUnit={unitId} onSelectUnit={setUnitId} />}
+
       <Card
         title={
           <span className="flex flex-wrap items-center gap-3">
@@ -191,10 +195,14 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
   return (
     <tr>
       <td>
-        <Link to={`/scenarios/${scenarioId}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
-          {it.name}
-        </Link>
-        <div className="font-mono text-xs text-slate-400">{it.code}</div>
+        <span className="inline-flex items-center gap-1.5">
+          <WatchButton activityId={it.activity_id} name={it.name} watched={it.is_watched} />
+          <Link to={`/scenarios/${scenarioId}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
+            {it.name}
+          </Link>
+          {it.is_priority && <PriorityBadge />}
+        </span>
+        <div className="pl-6 font-mono text-xs text-slate-400">{it.code}</div>
       </td>
       <td className="text-slate-600">{unit}</td>
       <td className="text-slate-600">{owner ?? '未設定'}</td>

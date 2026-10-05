@@ -93,7 +93,13 @@ export type Activity = Timestamps & {
   /** 確度の段階のコード（例: C） */
   confidence_level: string
   assumptions: string
+  /** 重点施策（共有の印） */
+  is_priority: boolean
   can_edit: boolean
+  /** 施策の作成・削除・重点施策の設定ができるか */
+  can_manage: boolean
+  /** ログインユーザーがウォッチしているか（本人にだけ見える） */
+  is_watched: boolean
 }
 
 /** 確度の段階（判定基準つき）。FP&A がマスタで管理する */
@@ -437,10 +443,16 @@ export type ActivityProgress = {
   owner_user_id: number | null
   status: NoteStatus
   has_explanation: boolean
+  explanation: string
+  causes: NoteCause[]
+  is_priority: boolean
+  is_watched: boolean
   last_edited_at: string | null
   completed_at: string | null
   current: PLTotals
   base: PLTotals | null
+  initial: PLTotals | null
+  revised: PLTotals | null
   previous: PLTotals | null
   /** 新しく実績になった月の、前回見込の計画値と実績の差 */
   accuracy: { plan: PLTotals; actual: PLTotals; rate: number | null; large: boolean } | null
@@ -451,6 +463,8 @@ export type ActivityProgressReport = {
   scenario: Scenario
   scope: 'mine' | 'units' | 'all'
   base: ScenarioRef | null
+  initial: ScenarioRef | null
+  revised: ScenarioRef | null
   previous: ScenarioRef | null
   new_actual_months: string[]
   items: ActivityProgress[]
