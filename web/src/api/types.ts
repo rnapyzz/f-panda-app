@@ -335,13 +335,113 @@ export type ValuesView = {
 export type ImportResult = {
   dry_run: boolean
   months: string[]
+  /** CSV のデータ行数 */
   rows: number
+  /** 対象外の会計科目の行数 */
+  excluded: number
+  /** 割当の根拠ごとの行数 */
+  allocation: Record<AllocatedBy, number>
   facts: number
   inserted: number
   updated: number
   deleted: number
   unchanged: number
-  totals: { month: string; revenue: string; expense: string }[]
+  totals: { month: string; revenue: string; expense: string; unallocated_revenue: string; unallocated_expense: string }[]
+}
+
+// --- 実績の割当（docs/plan.md「2.12」） ---
+
+export type GLAccount = {
+  id: number
+  code: string
+  name: string
+  /** アプリの科目。対象外なら null */
+  subject_id: number | null
+  is_excluded: boolean
+  /** 明細を FP&A 以外に見せない */
+  hide_details: boolean
+}
+
+export type AllocationRule = {
+  id: number
+  gl_account_id: number
+  gl_account_code: string
+  gl_account_name: string
+  /** null は全部門 */
+  department_code: string | null
+  activity_id: number
+  activity_code: string
+  activity_name: string
+}
+
+export type AllocatedBy = 'activity_code' | 'external_code' | 'rule' | 'manual' | 'unallocated'
+
+export const allocatedByLabels: Record<AllocatedBy, string> = {
+  activity_code: '施策コード',
+  external_code: '外部コード',
+  rule: '割当ルール',
+  manual: '未割当の一覧から選択',
+  unallocated: '未割当',
+}
+
+export type UnallocatedGroup = {
+  key: string
+  box_code: string | null
+  /** 箱の ID がないまとまりのみ */
+  gl_account_id: number | null
+  department_code: string | null
+  accounts: string[]
+  months: string[]
+  count: number
+  revenue: string
+  expense: string
+  description: string
+}
+
+export type UnallocatedList = {
+  items: UnallocatedGroup[]
+  count: number
+  revenue: string
+  expense: string
+}
+
+export type ActivityChange = {
+  activity: { id: number; code: string; name: string } | null
+  revenue: string
+  expense: string
+}
+
+export type ReallocateResult = {
+  dry_run: boolean
+  months: string[]
+  entries: number
+  changed: number
+  removed: number
+  changes: ActivityChange[]
+}
+
+export type ActualEntry = {
+  id: number
+  target_month: string
+  gl_account_code: string
+  gl_account_name: string
+  subject_id: number
+  department_code: string | null
+  box_code: string | null
+  description: string
+  amount: string
+  allocated_by: AllocatedBy
+}
+
+export type ActualEntries = {
+  month: string
+  /** 施策の実績がある月 */
+  months: string[]
+  items: ActualEntry[]
+  /** 明細を見せない会計科目の合計 */
+  hidden: { gl_account_code: string; gl_account_name: string; subject_id: number; count: number; amount: string }[]
+  entries_total: string
+  fact_total: string
 }
 
 // --- 予実比較 ---
@@ -356,7 +456,8 @@ export type ReportSeries = {
 }
 
 export type ReportRow = {
-  unit_id: number
+  /** null は未割当の実績（ユニットを指定しないときだけ返る） */
+  unit_id: number | null
   activity_id?: number
   subject_id: number
   month: string

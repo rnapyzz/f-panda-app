@@ -7,15 +7,18 @@ import { Link, useLocation } from '../lib/router'
 import {
   IconActivities,
   IconAdmin,
+  IconAllocate,
   IconClose,
   IconCollapse,
   IconConfidence,
   IconHistory,
   IconHome,
+  IconLedger,
   IconLogout,
   IconMenu,
   IconOrganizations,
   IconReports,
+  IconRules,
   IconRisks,
   IconScenarios,
   IconSegments,
@@ -55,6 +58,8 @@ const navGroups: NavGroup[] = [
       { to: '/masters/segments', label: 'セグメント', icon: IconSegments },
       { to: '/masters/units', label: 'ユニット', icon: IconUnits },
       { to: '/masters/subjects', label: '勘定科目', icon: IconSubjects },
+      { to: '/masters/gl-accounts', label: '会計科目', icon: IconLedger },
+      { to: '/masters/allocation-rules', label: '割当ルール', icon: IconRules },
       { to: '/masters/confidence-levels', label: '確度の段階', icon: IconConfidence },
       { to: '/masters/users', label: 'ユーザー', icon: IconUsers },
     ],
@@ -62,7 +67,10 @@ const navGroups: NavGroup[] = [
   {
     label: '管理',
     adminOnly: true,
-    items: [{ to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin }],
+    items: [
+      { to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin },
+      { to: '/admin/actuals', label: '実績の割当', icon: IconAllocate },
+    ],
   },
 ]
 

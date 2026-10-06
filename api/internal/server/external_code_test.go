@@ -84,7 +84,7 @@ func TestExternalCodes(t *testing.T) {
 	}
 
 	// 実績 CSV は外部コードでも取り込め、同じ施策の行は合算される
-	csv := "target_month,activity_code,subject_code,amount\n" +
+	csv := "target_month,box_code,account_code,amount\n" +
 		"2026-09,P-1001,4110,1000\n" +
 		"2026-09,P-1002,4110,250\n" +
 		"2026-09,PRJ-1,4110,5\n"

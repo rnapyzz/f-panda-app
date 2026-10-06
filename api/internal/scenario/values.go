@@ -24,6 +24,9 @@ const (
 	maxReasonLen       = 2000
 )
 
+// errDryRun は試算（dry run）でトランザクションをロールバックさせるためのエラー。
+var errDryRun = errors.New("dry run")
+
 // maxAmount は budget_facts.amount（DECIMAL(18,0)）に入る絶対値の上限。
 var maxAmount = new(big.Int).Sub(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil), big.NewInt(1))
 

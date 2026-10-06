@@ -150,3 +150,27 @@ export const IconHome = (p: P) => (
     <path d="M6 9.5V20h12V9.5M10 20v-5h4v5" />
   </Icon>
 )
+
+/** 会計科目: 台帳 */
+export const IconLedger = (p: P) => (
+  <Icon {...p}>
+    <rect x="4.5" y="3.5" width="15" height="17" rx="1.5" />
+    <path d="M8 3.5v17M11 8h5.5M11 12h5.5M11 16h3.5" />
+  </Icon>
+)
+
+/** 割当ルール: 分岐する矢印 */
+export const IconRules = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 12h6M10 12l5-5h4.5M10 12l5 5h4.5" />
+    <path d="M17.5 5l2 2-2 2M17.5 15l2 2-2 2" />
+  </Icon>
+)
+
+/** 実績の割当: 受け皿に入る */
+export const IconAllocate = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3.5v9M8.5 9l3.5 3.5L15.5 9" />
+    <path d="M4 14.5v3A2 2 0 0 0 6 19.5h12a2 2 0 0 0 2-2v-3" />
+  </Icon>
+)

@@ -27,7 +27,7 @@ type Axis = 'segment' | 'organization'
 /** 表の1行（階層ノード・ユニット・施策） */
 type Node = {
   key: string
-  type: 'tree' | 'unit' | 'activity'
+  type: 'tree' | 'unit' | 'activity' | 'unallocated'
   id: number
   name: string
   depth: number
@@ -165,11 +165,14 @@ function ReportView({
   // ユニットの種別で絞り込む（表の行と、集計の対象の両方）
   const shownUnits = useMemo(() => units.filter((f) => !settings.unitType || f.unit_type === settings.unitType), [units, settings.unitType])
   const shownUnitIds = useMemo(() => new Set(shownUnits.map((f) => f.id)), [shownUnits])
-  const reportRows = useMemo(() => (data?.rows ?? []).filter((r) => shownUnitIds.has(r.unit_id)), [data, shownUnitIds])
+  const reportRows = useMemo(() => (data?.rows ?? []).filter((r) => r.unit_id !== null && shownUnitIds.has(r.unit_id)), [data, shownUnitIds])
+  // 未割当の実績（docs/plan.md「2.12」）。全社の合計を会計と一致させるため、ユニットの種別で絞り込んでいないときだけ含める
+  const unallocatedRows = useMemo(() => (settings.unitType ? [] : (data?.rows ?? []).filter((r) => r.unit_id === null)), [data, settings.unitType])
+  const unallocatedNode: Node = { key: 'unallocated', type: 'unallocated', id: 0, name: '未割当', depth: 0, children: [], include: (row) => row.unit_id === null, source: 'unit' }
   const roots = useMemo(() => buildNodes(tree, settings.axis, shownUnits, activities, activityRows), [tree, settings.axis, shownUnits, activities, activityRows])
 
   const totalsOf = (n: Node): Map<string, Totals> => {
-    const rows = n.source === 'activity' ? activityRows.get(unitOfActivity(n, activities)) ?? [] : reportRows
+    const rows = n.source === 'activity' ? activityRows.get(unitOfActivity(n, activities)) ?? [] : n.type === 'unallocated' ? unallocatedRows : reportRows
     return aggregate(rows, seriesKeys, categoryOf, n.include, periodMonths)
   }
 
@@ -195,7 +198,7 @@ function ReportView({
   const scenarioLabel = (s: Scenario) => `${labelOf(s)}${s.is_locked ? '・ロック' : ''}`
 
   // 全体（ルートの合計）
-  const allTotals = data ? aggregate(reportRows, seriesKeys, categoryOf, () => true, periodMonths) : null
+  const allTotals = data ? aggregate([...reportRows, ...unallocatedRows], seriesKeys, categoryOf, () => true, periodMonths) : null
 
   return (
     <>
@@ -325,7 +328,7 @@ function ReportView({
                     />
                   )}
                   <NodeRows
-                    nodes={roots}
+                    nodes={unallocatedRows.length > 0 ? [...roots, unallocatedNode] : roots}
                     expanded={expanded}
                     totalsOf={totalsOf}
                     series={data.series}
@@ -396,7 +399,7 @@ function NodeRows({
         const empty = [...totals.values()].every((t) => t.revenue === 0n && t.expense === 0n)
         if (hideEmpty && empty && n.type !== 'tree') return null
         if (hideEmpty && empty && n.type === 'tree' && !hasFunctions(n)) return null
-        const expandable = n.type !== 'activity' && (n.children.length > 0 || n.type === 'unit')
+        const expandable = n.type !== 'activity' && n.type !== 'unallocated' && (n.children.length > 0 || n.type === 'unit')
         const isOpen = expanded.has(n.key)
         return (
           <Fragment key={n.key}>
@@ -421,6 +424,11 @@ function NodeRows({
                   )}
                   {n.type === 'unit' && <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] whitespace-nowrap text-indigo-700">ユニット</span>}
                   {n.type === 'activity' && <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] whitespace-nowrap text-slate-600">施策</span>}
+                  {n.type === 'unallocated' && (
+                    <span className="shrink-0 rounded bg-amber-50 px-1 text-[10px] whitespace-nowrap text-amber-700" title="どの施策にも割り当てられていない実績。FP&A が実績の割当で解消します">
+                      実績
+                    </span>
+                  )}
                   <span className={cx(n.type === 'tree' && 'font-medium', empty && 'text-slate-400')}>{n.name}</span>
                 </span>
               }
@@ -747,7 +755,7 @@ function buildNodes(tree: Tree, axis: Axis, units: Unit[], activities: Activity[
       name: t.name,
       depth,
       source: 'unit',
-      include: (row) => fnIds.has(row.unit_id),
+      include: (row) => row.unit_id !== null && fnIds.has(row.unit_id),
       children: [...(tree.children.get(t.id) ?? []).map((c) => treeNode(c, depth + 1)), ...(fnByNode.get(t.id) ?? []).map((f) => unitNode(f, depth + 1))],
     }
   }

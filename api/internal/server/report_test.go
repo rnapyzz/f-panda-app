@@ -44,7 +44,7 @@ func TestComparisonReport(t *testing.T) {
 	// 同じユニットの別施策にも金額を入れ、ユニット単位では合算されることを確認する
 	amounts(f.budget, f.formulaAct, amt(f.cost, "2026-04", 50))
 
-	csv := "target_month,activity_code,subject_code,amount\n2026-04,PRJ-1,4110,900\n2026-10,PRJ-1,4110,9999\n"
+	csv := "target_month,box_code,account_code,amount\n2026-04,PRJ-1,4110,900\n2026-10,PRJ-1,4110,9999\n"
 	if status, body := f.admin.upload("/api/actuals/import", csv, "実績取込"); status != http.StatusOK {
 		t.Fatalf("実績取込: status = %d, body = %v", status, body)
 	}
