@@ -63,13 +63,15 @@
 
 ## マスタ管理 API
 
-組織・セグメント・ユニット・勘定科目・ユーザー・確度の段階の CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
+組織・セグメント・ユニット・勘定科目・会計科目・割当ルール・ユーザー・確度の段階の CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
 
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
+| 会計科目                       | `GET/POST /api/gl-accounts`、`PUT/DELETE /api/gl-accounts/{id}`（コード・名前・対応する科目 `subject_id`・対象外 `is_excluded`・明細を FP&A 以外に見せない `hide_details`。明細から参照されている会計科目は削除できない） |
+| 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
 | 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策・内訳から参照されている段階は削除できない） |
 
@@ -92,6 +94,7 @@
 | -------------- | --------------------------------------------------------------------------------------- |
 | 施策           | `GET/POST /api/activities`、`GET/PUT/DELETE /api/activities/{id}`                        |
 | 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
+| 実績の明細     | `GET /api/activities/{id}/actual-entries?month=&subject_id=`（会計科目・部門・箱の ID・摘要・金額・割当の根拠。`hide_details` の会計科目は、FP&A 以外には会計科目 × 月の合計だけを返す） |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 重点施策       | `PUT /api/activities/{id}/priority`（`is_priority`。施策の作成・削除の権限が必要。変更履歴に残す） |
@@ -144,12 +147,21 @@
 
 `POST /api/actuals/import`（FP&A のみ）
 
-- `multipart/form-data` で `file`（CSV）と `reason`（変更理由）を送る。形式は docs/plan.md「6.1 実績 CSV の形式」
-- 取込先は実績データ（`actual_facts`）。シナリオは指定しない
+- `multipart/form-data` で `file`（CSV）と `reason`（変更理由）を送る。形式は docs/plan.md「6.1 実績 CSV の形式（会計の明細）」
+- 各行を docs/plan.md「2.12」の順番（施策コード・外部コード → 割当ルール → 未割当）で施策に割り当て、明細（`actual_entries`）を対象月ごとに置き換え、合計（`actual_facts`）を差分で更新する。シナリオは指定しない
 - `?dry_run=true` を付けると、検証と集計だけを行い保存しない（理由は不要）
-- レスポンス: 取り込んだ月、データ行数、合算後の件数、追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用）
-- CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。1件もエラーがなければ保存する
+- レスポンス: 取り込んだ月、データ行数、対象外の行数、割当の根拠ごと（`activity_code` / `external_code` / `rule` / `unallocated`）の件数と金額、合計の追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用。未割当を含む）
+- CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。未登録の会計科目は `error.unknown_accounts`（コードと件数）にまとめて返す。1件もエラーがなければ保存する
 - `GET /api/actuals/months?fiscal_year=`: 実績を取り込み済みの月（決算確定月の既定値に使う）
+
+| API | 内容 | 権限 |
+| --- | ---- | ---- |
+| `GET /api/actuals/unallocated?fiscal_year=` | 未割当の一覧。箱の ID がある行は箱の ID ごと、ない行は会計科目 × 部門ごとにまとめ、月・件数・金額・摘要の例を返す | FP&A |
+| `POST /api/actuals/unallocated/assign` | 未割当のまとまり（`box_code`、または `gl_account_id` と `department_code`）を施策（`activity_id`）に割り当てる。箱の ID は外部コードとして、会計科目 × 部門は割当ルールとして登録し、同じまとまりの未割当の行（すべての月）を割り当てる。`reason` 必須 | FP&A |
+| `POST /api/actuals/reallocate` | 指定した月（`months`）の明細に、今の外部コード・割当ルールを当て直す。`reason` 必須。`dry_run: true` で施策ごとの増減だけを返す | FP&A |
+
+- 明細の行は変更セットに紐づけて保存し、行ごとの監査ログは残さない。監査ログには合計（`actual_facts`）の変更と、外部コード・割当ルールの追加を残す
+- 未割当は `actual_facts.activity_id` が NULL の行として持つ。ロック時の `scenario_actuals` にも含める
 
 ## 予実比較 API
 
@@ -158,7 +170,7 @@
 - `scenario_ids`: 比較するシナリオ（カンマ区切り、最大4つ）。先頭が差異の基準
 - 各シナリオの金額は、決算確定月以前は実績、それより後は計画値（着地見込の指定は廃止）
 - `include_actual=true`: 実績データ（取込済みの月）を系列に加える
-- `unit_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する
+- `unit_id`: 指定するとそのユニットの施策ごと、指定しなければユニットごとに集計する。ユニットを指定しないときは、未割当の実績を `unit_id: null` の行として返す（全社の合計を会計と一致させるため）
 - `measure`: `full`（満額、既定）/ `weighted`（加重見込）/ `optimistic`（楽観）/ `pessimistic`（悲観）。確度の段階と見通しの種類による算出は docs/plan.md「2.8」。実績の月はどれも実績の金額
 - レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
@@ -168,8 +180,8 @@
 
 | API | 内容 | 権限 |
 | --- | ---- | ---- |
-| `GET /api/{organizations,segments,units,subjects,users,activities}/export` | CSV（BOM 付き UTF-8）をダウンロード | 全員 |
-| `POST /api/{organizations,segments,units,subjects,users,activities}/import` | CSV を取込（`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | FP&A |
+| `GET /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,activities}/export` | CSV（BOM 付き UTF-8）をダウンロード | 全員 |
+| `POST /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,activities}/import` | CSV を取込（`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | FP&A |
 
 - 形式と取込のルールは docs/plan.md「6.2」
 - 共通処理（アップロードの読込、ヘッダーと行の検証、行エラー、結果、CSV の書き出し）は `internal/csvio`
