@@ -68,6 +68,12 @@ type Row struct {
 	values map[string]string
 }
 
+// Has は列がヘッダーにあるかを返す（省略できる列の判定に使う）。
+func (r Row) Has(column string) bool {
+	_, ok := r.values[column]
+	return ok
+}
+
 // Get は列の値を前後の空白を除いて返す。
 func (r Row) Get(column string) string {
 	return strings.TrimSpace(r.values[column])
@@ -75,6 +81,11 @@ func (r Row) Get(column string) string {
 
 // Parse は CSV を読み込み、ヘッダーが columns と一致すること（順番は問わない）を確認して行を返す。
 func Parse(data []byte, columns []string) ([]Row, error) {
+	return ParseWithOptional(data, columns, nil)
+}
+
+// ParseWithOptional は Parse と同じだが、optional の列はヘッダーになくてもよい（値は空として読む）。
+func ParseWithOptional(data []byte, columns, optional []string) ([]Row, error) {
 	data = bytes.TrimPrefix(data, bom)
 	if !utf8.Valid(data) {
 		return nil, httpx.BadRequest("CSV の文字コードが UTF-8 ではありません。UTF-8 で保存してください")
@@ -93,12 +104,27 @@ func Parse(data []byte, columns []string) ([]Row, error) {
 	for i, h := range header {
 		index[strings.ToLower(strings.TrimSpace(h))] = i
 	}
+	headerError := "CSV のヘッダー行は " + strings.Join(columns, ",") + " にしてください（順番は自由）"
+	if len(optional) > 0 {
+		headerError = "CSV のヘッダー行は " + strings.Join(columns, ",") + "（必須）と " + strings.Join(optional, ",") + "（省略可）にしてください（順番は自由）"
+	}
+	present := 0
 	for _, c := range columns {
-		if _, ok := index[c]; !ok || len(header) != len(columns) {
-			return nil, httpx.BadRequest("CSV のヘッダー行は " + strings.Join(columns, ",") + " にしてください（順番は自由）")
+		if _, ok := index[c]; !ok {
+			return nil, httpx.BadRequest(headerError)
+		}
+		present++
+	}
+	all := append(append([]string{}, columns...), optional...)
+	for _, c := range optional {
+		if _, ok := index[c]; ok {
+			present++
 		}
 	}
-	r.FieldsPerRecord = len(columns)
+	if len(header) != present || len(index) != len(header) {
+		return nil, httpx.BadRequest(headerError)
+	}
+	r.FieldsPerRecord = len(header)
 
 	var rows []Row
 	errs := &RowErrors{}
@@ -110,7 +136,7 @@ func Parse(data []byte, columns []string) ([]Row, error) {
 		var parseErr *csv.ParseError
 		if errors.As(err, &parseErr) {
 			if errors.Is(parseErr.Err, csv.ErrFieldCount) {
-				errs.Add(parseErr.Line, "列の数が %d ではありません", len(columns))
+				errs.Add(parseErr.Line, "列の数が %d ではありません", len(header))
 				continue
 			}
 			errs.Add(parseErr.Line, "CSV の形式が正しくありません: %v", parseErr.Err)
@@ -125,8 +151,10 @@ func Parse(data []byte, columns []string) ([]Row, error) {
 			break
 		}
 		values := map[string]string{}
-		for _, c := range columns {
-			values[c] = rec[index[c]]
+		for _, c := range all {
+			if i, ok := index[c]; ok {
+				values[c] = rec[i]
+			}
 		}
 		rows = append(rows, Row{Line: line, values: values})
 	}

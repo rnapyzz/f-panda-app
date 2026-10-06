@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
@@ -21,24 +22,28 @@ type user struct {
 	Email    string    `json:"email"`
 	Role     auth.Role `json:"role"`
 	IsActive bool      `json:"is_active"`
+	// SlackUserID は Slack のメンバー ID（通知のメンション用、docs/plan.md「2.13」）。空は未登録
+	SlackUserID string `json:"slack_user_id"`
 	// HasPassword は、パスワードが設定されているか（CSV で追加したユーザーは未設定）
 	HasPassword bool `json:"has_password"`
 	timestamps
 }
 
 type userCreateRequest struct {
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Role     auth.Role `json:"role"`
-	Password string    `json:"password"`
+	Name        string    `json:"name"`
+	Email       string    `json:"email"`
+	Role        auth.Role `json:"role"`
+	Password    string    `json:"password"`
+	SlackUserID string    `json:"slack_user_id"`
 	reasonRequest
 }
 
 type userUpdateRequest struct {
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Role     auth.Role `json:"role"`
-	IsActive bool      `json:"is_active"`
+	Name        string    `json:"name"`
+	Email       string    `json:"email"`
+	Role        auth.Role `json:"role"`
+	IsActive    bool      `json:"is_active"`
+	SlackUserID string    `json:"slack_user_id"`
 	reasonRequest
 }
 
@@ -47,11 +52,11 @@ type passwordRequest struct {
 	reasonRequest
 }
 
-const userSelect = "SELECT id, name, email, role, is_active, password_hash <> '" + unusablePasswordHash + "', created_at, updated_at FROM users"
+const userSelect = "SELECT id, name, email, role, is_active, COALESCE(slack_user_id, ''), password_hash <> '" + unusablePasswordHash + "', created_at, updated_at FROM users"
 
 func scanUser(row interface{ Scan(...any) error }) (user, error) {
 	var u user
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.IsActive, &u.HasPassword, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.IsActive, &u.SlackUserID, &u.HasPassword, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 
@@ -108,6 +113,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) error {
 	}
 	v := httpx.Validator{}
 	name, email := validateUserFields(v, req.Name, req.Email, req.Role)
+	slackID := validateSlackID(v, req.SlackUserID)
 	if err := password.Validate(req.Password); err != nil {
 		v.Add("password", err.Error())
 	}
@@ -123,8 +129,8 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) error {
 	var created user
 	err = inTx(ctx, h.db, r, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
-			name, email, hash, req.Role,
+			"INSERT INTO users (name, email, password_hash, role, slack_user_id) VALUES (?, ?, ?, ?, ?)",
+			name, email, hash, req.Role, dbx.NullString(slackID),
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"email": "このメールアドレスは既に登録されています"})
@@ -161,6 +167,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) error {
 	}
 	v := httpx.Validator{}
 	name, email := validateUserFields(v, req.Name, req.Email, req.Role)
+	slackID := validateSlackID(v, req.SlackUserID)
 	if err := v.Err(); err != nil {
 		return err
 	}
@@ -182,8 +189,8 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		_, err = tx.ExecContext(ctx,
-			"UPDATE users SET name = ?, email = ?, role = ?, is_active = ? WHERE id = ?",
-			name, email, req.Role, req.IsActive, id,
+			"UPDATE users SET name = ?, email = ?, role = ?, is_active = ?, slack_user_id = ? WHERE id = ?",
+			name, email, req.Role, req.IsActive, dbx.NullString(slackID), id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"email": "このメールアドレスは既に登録されています"})
@@ -246,6 +253,18 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// slackIDPattern は Slack のメンバー ID の形式（例: U012AB3CD）。
+var slackIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,19}$`)
+
+// validateSlackID は Slack のメンバー ID を検証する。空は未登録。
+func validateSlackID(v httpx.Validator, s string) string {
+	s = strings.TrimSpace(s)
+	if s != "" && !slackIDPattern.MatchString(s) {
+		v.Add("slack_user_id", "Slack のメンバー ID は U または W で始まる英大文字・数字で入力してください（例: U012AB3CD）")
+	}
+	return s
 }
 
 func validateUserFields(v httpx.Validator, name, email string, role auth.Role) (string, string) {

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { query } from '../api/client'
 import { noteStatusLabels, type ActivityProgress, type ActivityProgressReport, type List, type Unit, type User } from '../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../components/ui'
+import { DeadlineBadge } from '../components/Layout'
 import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
@@ -82,6 +83,7 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
             </span>
             <span>基準: {r.base ? scenarioLabel(r.base) : '未設定'}</span>
             <span>前回見込: {r.previous ? scenarioLabel(r.previous) : '未設定'}</span>
+            <DeadlineBadge deadline={r.scenario.update_deadline} />
           </span>
         }
       />

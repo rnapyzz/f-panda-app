@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -30,14 +31,23 @@ import (
 // planRoles はシナリオのエイリアス（期初計画・修正計画・最新見込）。年度ごとに1つのシナリオにだけ付けられる。
 var planRoles = map[string]string{"initial": "期初計画", "revised": "修正計画", "latest": "最新見込"}
 
-// Handler はシナリオ API のハンドラー。
-type Handler struct {
-	db *sql.DB
+// Notifier は締切と通知（docs/plan.md「2.13」）の即時の通知。保存のトランザクションの後に呼ぶ。
+type Notifier interface {
+	// UpdateStarted は、作成中・締切ありになったシナリオの「更新の開始」を送る（シナリオごとに1回）
+	UpdateStarted(ctx context.Context, scenarioID int64)
+	// ActualsReflected は、決算確定月が進んだときに、前回見込との差が大きい施策の担当者に知らせる
+	ActualsReflected(ctx context.Context, scenarioID int64, months []string, activityIDs []int64)
 }
 
-// NewHandler は Handler を作る。
-func NewHandler(db *sql.DB) *Handler {
-	return &Handler{db: db}
+// Handler はシナリオ API のハンドラー。
+type Handler struct {
+	db       *sql.DB
+	notifier Notifier
+}
+
+// NewHandler は Handler を作る。notifier が nil なら通知しない。
+func NewHandler(db *sql.DB, notifier Notifier) *Handler {
+	return &Handler{db: db, notifier: notifier}
 }
 
 // Register はルートを登録する。
@@ -69,12 +79,14 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 
 // Scenario はシナリオ。
 type Scenario struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	FiscalYear     int     `json:"fiscal_year"`
-	PlanRole       *string `json:"plan_role"`      // initial / revised / latest
-	ActualThrough  *string `json:"actual_through"` // 決算確定月（YYYY-MM）。この月以前は実績
-	IsActive       bool    `json:"is_active"`      // 作成中
+	ID            int64   `json:"id"`
+	Name          string  `json:"name"`
+	FiscalYear    int     `json:"fiscal_year"`
+	PlanRole      *string `json:"plan_role"`      // initial / revised / latest
+	ActualThrough *string `json:"actual_through"` // 決算確定月（YYYY-MM）。この月以前は実績
+	IsActive      bool    `json:"is_active"`      // 作成中
+	// UpdateDeadline は現場の更新の締切日（YYYY-MM-DD）
+	UpdateDeadline *string `json:"update_deadline"`
 	BaseScenarioID *int64  `json:"base_scenario_id"`
 	// PreviousScenarioID は前回見込（同じ年度のシナリオ）。比較やホームで「前回締めた見込」として使う
 	PreviousScenarioID *int64    `json:"previous_scenario_id"`
@@ -95,18 +107,19 @@ func (s Scenario) ActualMonths() []string {
 	return slices.DeleteFunc(calc.FiscalMonths(s.FiscalYear), func(m string) bool { return slices.Contains(plan, m) })
 }
 
-const scenarioSelect = `SELECT id, name, fiscal_year, plan_role, DATE_FORMAT(actual_through, '%Y-%m'), is_active,
+const scenarioSelect = `SELECT id, name, fiscal_year, plan_role, DATE_FORMAT(actual_through, '%Y-%m'), is_active, DATE_FORMAT(update_deadline, '%Y-%m-%d'),
 	base_scenario_id, previous_scenario_id, is_locked, created_by, created_at, updated_at FROM scenarios`
 
 func scanScenario(row interface{ Scan(...any) error }) (Scenario, error) {
 	var s Scenario
 	var base, previous sql.NullInt64
-	var role, through sql.NullString
-	err := row.Scan(&s.ID, &s.Name, &s.FiscalYear, &role, &through, &s.IsActive, &base, &previous, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
+	var role, through, deadline sql.NullString
+	err := row.Scan(&s.ID, &s.Name, &s.FiscalYear, &role, &through, &s.IsActive, &deadline, &base, &previous, &s.IsLocked, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt)
 	s.BaseScenarioID = dbx.PtrInt64(base)
 	s.PreviousScenarioID = dbx.PtrInt64(previous)
 	s.PlanRole = ptrString(role)
 	s.ActualThrough = ptrString(through)
+	s.UpdateDeadline = ptrString(deadline)
 	return s, err
 }
 
@@ -379,6 +392,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		PlanRole           string `json:"plan_role"`
 		ActualThrough      string `json:"actual_through"`
 		PreviousScenarioID *int64 `json:"previous_scenario_id"` // null なら前回見込なし
+		UpdateDeadline     string `json:"update_deadline"`      // YYYY-MM-DD。空なら締切なし
 		Reason             string `json:"reason"`
 	}
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -386,15 +400,17 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ctx := r.Context()
-	var updated Scenario
+	var prev, updated Scenario
 	err = audit.InTx(ctx, h.db, u.ID, &id, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
 		before, err := findScenario(ctx, tx, id, " FOR UPDATE")
 		if err != nil {
 			return err
 		}
+		prev = before
 		v := httpx.Validator{}
 		name := v.Text("name", "シナリオ名", req.Name, 100)
 		role, through := validateRoleAndThrough(v, before.FiscalYear, req.PlanRole, req.ActualThrough)
+		deadline := validateDeadline(v, req.UpdateDeadline)
 		if err := v.Err(); err != nil {
 			return err
 		}
@@ -412,8 +428,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if err := takeRole(ctx, tx, rec, before.FiscalYear, strings.TrimSpace(req.PlanRole), id); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ?, plan_role = ?, actual_through = ?, previous_scenario_id = ? WHERE id = ?",
-			name, role, through, dbx.NullInt64(req.PreviousScenarioID), id)
+		_, err = tx.ExecContext(ctx, "UPDATE scenarios SET name = ?, plan_role = ?, actual_through = ?, previous_scenario_id = ?, update_deadline = ? WHERE id = ?",
+			name, role, through, dbx.NullInt64(req.PreviousScenarioID), deadline, id)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
 		}
@@ -438,14 +454,63 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	h.notifyAfterUpdate(ctx, prev, updated)
 	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil
+}
+
+// validateDeadline は締切日（YYYY-MM-DD、空なら締切なし）を検証し、DB に保存する値を返す。
+func validateDeadline(v httpx.Validator, s string) sql.NullString {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return sql.NullString{}
+	}
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		v.Add("update_deadline", "締切日は YYYY-MM-DD の形式で入力してください")
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+// notifyAfterUpdate は、締切が入ったら「更新の開始」、決算確定月が進んだら「実績の反映」を送る（docs/plan.md「2.13」）。
+func (h *Handler) notifyAfterUpdate(ctx context.Context, before, after Scenario) {
+	if h.notifier == nil || !after.IsActive || after.IsLocked {
+		return
+	}
+	if after.UpdateDeadline != nil && derefStr(before.UpdateDeadline) == "" {
+		h.notifier.UpdateStarted(ctx, after.ID)
+	}
+	if derefStr(after.ActualThrough) <= derefStr(before.ActualThrough) || after.PreviousScenarioID == nil {
+		return
+	}
+	var months []string
+	old := before.ActualMonths()
+	for _, m := range after.ActualMonths() {
+		if !slices.Contains(old, m) {
+			months = append(months, m)
+		}
+	}
+	if len(months) == 0 {
+		return
+	}
+	acc, err := accuracyOf(ctx, h.db, after.ID, *after.PreviousScenarioID, months)
+	if err != nil {
+		slog.Error("notify: accuracy", "scenario_id", after.ID, "error", err)
+		return
+	}
+	var ids []int64
+	for id, a := range acc {
+		if a.Large {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	h.notifier.ActualsReflected(ctx, after.ID, months, ids)
 }
 
 // sameScenario は変更できる項目が同じかを返す。
 func sameScenario(a, b Scenario) bool {
 	return a.Name == b.Name && derefStr(a.PlanRole) == derefStr(b.PlanRole) && derefStr(a.ActualThrough) == derefStr(b.ActualThrough) &&
-		derefID(a.PreviousScenarioID) == derefID(b.PreviousScenarioID)
+		derefID(a.PreviousScenarioID) == derefID(b.PreviousScenarioID) && derefStr(a.UpdateDeadline) == derefStr(b.UpdateDeadline)
 }
 
 func derefID(p *int64) int64 {
@@ -525,6 +590,10 @@ func (h *Handler) activate(w http.ResponseWriter, r *http.Request) error {
 	})
 	if err != nil {
 		return err
+	}
+	// 締切が入っていれば「更新の開始」を送る（シナリオごとに1回）
+	if h.notifier != nil && updated.UpdateDeadline != nil {
+		h.notifier.UpdateStarted(ctx, id)
 	}
 	httpx.WriteJSON(w, http.StatusOK, updated)
 	return nil

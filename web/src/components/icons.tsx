@@ -174,3 +174,11 @@ export const IconAllocate = (p: P) => (
     <path d="M4 14.5v3A2 2 0 0 0 6 19.5h12a2 2 0 0 0 2-2v-3" />
   </Icon>
 )
+
+/** 通知の設定: ベル */
+export const IconBell = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z" />
+    <path d="M10 20.5a2 2 0 0 0 4 0" />
+  </Icon>
+)

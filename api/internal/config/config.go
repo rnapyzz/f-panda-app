@@ -16,6 +16,10 @@ type Config struct {
 	SessionTTL time.Duration
 	// CookieSecure が true のとき、セッション Cookie に Secure 属性を付ける（HTTPS 環境で有効にする）。
 	CookieSecure bool
+	// SlackWebhookURL は通知を送る Slack の Incoming Webhook の URL（秘密情報）。空なら Slack には送らない。
+	SlackWebhookURL string
+	// AppBaseURL は通知の本文に載せるアプリの URL（例: https://fpanda.example.com）。
+	AppBaseURL string
 }
 
 // DBConfig は MySQL の接続設定。
@@ -30,9 +34,11 @@ type DBConfig struct {
 // Load は環境変数から設定を読み込む。未設定の項目は開発用のデフォルト値を使う。
 func Load() Config {
 	return Config{
-		HTTPAddr:     getenv("HTTP_ADDR", ":8080"),
-		SessionTTL:   getduration("SESSION_TTL", 12*time.Hour),
-		CookieSecure: getenv("COOKIE_SECURE", "false") == "true",
+		HTTPAddr:        getenv("HTTP_ADDR", ":8080"),
+		SessionTTL:      getduration("SESSION_TTL", 12*time.Hour),
+		CookieSecure:    getenv("COOKIE_SECURE", "false") == "true",
+		SlackWebhookURL: getenv("SLACK_WEBHOOK_URL", ""),
+		AppBaseURL:      getenv("APP_BASE_URL", ""),
 		DB: DBConfig{
 			Host:     getenv("DB_HOST", "localhost"),
 			Port:     getenv("DB_PORT", "3306"),
