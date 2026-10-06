@@ -7,6 +7,7 @@ import {
   driverKindLabels,
   milestoneStatusLabels,
   noteCauseLabels,
+  outlookLabels,
   roleLabels,
   planRoleLabels,
   tableLabels,
@@ -275,6 +276,7 @@ const fieldLabels: Record<string, string> = {
   value: '値',
   probability: '確度', // 確度の段階を導入する前の変更履歴用
   confidence_level: '確度の段階',
+  outlook: '見通しの種類',
   explanation: '差異の説明',
   causes: '要因の分類',
   completed_at: '完了日時',
@@ -332,6 +334,7 @@ const valueLabels: Record<string, Record<string, string>> = {
   category: categoryLabels,
   scenario_kind: { budget: '予算', forecast: '見込', actual: '実績', optimistic: '楽観', pessimistic: '悲観', other: 'その他' },
   plan_role: planRoleLabels,
+  outlook: outlookLabels,
   source: { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' },
   unit_type: unitTypeLabels,
 }

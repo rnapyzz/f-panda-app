@@ -69,11 +69,14 @@ type amountRow struct {
 
 // lineRow は内訳の金額。FormulaEnabled なら計算式で算出され、直接入力できない。
 type lineRow struct {
-	ID             int64        `json:"id"`
-	Name           string       `json:"name"`
-	Expression     string       `json:"expression"`
-	FormulaEnabled bool         `json:"formula_enabled"`
-	Values         []amountCell `json:"values"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Expression     string `json:"expression"`
+	FormulaEnabled bool   `json:"formula_enabled"`
+	// ConfidenceLevel は内訳の確度の段階（nil は施策の段階）、Outlook は見通しの種類
+	ConfidenceLevel *string      `json:"confidence_level"`
+	Outlook         string       `json:"outlook"`
+	Values          []amountCell `json:"values"`
 }
 
 // valuesView はシナリオ×施策の入力画面用のデータ。
@@ -212,7 +215,7 @@ func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) (
 	}
 
 	lrows, err := q.QueryContext(ctx, `
-		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled
+		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook
 		FROM activity_lines WHERE activity_id = ? ORDER BY subject_id, sort_order, id`, activityID)
 	if err != nil {
 		return nil, err
@@ -220,10 +223,12 @@ func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) (
 	for lrows.Next() {
 		var l lineRow
 		var subjectID int64
-		if err := lrows.Scan(&l.ID, &subjectID, &l.Name, &l.Expression, &l.FormulaEnabled); err != nil {
+		var level sql.NullString
+		if err := lrows.Scan(&l.ID, &subjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook); err != nil {
 			lrows.Close()
 			return nil, err
 		}
+		l.ConfidenceLevel = ptrString(level)
 		l.Values = []amountCell{}
 		r := get(subjectID)
 		r.Lines = append(r.Lines, l)

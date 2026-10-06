@@ -6,6 +6,7 @@ import {
   categoryLabels,
   driverKindLabels,
   milestoneStatusLabels,
+  outlookLabels,
   type ActivityDetail,
   type ConfidenceLevel,
   type Driver,
@@ -270,6 +271,8 @@ export function ActivityDetailPage({ id }: { id: string }) {
                   <tr>
                     <th className="w-40">科目</th>
                     <th>内訳</th>
+                    <th className="w-24">見通し</th>
+                    <th className="w-28">確度の段階</th>
                     <th className="w-28">金額の入れ方</th>
                     <th>計算式</th>
                     {canEdit && <th className="w-28" />}
@@ -290,6 +293,12 @@ export function ActivityDetailPage({ id }: { id: string }) {
                           )}
                         </td>
                         <td className="font-medium">{l.name}</td>
+                        <td>
+                          <Badge tone={l.outlook === 'downside' ? 'red' : l.outlook === 'addon' ? 'green' : 'slate'}>{outlookLabels[l.outlook]}</Badge>
+                        </td>
+                        <td className="text-xs whitespace-nowrap">
+                          {l.confidence_level ? confidenceLabel(l.confidence_level, levels.data?.items) : <span className="text-slate-400">施策と同じ</span>}
+                        </td>
                         <td>{l.formula_enabled ? <Badge tone="indigo">計算式で反映</Badge> : <Badge tone="slate">直接入力</Badge>}</td>
                         <td className={`font-mono text-xs ${l.formula_enabled ? '' : 'text-slate-400'}`}>{l.expression || '—'}</td>
                         {canEdit && (
@@ -360,6 +369,8 @@ export function ActivityDetailPage({ id }: { id: string }) {
           initial={line === 'new' ? null : line}
           subjects={subjects.data.items}
           drivers={a.drivers}
+          levels={levels.data?.items ?? []}
+          activityLevel={a.confidence_level}
           onClose={() => setLine(null)}
           save={async (body) => {
             if (line === 'new') await api.post(`${base}/lines`, body)

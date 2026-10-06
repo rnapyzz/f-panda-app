@@ -71,7 +71,7 @@
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
-| 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策から参照されている段階は削除できない） |
+| 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策・内訳から参照されている段階は削除できない） |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
 - 組織・セグメント・ユニット・勘定科目はコードを持つ（一意）。組織・セグメント・ユニットは、作成時にコードが空なら `ORG-0001` / `SEG-0001` / `UNIT-0001` 形式で自動採番し、更新時に空なら変更しない
@@ -96,7 +96,7 @@
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 重点施策       | `PUT /api/activities/{id}/priority`（`is_priority`。施策の作成・削除の権限が必要。変更履歴に残す） |
 | ウォッチ       | `PUT/DELETE /api/activities/{id}/watch`（ログインユーザー本人の印。施策の一覧・詳細に `is_watched` を返す） |
-| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定） |
+| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定。計算式・反映の有無・段階・見通しの種類の変更は理由必須） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
 - 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・内訳を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
