@@ -61,6 +61,7 @@ var tableNouns = map[string]string{
 	"organizations":     "組織",
 	"subjects":          "科目",
 	"confidence_levels": "確度の段階",
+	"gl_accounts":       "会計科目",
 	"users":             "ユーザー",
 }
 
@@ -97,7 +98,16 @@ func (l *labeler) label(log Log) string {
 		}
 		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month")
 	case "actual_facts":
+		if _, ok := rec.int("activity_id"); !ok {
+			return "未割当 / " + l.subjectName(rec) + " / " + rec.str("target_month") + "（実績）"
+		}
 		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month") + "（実績）"
+	case "allocation_rules":
+		dept := rec.str("department_code")
+		if dept == "" {
+			dept = "全部門"
+		}
+		return "割当ルール " + rec.str("gl_account_code") + " " + rec.str("gl_account_name") + " × " + dept + " → " + activity()
 	case "driver_values":
 		id, _ := rec.int("activity_driver_id")
 		if d, ok := l.drivers[id]; ok {

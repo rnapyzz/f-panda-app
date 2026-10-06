@@ -29,6 +29,7 @@ import { ActivityFormDialog } from './ActivityFormDialog'
 import { creatableUnits, statusTone } from './ActivityListPage'
 import { DriverDialog, LineDialog, MilestoneDialog } from './ActivityDialogs'
 import { ActivityPlCard } from './ActivityPlCard'
+import { ActualEntriesCard } from './ActualEntriesCard'
 import { ExternalCodesCard } from './ExternalCodesCard'
 import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
 
@@ -184,6 +185,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
 
         <div className="min-w-0 space-y-4 lg:col-span-2">
           <ActivityPlCard activityId={a.id} />
+          <ActualEntriesCard activityId={a.id} />
           <Card title="マイルストーン" actions={canEdit && <Button size="sm" onClick={() => setMilestone('new')}>＋ 追加</Button>}>
             {a.milestones.length === 0 ? (
               <Empty>マイルストーンはありません</Empty>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/activity"
+	"github.com/rnapyzz/f-panda-app/api/internal/actual"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/history"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
@@ -40,6 +41,7 @@ func NewHandler(d Deps) http.Handler {
 	master.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	activity.NewHandler(d.DB).Register(mux, requireAuth)
 	scenario.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
+	actual.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	report.NewHandler(d.DB).Register(mux, requireAuth)
 	history.NewHandler(d.DB).Register(mux, requireAuth)
 

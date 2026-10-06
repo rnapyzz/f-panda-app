@@ -18,18 +18,19 @@ test('実績 CSV を確認してから取り込める。取り込んだ実績は
   await page.getByRole('button', { name: '実績を取り込む' }).click()
   const dialog = page.getByRole('dialog', { name: '実績 CSV の取込' })
   const upload = (csv: string) => dialog.getByLabel('CSV ファイル').setInputFiles({ name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })
-  const header = 'target_month,activity_code,subject_code,amount\n'
+  const header = 'target_month,box_code,account_code,amount\n'
 
   // エラーのある CSV
-  await upload(`${header}2026-09,${activity.code},R${f.run},1200000\n2026-09,NOPE,R${f.run},1\n`)
+  await upload(`${header}2026-09,${activity.code},R${f.run},1200000\n2026-09,${activity.code},NOPE${f.run},1\n`)
   await dialog.getByRole('button', { name: '内容を確認' }).click()
-  await expect(dialog.getByText('施策コード "NOPE" は登録されていません')).toBeVisible()
+  await expect(dialog.getByText(`会計科目 "NOPE${f.run}" は登録されていません`)).toBeVisible()
   await expect(dialog.getByRole('cell', { name: '3', exact: true })).toBeVisible() // 行番号
 
   // 正しい CSV（外部コードと施策コードのどちらでも施策を特定できる）: 確認 → 取込
   await upload(`${header}2026-09,${external},R${f.run},1200000\n2026-09,${activity.code},E${f.run},350000\n`)
   await dialog.getByRole('button', { name: '内容を確認' }).click()
   await expect(dialog.getByText('まだ保存していません')).toBeVisible()
+  await expect(dialog.getByLabel('割当の根拠')).toContainText('外部コード 1 行')
   await expect(dialog.getByRole('button', { name: '取り込む' })).toBeDisabled() // 変更理由が未入力
   await dialog.getByLabel('変更理由').fill('E2E: 9月実績')
   await dialog.getByRole('button', { name: '取り込む' }).click()

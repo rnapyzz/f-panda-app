@@ -50,8 +50,9 @@ type Series struct {
 }
 
 // Row は1つの集計単位（ユニットまたは施策）× 科目 × 月の金額。Values は系列の Key → 金額（円、文字列）。
+// UnitID が nil の行は未割当の実績（docs/plan.md「2.12」）。ユニットを指定しないときだけ返す。
 type Row struct {
-	UnitID     int64             `json:"unit_id"`
+	UnitID     *int64            `json:"unit_id"`
 	ActivityID *int64            `json:"activity_id,omitempty"`
 	SubjectID  int64             `json:"subject_id"`
 	Month      string            `json:"month"`
@@ -137,7 +138,11 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	put := func(k rowKey, series string, v *big.Int) {
 		row, ok := rows[k]
 		if !ok {
-			row = &Row{UnitID: k.unitID, SubjectID: k.subjectID, Month: k.month, Values: map[string]string{}}
+			row = &Row{SubjectID: k.subjectID, Month: k.month, Values: map[string]string{}}
+			if k.unitID != 0 {
+				u := k.unitID
+				row.UnitID = &u
+			}
 			if k.activityID != 0 {
 				a := k.activityID
 				row.ActivityID = &a
@@ -160,14 +165,29 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 			put(k, "actual", v)
 		}
 	}
+	// 全社の合計を会計と一致させるため、ユニットを指定しないときは未割当の実績も返す（ユニット ID 0 → null）
+	if unitID == nil {
+		unallocated, err := loadUnallocated(ctx, h.db, scenarioIDs, months, includeActual)
+		if err != nil {
+			return err
+		}
+		for i, id := range scenarioIDs {
+			for k, v := range unallocated[id] {
+				put(k, fmt.Sprintf("s%d", i+1), v)
+			}
+		}
+		for k, v := range unallocated[0] {
+			put(k, "actual", v)
+		}
+	}
 
 	for _, row := range rows {
 		resp.Rows = append(resp.Rows, *row)
 	}
 	sort.Slice(resp.Rows, func(i, j int) bool {
 		a, b := resp.Rows[i], resp.Rows[j]
-		if a.UnitID != b.UnitID {
-			return a.UnitID < b.UnitID
+		if au, bu := derefOr0(a.UnitID), derefOr0(b.UnitID); au != bu {
+			return au < bu
 		}
 		if aid, bid := derefOr0(a.ActivityID), derefOr0(b.ActivityID); aid != bid {
 			return aid < bid
@@ -302,6 +322,50 @@ func loadActuals(ctx context.Context, db *sql.DB, months []string, unitID *int64
 			return nil, fmt.Errorf("invalid amount %q", amount)
 		}
 		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// loadUnallocated は未割当の実績の、科目 × 月の合計を返す（ユニット ID・施策 ID は 0）。
+// シナリオは決算確定月以前の月（scenario_unallocated ビュー）、キー 0 は実績データ（includeActual のとき）。
+func loadUnallocated(ctx context.Context, db *sql.DB, scenarioIDs []int64, months []string, includeActual bool) (map[int64]map[rowKey]*big.Int, error) {
+	args := make([]any, 0, len(scenarioIDs)+2)
+	for _, id := range scenarioIDs {
+		args = append(args, id)
+	}
+	query := `
+		SELECT scenario_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), CAST(SUM(amount) AS CHAR)
+		FROM scenario_unallocated WHERE scenario_id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",") + `)
+		GROUP BY scenario_id, subject_id, target_month`
+	if includeActual {
+		query += `
+		UNION ALL
+		SELECT 0, subject_id, DATE_FORMAT(target_month, '%Y-%m'), CAST(SUM(amount) AS CHAR)
+		FROM actual_facts WHERE activity_id IS NULL AND target_month BETWEEN ? AND ?
+		GROUP BY subject_id, target_month`
+		args = append(args, months[0]+"-01", months[len(months)-1]+"-01")
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]map[rowKey]*big.Int{}
+	for rows.Next() {
+		var scenarioID int64
+		var k rowKey
+		var amount string
+		if err := rows.Scan(&scenarioID, &k.subjectID, &k.month, &amount); err != nil {
+			return nil, err
+		}
+		v, ok := new(big.Int).SetString(amount, 10)
+		if !ok {
+			return nil, fmt.Errorf("invalid amount %q", amount)
+		}
+		if out[scenarioID] == nil {
+			out[scenarioID] = map[rowKey]*big.Int{}
+		}
+		out[scenarioID][k] = v
 	}
 	return out, rows.Err()
 }

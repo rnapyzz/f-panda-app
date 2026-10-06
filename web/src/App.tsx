@@ -8,7 +8,9 @@ import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
 import { HomePage } from './pages/HomePage'
 import { ActivityListPage } from './pages/activities/ActivityListPage'
 import { LoginPage } from './pages/LoginPage'
+import { AllocationRulesPage } from './pages/masters/AllocationRulesPage'
 import { ConfidenceLevelsPage } from './pages/masters/ConfidenceLevelsPage'
+import { GLAccountsPage } from './pages/masters/GLAccountsPage'
 import { UnitsPage } from './pages/masters/UnitsPage'
 import { SubjectsPage } from './pages/masters/SubjectsPage'
 import { TreeMasterPage } from './pages/masters/TreeMasterPage'
@@ -16,6 +18,7 @@ import { UsersPage } from './pages/masters/UsersPage'
 import { HistoryPage } from './pages/history/HistoryPage'
 import { ReportPage } from './pages/reports/ReportPage'
 import { RiskPage } from './pages/reports/RiskPage'
+import { ActualsPage } from './pages/scenarios/ActualsPage'
 import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
@@ -31,6 +34,7 @@ const routes: Route[] = [
   { path: '/scenarios/:id', render: (p) => <ScenarioDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios/:sid/activities/:aid', render: (p) => <ValuesPage key={`${p.sid}/${p.aid}`} scenarioId={p.sid} activityId={p.aid} /> },
   { path: '/admin/scenarios', render: () => <ScenarioAdminPage /> },
+  { path: '/admin/actuals', render: () => <ActualsPage /> },
   { path: '/reports', render: () => <ReportPage /> },
   { path: '/history', render: () => <HistoryPage /> },
   { path: '/risks', render: () => <RiskPage /> },
@@ -40,6 +44,8 @@ const routes: Route[] = [
   // 旧 URL（「機能」だった頃）
   { path: '/masters/functions', render: () => <Redirect to="/masters/units" /> },
   { path: '/masters/subjects', render: () => <SubjectsPage /> },
+  { path: '/masters/gl-accounts', render: () => <GLAccountsPage /> },
+  { path: '/masters/allocation-rules', render: () => <AllocationRulesPage /> },
   { path: '/masters/confidence-levels', render: () => <ConfidenceLevelsPage /> },
   { path: '/masters/users', render: () => <UsersPage /> },
 ]

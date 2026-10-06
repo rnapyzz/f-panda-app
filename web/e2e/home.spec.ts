@@ -14,7 +14,7 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await amount(budget.id, '2026-04', 1000000)
   const previous = await a.post('/scenarios', { name: `E2E前回 ${f.run}`, fiscal_year: 2026, base_scenario_id: budget.id })
   await amount(previous.id, '2026-04', 1200000)
-  const csv = `target_month,activity_code,subject_code,amount\n2026-04,${activity.code},R${f.run},800000\n`
+  const csv = `target_month,box_code,account_code,amount\n2026-04,${activity.code},R${f.run},800000\n`
   const res = await page.request.post('/api/actuals/import', { multipart: { file: { name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) }, reason: 'E2E: 4月実績' } })
   expect(res.ok()).toBeTruthy()
   const current = await a.post('/scenarios', { name: `E2E今回 ${f.run}`, fiscal_year: 2026, base_scenario_id: previous.id, actual_through: '2026-04' })

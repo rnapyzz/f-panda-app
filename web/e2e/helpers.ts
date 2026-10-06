@@ -38,9 +38,12 @@ export type Fixture = {
   revenueId: number
   expenseId: number
   revenueName: string
+  /** 科目と同じコードの会計科目（実績の取込用） */
+  revenueAccountId: number
+  expenseAccountId: number
 }
 
-/** セグメント・組織・ユニット・科目（収益・費用）を作る */
+/** セグメント・組織・ユニット・科目（収益・費用）と、科目と同じコードの会計科目を作る */
 export async function seedMasters(page: Page): Promise<Fixture> {
   const a = api(page)
   const run = uniq()
@@ -50,7 +53,9 @@ export async function seedMasters(page: Page): Promise<Fixture> {
   const revenueName = `E2E売上 ${run}`
   const rev = await a.post('/subjects', { code: `R${run}`, name: revenueName, category: 'revenue' })
   const exp = await a.post('/subjects', { code: `E${run}`, name: `E2E外注費 ${run}`, category: 'expense' })
-  return { run, segmentId: seg.id, unitId: fn.id, revenueId: rev.id, expenseId: exp.id, revenueName }
+  const revAccount = await a.post('/gl-accounts', { code: `R${run}`, name: revenueName, subject_id: rev.id })
+  const expAccount = await a.post('/gl-accounts', { code: `E${run}`, name: `E2E外注費 ${run}`, subject_id: exp.id })
+  return { run, segmentId: seg.id, unitId: fn.id, revenueId: rev.id, expenseId: exp.id, revenueName, revenueAccountId: revAccount.id, expenseAccountId: expAccount.id }
 }
 
 /** 数値入力グリッドのセル（アクセシブルネームは「ラベル: 表示値」） */

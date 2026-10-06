@@ -12,6 +12,8 @@ import (
 type scenarioFixture struct {
 	*activityFixture
 	sales, cost           int64 // 科目
+	salesAccount          int64 // 会計科目（科目と同じコード）
+	costAccount           int64
 	formulaAct, manualAct int64 // 施策（どちらも担当者は member）
 	priceID, volumeID     int64 // formulaAct のドライバー
 	salesLine             int64 // formulaAct の売上の内訳（計算式で反映する）
@@ -24,6 +26,9 @@ func newScenarioFixture(t *testing.T) *scenarioFixture {
 	a := f.admin
 	f.sales = a.mustCreate("/api/subjects", map[string]any{"code": "4110", "name": "受託売上", "category": "revenue"})
 	f.cost = a.mustCreate("/api/subjects", map[string]any{"code": "8110", "name": "外注費", "category": "expense"})
+	// 実績の取込用に、科目と同じコードの会計科目を作る
+	f.salesAccount = a.mustCreate("/api/gl-accounts", map[string]any{"code": "4110", "name": "受託売上", "subject_id": f.sales})
+	f.costAccount = a.mustCreate("/api/gl-accounts", map[string]any{"code": "8110", "name": "外注費", "subject_id": f.cost})
 
 	f.formulaAct = a.mustCreate("/api/activities", activityBody(f.fn1, "SAAS-1", map[string]any{
 		"owner_user_id": f.memberID, "confidence_level": "C",
@@ -552,7 +557,7 @@ func TestScenarioActualThrough(t *testing.T) {
 	vpath := f.valuesPath(f.budget, f.manualAct)
 	importActuals := func(csv, reason string) {
 		t.Helper()
-		if status, body := f.admin.upload("/api/actuals/import", "target_month,activity_code,subject_code,amount\n"+csv, reason); status != http.StatusOK {
+		if status, body := f.admin.upload("/api/actuals/import", "target_month,box_code,account_code,amount\n"+csv, reason); status != http.StatusOK {
 			t.Fatalf("実績取込: status = %d, body = %v", status, body)
 		}
 	}
@@ -852,7 +857,7 @@ func TestActivityStatus(t *testing.T) {
 	cur := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": prev})
 	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", cur), nil)
 	// 4月の実績 900 を取り込み、今回の決算確定月を 4月にする
-	f.admin.upload("/api/actuals/import", "target_month,activity_code,subject_code,amount\n2026-04,PRJ-1,4110,900\n", "4月実績")
+	f.admin.upload("/api/actuals/import", "target_month,box_code,account_code,amount\n2026-04,PRJ-1,4110,900\n", "4月実績")
 	f.admin.do("PUT", fmt.Sprintf("/api/scenarios/%d", cur), map[string]any{"name": "10月見込", "actual_through": "2026-04", "previous_scenario_id": prev, "reason": "4月決算確定"})
 	// 担当者が見込を更新し、別の施策は完了にする
 	f.member.do("PUT", f.valuesPath(cur, f.manualAct)+"/amounts", map[string]any{"reason": "上積み", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": "2026-05", "amount": 1500}}})

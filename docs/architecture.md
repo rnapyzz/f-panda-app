@@ -151,13 +151,13 @@
 - 各行を docs/plan.md「2.12」の順番（施策コード・外部コード → 割当ルール → 未割当）で施策に割り当て、明細（`actual_entries`）を対象月ごとに置き換え、合計（`actual_facts`）を差分で更新する。シナリオは指定しない
 - `?dry_run=true` を付けると、検証と集計だけを行い保存しない（理由は不要）
 - レスポンス: 取り込んだ月、データ行数、対象外の行数、割当の根拠ごと（`activity_code` / `external_code` / `rule` / `unallocated`）の件数と金額、合計の追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用。未割当を含む）
-- CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。未登録の会計科目は `error.unknown_accounts`（コードと件数）にまとめて返す。1件もエラーがなければ保存する
+- CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。未登録の会計科目は、コードごとに1件（最初の行番号と行数）にまとめて返す。1件もエラーがなければ保存する
 - `GET /api/actuals/months?fiscal_year=`: 実績を取り込み済みの月（決算確定月の既定値に使う）
 
 | API | 内容 | 権限 |
 | --- | ---- | ---- |
 | `GET /api/actuals/unallocated?fiscal_year=` | 未割当の一覧。箱の ID がある行は箱の ID ごと、ない行は会計科目 × 部門ごとにまとめ、月・件数・金額・摘要の例を返す | FP&A |
-| `POST /api/actuals/unallocated/assign` | 未割当のまとまり（`box_code`、または `gl_account_id` と `department_code`）を施策（`activity_id`）に割り当てる。箱の ID は外部コードとして、会計科目 × 部門は割当ルールとして登録し、同じまとまりの未割当の行（すべての月）を割り当てる。`reason` 必須 | FP&A |
+| `POST /api/actuals/unallocated/assign` | 未割当のまとまり（`box_code`、または `gl_account_id` と `department_code`）を施策（`activity_id`）に割り当てる。箱の ID は外部コードとして、会計科目 × 部門は割当ルールとして登録し、同じまとまりの未割当の行（すべての月）を割り当てる。`all_departments: true` なら部門を問わないルールにする（部門のない行のまとまりも全部門のルールになる）。ルールで割り当てるときは、割当の順番に合わせ、その会計科目（・部門）の未割当の行を箱の ID の有無を問わず割り当てる。登録済みの箱の ID・ルールは 409（再割当で当て直す）。`reason` 必須 | FP&A |
 | `POST /api/actuals/reallocate` | 指定した月（`months`）の明細に、今の外部コード・割当ルールを当て直す。`reason` 必須。`dry_run: true` で施策ごとの増減だけを返す | FP&A |
 
 - 明細の行は変更セットに紐づけて保存し、行ごとの監査ログは残さない。監査ログには合計（`actual_facts`）の変更と、外部コード・割当ルールの追加を残す
