@@ -126,6 +126,8 @@
 | `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、前回見込（`previous_scenario_id`）、決算確定月（`actual_through`、変更は理由必須）、現場の更新の締切日（`update_deadline`、`YYYY-MM-DD`）の変更 | 全員 / FP&A    |
 | `POST /api/scenarios/{id}/activate`                           | 作成中に指定（前の作成中は外れる）           | FP&A           |
 | `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
+| `GET /api/scenarios/actual-drift`                             | ロック済みのシナリオごとに、保存した実績と今の実績が食い違う月（月・収益の差・費用の差）。食い違いのないシナリオは返さない（docs/plan.md「2.14」） | FP&A           |
+| `POST /api/scenarios/{id}/refresh-actuals`                    | ロック済みのシナリオに保存した実績を、今の実績に入れ替える（理由必須。`dry_run: true` で月ごとの差だけを返す）。ロックは外れない | FP&A           |
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
@@ -144,6 +146,17 @@
 - エイリアスを付けると、同じ年度で同じエイリアスを持つシナリオからは外れる
 - 金額の再計算は `internal/calc` が行い、変更した金額は同じ変更セットの監査ログに残す
 
+## 年度の締め API
+
+| API | 内容 | 権限 |
+| --- | ---- | ---- |
+| `GET /api/fiscal-years/closings` | 締めた年度の一覧（年度・締めた日時・人） | 全員 |
+| `POST /api/fiscal-years/{fy}/close` | 年度を締める（理由は任意） | FP&A |
+| `POST /api/fiscal-years/{fy}/reopen` | 締めを解除する（理由必須） | FP&A |
+
+- 締めた年度の月は、実績の取込（422、行エラー）・再割当（422）ができない。未割当の割当は、ルールを登録し、締めた年度の行は割り当てない（結果に割り当てなかった行数 `skipped_closed` を返す）
+- 締め・解除は変更セットと監査ログ（`fiscal_year_closings`）に残す
+
 ## 実績取込 API
 
 `POST /api/actuals/import`（FP&A のみ）
@@ -151,7 +164,7 @@
 - `multipart/form-data` で `file`（CSV）と `reason`（変更理由）を送る。形式は docs/plan.md「6.1 実績 CSV の形式（会計の明細）」
 - 各行を docs/plan.md「2.12」の順番（施策コード・外部コード → 割当ルール → 未割当）で施策に割り当て、明細（`actual_entries`）を対象月ごとに置き換え、合計（`actual_facts`）を差分で更新する。シナリオは指定しない
 - `?dry_run=true` を付けると、検証と集計だけを行い保存しない（理由は不要）
-- レスポンス: 取り込んだ月、データ行数、対象外の行数、割当の根拠ごと（`activity_code` / `external_code` / `rule` / `unallocated`）の件数と金額、合計の追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用。未割当を含む）
+- レスポンス: 取り込んだ月、データ行数、対象外の行数、割当の根拠ごと（`activity_code` / `external_code` / `rule` / `unallocated`）の件数と金額、合計の追加・更新・削除・変更なしの件数、月別の収益・費用の合計（会計システムとの突合用。未割当を含む）、ロック済みのシナリオと食い違う月（`locked_drift`: シナリオごとの月・収益の差・費用の差）
 - CSV にエラーがあれば 422（`code: invalid_csv`）で、`error.rows` に行番号とメッセージを返す（最大100件）。未登録の会計科目は、コードごとに1件（最初の行番号と行数）にまとめて返す。1件もエラーがなければ保存する
 - `GET /api/actuals/months?fiscal_year=`: 実績を取り込み済みの月（決算確定月の既定値に使う）
 
