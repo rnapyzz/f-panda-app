@@ -41,6 +41,7 @@
 - JSON: `encoding/json`
 - ログ: `log/slog`
 - テスト: `testing`
+- 通知: Slack は Incoming Webhook に `net/http` で送る（SDK は使わない）。定期の送信は API のゴルーチンで行う（外部のスケジューラーは使わない）
 - マイグレーション: `api/migrations/<連番>_<説明>.sql` を `embed` で埋め込み、自前のランナー（`api/internal/migrate`）で適用する。適用済みバージョンは `schema_migrations` に記録する。compose の `migrate` サービスが起動時に適用する
 - 計算式の評価: ドライバー式（四則演算・括弧・数値・ドライバー code 参照）は自前の簡易パーサで評価する
 
@@ -72,7 +73,7 @@
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | 会計科目                       | `GET/POST /api/gl-accounts`、`PUT/DELETE /api/gl-accounts/{id}`（コード・名前・対応する科目 `subject_id`・対象外 `is_excluded`・明細を FP&A 以外に見せない `hide_details`。明細から参照されている会計科目は削除できない） |
 | 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
-| ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password` |
+| ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。Slack のメンバー ID（`slack_user_id`、英大文字・数字、空で未登録）を持つ |
 | 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策・内訳から参照されている段階は削除できない） |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
@@ -122,7 +123,7 @@
 | `GET /api/scenarios`（`fiscal_year` で絞り込み）              | 一覧（エイリアス・決算確定月・作成中を含む） | 全員           |
 | `GET /api/scenarios/active`                                   | 作成中のシナリオ（未設定なら `null`）        | 全員           |
 | `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製。`plan_role`・`actual_through`・`previous_scenario_id`（前回見込、省略時は複製元）も指定できる） | FP&A           |
-| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、前回見込（`previous_scenario_id`）、決算確定月（`actual_through`、変更は理由必須）の変更 | 全員 / FP&A    |
+| `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、前回見込（`previous_scenario_id`）、決算確定月（`actual_through`、変更は理由必須）、現場の更新の締切日（`update_deadline`、`YYYY-MM-DD`）の変更 | 全員 / FP&A    |
 | `POST /api/scenarios/{id}/activate`                           | 作成中に指定（前の作成中は外れる）           | FP&A           |
 | `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
@@ -162,6 +163,24 @@
 
 - 明細の行は変更セットに紐づけて保存し、行ごとの監査ログは残さない。監査ログには合計（`actual_facts`）の変更と、外部コード・割当ルールの追加を残す
 - 未割当は `actual_facts.activity_id` が NULL の行として持つ。ロック時の `scenario_actuals` にも含める
+
+## 通知 API
+
+締切と通知の仕様は docs/plan.md「2.13」。
+
+| API | 内容 | 権限 |
+| --- | ---- | ---- |
+| `GET /api/notifications?limit=` | 自分宛てのお知らせ（新しい順、既定 30 件）と未読の数（`unread`） | 全員 |
+| `POST /api/notifications/{id}/read`、`POST /api/notifications/read-all` | 既読にする | 全員（自分宛てのみ） |
+| `GET/PUT /api/notification-settings` | 通知の設定（種類ごとの有効・無効 `enabled_kinds`、締切の前の日数 `reminder_days`、送信時刻 `send_time`）。Slack が設定されているか（`slack_configured`）も返す | 参照は全員、更新は FP&A |
+| `POST /api/notification-settings/test` | Slack にテスト送信する | FP&A |
+| `GET /api/notification-runs?limit=` | 送信の記録（日時・種類・シナリオ・宛先の数・Slack の結果） | FP&A |
+
+- 通知の組み立てと送信は `internal/notify`。宛先の決定（未完了の施策・担当者・マネージャー）はホームの更新の状態（`activity-status`）と同じ判定を使う
+- 定期の送信: API の起動時にゴルーチンを1つ起動し、1分ごとに送信時刻を過ぎたかを確かめる。送信の記録（`notification_runs`）の一意制約で、同じ通知を同じ日に二重に送らない（複数台・再起動でも安全）
+- 即時の通知: 締切の設定（「更新の開始」）と決算確定月の変更（「実績の反映」）は、保存のトランザクションが終わった後に送る。送信の失敗は保存を失敗させない
+- Slack: 環境変数 `SLACK_WEBHOOK_URL`（Incoming Webhook）に `net/http` で JSON を POST する。未設定なら送らない。メンションは `<@メンバーID>`。タイムアウトは 10 秒。失敗は `notification_runs` に記録し、同じ日のうちに最大3回まで送り直す
+- 時刻は日本時間（`Asia/Tokyo`）で判定する
 
 ## 予実比較 API
 
