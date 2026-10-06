@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, ApiError } from '../../api/client'
-import type { Activity, List, ReallocateResult, UnallocatedGroup, UnallocatedList } from '../../api/types'
+import type { Activity, FiscalYearClosing, List, ReallocateResult, UnallocatedGroup, UnallocatedList } from '../../api/types'
 import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Loading, PageHeader, Select, Table, Textarea, cx, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
@@ -26,6 +26,9 @@ function ActualsView() {
   const unallocated = useApi<UnallocatedList>(`/actuals/unallocated?fiscal_year=${fy}`)
   const imported = useApi<{ months: string[] }>(`/actuals/months?fiscal_year=${fy}`)
   const activities = useApi<List<Activity>>('/activities')
+  const closings = useApi<List<FiscalYearClosing>>('/fiscal-years/closings')
+  const closed = new Set((closings.data?.items ?? []).map((c) => c.fiscal_year))
+  const [notice, setNotice] = useState('')
   const [importing, setImporting] = useState(false)
   const [assigning, setAssigning] = useState<UnallocatedGroup | null>(null)
   const [reallocating, setReallocating] = useState(false)
@@ -53,6 +56,16 @@ function ActualsView() {
         }
       />
 
+      {notice && (
+        <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+          {notice}
+        </p>
+      )}
+      {closed.has(fy) && (
+        <p className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700">
+          🔐 {fy}年度は締め済みです。この年度の実績は取り込み直せず、再割当・未割当の割当もできません（割当ルールの登録はできます）。
+        </p>
+      )}
       <Card
         title={
           <span className="flex flex-wrap items-center gap-3">
@@ -141,18 +154,29 @@ function ActualsView() {
           group={assigning}
           activities={activities.data.items}
           onClose={() => setAssigning(null)}
-          onAssigned={async () => {
+          onAssigned={async (skipped) => {
             setAssigning(null)
+            setNotice(skipped > 0 ? `締めた年度の ${skipped} 行は割り当てませんでした（ルールは登録しました）。` : '')
             await refresh()
           }}
         />
       )}
-      {reallocating && <ReallocateDialog fiscalYear={fy} importedMonths={imported.data?.months ?? []} onClose={() => setReallocating(false)} onDone={refresh} />}
+      {reallocating && <ReallocateDialog fiscalYear={fy} closed={closed.has(fy)} importedMonths={imported.data?.months ?? []} onClose={() => setReallocating(false)} onDone={refresh} />}
     </>
   )
 }
 
-function AssignDialog({ group, activities, onClose, onAssigned }: { group: UnallocatedGroup; activities: Activity[]; onClose: () => void; onAssigned: () => Promise<void> }) {
+function AssignDialog({
+  group,
+  activities,
+  onClose,
+  onAssigned,
+}: {
+  group: UnallocatedGroup
+  activities: Activity[]
+  onClose: () => void
+  onAssigned: (skippedClosed: number) => Promise<void>
+}) {
   const [activityId, setActivityId] = useState('')
   const [allDepartments, setAllDepartments] = useState(false)
   const [reason, setReason] = useState('')
@@ -167,8 +191,8 @@ function AssignDialog({ group, activities, onClose, onAssigned }: { group: Unall
       ? { box_code: group.box_code }
       : { gl_account_id: group.gl_account_id, department_code: group.department_code, all_departments: allDepartments }
     try {
-      await api.post('/actuals/unallocated/assign', { ...target, activity_id: Number(activityId) || 0, reason })
-      await onAssigned()
+      const res = await api.post<{ skipped_closed: number }>('/actuals/unallocated/assign', { ...target, activity_id: Number(activityId) || 0, reason })
+      await onAssigned(res.skipped_closed)
     } catch (err) {
       setError(err)
     } finally {
@@ -235,14 +259,27 @@ function AssignDialog({ group, activities, onClose, onAssigned }: { group: Unall
   )
 }
 
-function ReallocateDialog({ fiscalYear, importedMonths, onClose, onDone }: { fiscalYear: number; importedMonths: string[]; onClose: () => void; onDone: () => Promise<unknown> }) {
+function ReallocateDialog({
+  fiscalYear,
+  closed,
+  importedMonths,
+  onClose,
+  onDone,
+}: {
+  fiscalYear: number
+  /** 締めた年度なら、どの月も選べない */
+  closed: boolean
+  importedMonths: string[]
+  onClose: () => void
+  onDone: () => Promise<unknown>
+}) {
   const [months, setMonths] = useState<string[]>([])
   const [reason, setReason] = useState('')
   const [preview, setPreview] = useState<ReallocateResult | null>(null)
   const [done, setDone] = useState<ReallocateResult | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
-  const imported = new Set(importedMonths)
+  const imported = new Set(closed ? [] : importedMonths)
 
   const send = async (dryRun: boolean) => {
     setBusy(true)
@@ -299,6 +336,7 @@ function ReallocateDialog({ fiscalYear, importedMonths, onClose, onDone }: { fis
             </p>
             <fieldset>
               <legend className="mb-1 text-sm font-medium text-slate-700">再割当する月（{fiscalYear}年度）</legend>
+              {closed && <p className="mb-1 text-xs text-slate-500">締めた年度なので、再割当できません。</p>}
               <div className="grid grid-cols-6 gap-1.5">
                 {fiscalMonths(fiscalYear).map((m) => (
                   <label

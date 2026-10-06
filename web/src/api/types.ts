@@ -351,6 +351,8 @@ export type ImportResult = {
   deleted: number
   unchanged: number
   totals: { month: string; revenue: string; expense: string; unallocated_revenue: string; unallocated_expense: string }[]
+  /** 取り込むとロック済みのシナリオの実績と食い違う月（docs/plan.md「2.14」） */
+  locked_drift: ScenarioDrift[]
 }
 
 // --- 実績の割当（docs/plan.md「2.12」） ---
@@ -646,3 +648,20 @@ export type NotificationRun = {
   slack_error: string
   created_at: string
 }
+
+// --- 締めた後の実績の修正と年度の締め（docs/plan.md「2.14」） ---
+
+/** 1か月の食い違い。差は「今の実績 − シナリオに保存した実績」。changed は施策 × 科目で金額が違う件数 */
+export type DriftMonth = { month: string; revenue: string; expense: string; changed: number }
+
+export type ScenarioDrift = {
+  scenario_id: number
+  name: string
+  fiscal_year: number
+  actual_through: string
+  months: DriftMonth[]
+}
+
+export type RefreshActualsResult = { dry_run: boolean; drift: ScenarioDrift; saved: number }
+
+export type FiscalYearClosing = { fiscal_year: number; closed_at: string; closed_by: number; closed_by_name: string }

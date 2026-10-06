@@ -103,6 +103,8 @@ func (l *labeler) label(log Log) string {
 			return "未割当 / " + l.subjectName(rec) + " / " + rec.str("target_month") + "（実績）"
 		}
 		return activity() + " / " + l.subjectName(rec) + " / " + rec.str("target_month") + "（実績）"
+	case "fiscal_year_closings":
+		return fmt.Sprintf("年度の締め %d年度", log.RecordID)
 	case "allocation_rules":
 		dept := rec.str("department_code")
 		if dept == "" {

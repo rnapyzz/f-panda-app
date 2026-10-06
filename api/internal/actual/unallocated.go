@@ -157,8 +157,10 @@ type assignRequest struct {
 }
 
 type assignResult struct {
-	Assigned int      `json:"assigned"` // 割り当てた明細の行数
-	Months   []string `json:"months"`
+	Assigned int `json:"assigned"` // 割り当てた明細の行数
+	// SkippedClosed は、締めた年度の月なので割り当てなかった未割当の行数（ルールは登録する）
+	SkippedClosed int      `json:"skipped_closed"`
+	Months        []string `json:"months"`
 	// ExternalCode は登録した外部コード、Rule は追加した割当ルール（どちらか一方）
 	ExternalCode *string         `json:"external_code,omitempty"`
 	Rule         *allocationRule `json:"rule,omitempty"`
@@ -241,6 +243,12 @@ func (h *Handler) assignUnallocated(w http.ResponseWriter, r *http.Request) erro
 			}
 		}
 
+		// 締めた年度の行は割り当てない（実績の数字を変えないため）
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM actual_entries WHERE activity_id IS NULL AND "+where+" AND NOT "+notClosedCondition, args...).Scan(&result.SkippedClosed); err != nil {
+			return err
+		}
+		where += " AND " + notClosedCondition
 		months, err := stringColumn(ctx, tx, `
 			SELECT DISTINCT DATE_FORMAT(target_month, '%Y-%m') FROM actual_entries
 			WHERE activity_id IS NULL AND `+where+` ORDER BY 1 FOR UPDATE`, args...)
@@ -387,6 +395,13 @@ func (h *Handler) reallocate(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	result := reallocateResult{DryRun: req.DryRun, Months: months, Changes: []*activityChange{}}
 	err := inTx(r, h.db, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		closed, err := closedYears(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if cm := closedMonths(months, closed); len(cm) > 0 {
+			return httpx.Validation(map[string]string{"months": "締めた年度の月は再割当できません: " + strings.Join(cm, "、")})
+		}
 		have, err := entryMonths(ctx, tx, months)
 		if err != nil {
 			return err
