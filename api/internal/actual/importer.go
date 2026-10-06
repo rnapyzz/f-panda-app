@@ -237,6 +237,8 @@ type importResult struct {
 	Allocation map[string]int `json:"allocation"`
 	factCounts
 	Totals []monthTotals `json:"totals"`
+	// LockedDrift は、取り込むとロック済みのシナリオの実績と食い違う月（docs/plan.md「2.14」）
+	LockedDrift []scenarioDrift `json:"locked_drift"`
 }
 
 // importActuals は POST /api/actuals/import。FP&A のみ。
@@ -281,11 +283,14 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ctx := r.Context()
-	result := importResult{DryRun: dryRun, Rows: len(rows), Allocation: map[string]int{}}
+	result := importResult{DryRun: dryRun, Rows: len(rows), Allocation: map[string]int{}, LockedDrift: []scenarioDrift{}}
 	for _, k := range allocationKinds {
 		result.Allocation[k] = 0
 	}
 	err = audit.InTx(ctx, h.db, u.ID, nil, reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		if err := checkClosedRows(ctx, tx, rows); err != nil {
+			return err
+		}
 		byID, err := loadAccounts(ctx, tx)
 		if err != nil {
 			return err
@@ -330,6 +335,9 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 		if result.Totals, err = monthlyTotals(ctx, tx, result.Months); err != nil {
 			return err
 		}
+		if result.LockedDrift, err = loadDrift(ctx, tx, 0, result.Months); err != nil {
+			return err
+		}
 		if dryRun {
 			return errDryRun // 集計まで行ってロールバックする
 		}
@@ -340,6 +348,32 @@ func (h *Handler) importActuals(w http.ResponseWriter, r *http.Request) error {
 	}
 	httpx.WriteJSON(w, http.StatusOK, result)
 	return nil
+}
+
+// checkClosedRows は、締めた年度の月の行があれば、月ごとにまとめてエラーにする。
+func checkClosedRows(ctx context.Context, tx *sql.Tx, rows []entryRow) error {
+	closed, err := closedYears(ctx, tx)
+	if err != nil || len(closed) == 0 {
+		return err
+	}
+	type found struct{ first, count int }
+	byMonth := map[string]*found{}
+	var order []string
+	for _, row := range rows {
+		if !closed[fiscalYearOf(row.month)] {
+			continue
+		}
+		if byMonth[row.month] == nil {
+			byMonth[row.month] = &found{first: row.line}
+			order = append(order, row.month)
+		}
+		byMonth[row.month].count++
+	}
+	errs := &rowErrors{}
+	for _, m := range order {
+		errs.add(byMonth[m].first, "%s は締めた年度（%d年度）の月なので取り込めません（%d 行）。シナリオ管理で締めを解除してから取り込んでください", m, fiscalYearOf(m), byMonth[m].count)
+	}
+	return errs.err()
 }
 
 // insertEntries は明細をまとめて登録する。

@@ -4,6 +4,7 @@ import { allocatedByLabels, type AllocatedBy, type ImportResult } from '../../ap
 import { Button, Dialog, ErrorMessage, Field, Input, Table, Textarea } from '../../components/ui'
 import { formatYen, yearMonthLabel } from '../../lib/format'
 import { Link } from '../../lib/router'
+import { DriftTable } from './DriftTable'
 
 /**
  * 実績 CSV（会計の明細）の取込ダイアログ。取込先は実績データで、シナリオは選ばない（docs/plan.md「6.1」「2.12」）。
@@ -189,6 +190,26 @@ export function ActualsImportDialog({ onClose, onImported }: { onClose: () => vo
                 ))}
               </tbody>
             </Table>
+            {result.locked_drift.length > 0 && (
+              <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/50 p-3" aria-label="ロック済みのシナリオとの食い違い">
+                <p className="text-sm font-medium text-amber-900">
+                  {done ? '取り込んだ実績は、' : '取り込むと、'}次のロック済みのシナリオの実績と食い違います（ロック済みのシナリオの数字は変わりません）。
+                </p>
+                {result.locked_drift.map((d) => (
+                  <div key={d.scenario_id}>
+                    <p className="mb-1 text-xs font-medium text-slate-700">{d.name}</p>
+                    <DriftTable months={d.months} />
+                  </div>
+                ))}
+                <p className="text-xs text-slate-600">
+                  必要なら、
+                  <Link to="/admin/scenarios" className="text-indigo-700 hover:underline">
+                    シナリオ管理
+                  </Link>
+                  の「実績を最新にする」で、ロック済みのシナリオの実績を入れ替えられます。
+                </p>
+              </div>
+            )}
             <p className="text-xs text-slate-500">合計は未割当を含みます。会計システムの数字（対象外の会計科目を除く）と一致することを確かめてください。</p>
           </div>
         )}
