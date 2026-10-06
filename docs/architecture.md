@@ -69,11 +69,11 @@
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
-| ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service） |
+| ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service）。一覧は既定で廃止したユニットを除く（`include_archived=true` で含める）。`POST /api/units/{id}/merge`（`target_unit_id`・`reason` 必須。施策をすべて移して廃止する）、`POST /api/units/{id}/archive`・`/unarchive` |
 | 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
 | 会計科目                       | `GET/POST /api/gl-accounts`、`PUT/DELETE /api/gl-accounts/{id}`（コード・名前・対応する科目 `subject_id`・対象外 `is_excluded`・明細を FP&A 以外に見せない `hide_details`。明細から参照されている会計科目は削除できない） |
 | 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
-| ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。Slack のメンバー ID（`slack_user_id`、U または W で始まる英大文字・数字、空で未登録）を持つ |
+| ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。`GET /api/users/{id}/assignments`（担当している施策・所管ユニットの件数）、`POST /api/users/{id}/deactivate`（`successor_user_id`（null で担当者未設定）・`reason`。担当とマネージャーを付け替えてから無効にする）。Slack のメンバー ID（`slack_user_id`、U または W で始まる英大文字・数字、空で未登録）を持つ |
 | 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策・内訳から参照されている段階は削除できない） |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
@@ -146,6 +146,21 @@
 - エイリアスを付けると、同じ年度で同じエイリアスを持つシナリオからは外れる
 - 金額の再計算は `internal/calc` が行い、変更した金額は同じ変更セットの監査ログに残す
 
+## 組織変更の予約 API
+
+組織変更と異動の仕様は docs/plan.md「2.15」。すべて FP&A のみ。
+
+| API | 内容 |
+| --- | ---- |
+| `GET /api/org-change-plans` | 予約の一覧（状態・有効日・変更の件数） |
+| `POST /api/org-change-plans`、`GET/PUT/DELETE /api/org-change-plans/{id}` | 予約の作成・取得・変更（名前・有効日・変更の一覧 `items` をまとめて送る）・削除（予約中・失敗のみ） |
+| `POST /api/org-change-plans/{id}/apply` | 今すぐ適用する（予約中・失敗のみ。失敗なら 422 で理由を返し、予約を失敗にする） |
+| `POST /api/org-change-plans/{id}/cancel` | 取り消す（予約中のみ） |
+
+- 変更（`items[]`）の種類: `move_activity`（`activity_id`・`target_unit_id`）、`move_unit`（`unit_id`・`segment_id`・`organization_id`）、`merge_unit`（`unit_id`・`target_unit_id`）、`change_owner`（`activity_id` または `unit_id` と `owner_user_id`、null で未設定）
+- 適用: 予約を作った FP&A の変更セットとして、1トランザクションで変更を順に適用する。検証はマスタ・施策の更新と同じ（末端ノード、廃止したユニット、無効なユーザーなど）。1つでもエラーなら全体をロールバックし、予約を失敗（`error` に理由）にして FP&A にお知らせを送る
+- 自動の適用: 通知と同じく API 内のゴルーチン（1分ごと）で、有効日が今日以前の予約中の予約を適用する（`internal/orgchange`）。予約の行ロックで二重の適用を防ぐ
+
 ## 年度の締め API
 
 | API | 内容 | 権限 |
@@ -217,6 +232,7 @@
 
 - 形式と取込のルールは docs/plan.md「6.2」
 - 省略できる列（ユーザーの `slack_user_id`）は `csvio.ParseWithOptional` で読む
+- ユーザーの取込の結果に、担当している施策・所管ユニットが残っている無効なユーザー（`inactive_with_assignments`）を返す
 - 共通処理（アップロードの読込、ヘッダーと行の検証、行エラー、結果、CSV の書き出し）は `internal/csvio`
 - 結果: `{"dry_run", "rows", "inserted", "updated", "unchanged"}`。エラーは 422（`code: invalid_csv`、`error.rows` に行番号とメッセージ）
 
