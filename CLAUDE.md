@@ -6,6 +6,7 @@
 
 - 要件・ドメイン設計: [docs/plan.md](docs/plan.md)
 - アーキテクチャ・技術スタック: [docs/architecture.md](docs/architecture.md)
+- 運用上の課題（俯瞰チェック）: [docs/issues.md](docs/issues.md)
 
 ## 技術スタック
 
