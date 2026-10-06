@@ -14,6 +14,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/history"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/master"
+	"github.com/rnapyzz/f-panda-app/api/internal/notify"
 	"github.com/rnapyzz/f-panda-app/api/internal/report"
 	"github.com/rnapyzz/f-panda-app/api/internal/scenario"
 )
@@ -24,6 +25,8 @@ type Deps struct {
 	Auth         *auth.Service
 	CookieSecure bool
 	Logger       *slog.Logger
+	// Notifier は締切と通知。nil なら Slack に送らない Service を作る
+	Notifier *notify.Service
 }
 
 // NewHandler は API 全体の http.Handler を返す。
@@ -40,7 +43,12 @@ func NewHandler(d Deps) http.Handler {
 
 	master.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	activity.NewHandler(d.DB).Register(mux, requireAuth)
-	scenario.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
+	notifier := d.Notifier
+	if notifier == nil {
+		notifier = notify.NewService(d.DB, notify.Options{Logger: d.Logger})
+	}
+	notifier.Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
+	scenario.NewHandler(d.DB, notifier).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	actual.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	report.NewHandler(d.DB).Register(mux, requireAuth)
 	history.NewHandler(d.DB).Register(mux, requireAuth)

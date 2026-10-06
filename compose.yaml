@@ -47,6 +47,10 @@ services:
       <<: *db-env
       HTTP_ADDR: ":8080"
       TZ: Asia/Tokyo
+      # 通知を送る Slack の Incoming Webhook（秘密情報。.env などで渡す。空なら Slack には送らない）
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # 通知の本文に載せるアプリの URL
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:${APP_PORT:-8080}}
     depends_on:
       migrate:
         condition: service_completed_successfully

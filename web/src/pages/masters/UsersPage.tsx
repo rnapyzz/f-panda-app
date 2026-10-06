@@ -27,8 +27,8 @@ export function UsersPage() {
               resource="users"
               label="ユーザー"
               canImport={canWrite}
-              columns="email,name,role,is_active"
-              notes={<p>role は fpa_admin / manager / member / viewer。パスワードは CSV では扱いません。追加したユーザーは「パスワード未設定」になるので、「パスワード再設定」から設定してください。</p>}
+              columns="email,name,role,is_active,slack_user_id"
+              notes={<p>role は fpa_admin / manager / member / viewer。パスワードは CSV では扱いません。追加したユーザーは「パスワード未設定」になるので、「パスワード再設定」から設定してください。slack_user_id（Slack のメンバー ID）は列ごと省略でき、省略すると登録済みの ID を変えません。</p>}
               onImported={reload}
             />
             {canWrite && (
@@ -53,6 +53,7 @@ export function UsersPage() {
                 <th>氏名</th>
                 <th>メールアドレス</th>
                 <th>ロール</th>
+                <th>Slack</th>
                 <th>状態</th>
                 {canWrite && <th className="w-48" />}
               </tr>
@@ -66,6 +67,7 @@ export function UsersPage() {
                   </td>
                   <td>{u.email}</td>
                   <td>{roleLabels[u.role]}</td>
+                  <td className="font-mono text-xs">{u.slack_user_id || <span className="font-sans text-slate-300">—</span>}</td>
                   <td className="space-x-1">
                     {u.is_active ? <Badge tone="green">有効</Badge> : <Badge>無効</Badge>}
                     {!u.has_password && <Badge tone="amber">パスワード未設定</Badge>}
@@ -108,6 +110,7 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
   const [email, setEmail] = useState(initial?.email ?? '')
   const [role, setRole] = useState<Role>(initial?.role ?? 'member')
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
+  const [slackId, setSlackId] = useState(initial?.slack_user_id ?? '')
   const [password, setPassword] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
@@ -118,8 +121,8 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
     setBusy(true)
     setError(null)
     try {
-      if (initial) await api.put(`/users/${initial.id}`, { name, email, role, is_active: isActive, reason })
-      else await api.post('/users', { name, email, role, password, reason })
+      if (initial) await api.put(`/users/${initial.id}`, { name, email, role, is_active: isActive, slack_user_id: slackId, reason })
+      else await api.post('/users', { name, email, role, password, slack_user_id: slackId, reason })
       onSaved()
     } catch (err) {
       setError(err)
@@ -160,6 +163,13 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
             </Select>
           )}
         </Field>
+        <Field
+          label="Slack のメンバー ID"
+          error={fieldError(error, 'slack_user_id')}
+          hint="通知で @メンションするための ID（例: U012AB3CD）。Slack のプロフィールの「⋮ → メンバー ID をコピー」で確認できます"
+        >
+          {(p) => <Input {...p} value={slackId} onChange={(e) => setSlackId(e.target.value.trim())} className="w-48 font-mono" />}
+        </Field>
         {initial ? (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={isActive} disabled={isSelf} onChange={(e) => setIsActive(e.target.checked)} className="size-4 rounded border-slate-300" />
@@ -174,7 +184,7 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['name', 'email', 'role', 'password', 'is_active', 'reason']} />
+        <FormError error={error} fields={['name', 'email', 'role', 'password', 'is_active', 'slack_user_id', 'reason']} />
       </form>
     </Dialog>
   )

@@ -61,6 +61,8 @@ export type User = Timestamps & {
   is_active: boolean
   /** パスワードが設定されているか（CSV で追加したユーザーは未設定） */
   has_password: boolean
+  /** Slack のメンバー ID（通知のメンション用）。空は未登録 */
+  slack_user_id: string
 }
 
 export const roleLabels: Record<Role, string> = {
@@ -224,6 +226,8 @@ export type Scenario = Timestamps & {
   actual_through: string | null
   /** 作成中（アプリ全体で1つ） */
   is_active: boolean
+  /** 現場の更新の締切日（YYYY-MM-DD） */
+  update_deadline: string | null
   base_scenario_id: number | null
   /** 前回見込（同じ年度のシナリオ）。比較やホームで「前回締めた見込」として使う */
   previous_scenario_id: number | null
@@ -589,4 +593,56 @@ export type ActivityProgressReport = {
   previous: ScenarioRef | null
   new_actual_months: string[]
   items: ActivityProgress[]
+}
+
+// --- 締切と通知（docs/plan.md「2.13」） ---
+
+export type NotificationKind = 'update_started' | 'deadline_reminder' | 'deadline_overdue' | 'actuals_reflected'
+
+export const notificationKindLabels: Record<NotificationKind, string> = {
+  update_started: '更新の開始',
+  deadline_reminder: '締切の前',
+  deadline_overdue: '締切の超過',
+  actuals_reflected: '実績の反映',
+}
+
+export const notificationKindDescriptions: Record<NotificationKind, string> = {
+  update_started: '作成中のシナリオに締切が入ったとき、対象の施策の担当者に1回',
+  deadline_reminder: '締切の N 日前の送信時刻に、未完了の施策の担当者に',
+  deadline_overdue: '締切の翌日から毎日、未完了の施策の担当者とユニットのマネージャーに（土日は送らない）',
+  actuals_reflected: '決算確定月が進んだとき、前回見込との差が大きい施策の担当者に',
+}
+
+export type AppNotification = {
+  id: number
+  kind: NotificationKind
+  scenario_id: number | null
+  title: string
+  body: string
+  link: string
+  created_at: string
+  read_at: string | null
+}
+
+export type NotificationList = { items: AppNotification[]; unread: number }
+
+export type NotificationSettings = {
+  enabled_kinds: Record<NotificationKind, boolean>
+  reminder_days: number[]
+  /** HH:MM（日本時間） */
+  send_time: string
+  slack_configured: boolean
+}
+
+export type NotificationRun = {
+  id: number
+  kind: NotificationKind
+  scenario_id: number
+  scenario_name: string
+  run_date: string
+  recipients: number
+  slack_status: 'skipped' | 'sent' | 'failed'
+  slack_attempts: number
+  slack_error: string
+  created_at: string
 }

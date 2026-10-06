@@ -633,6 +633,7 @@ erDiagram
         enum slack_status "skipped / sent / failed"
         int slack_attempts
         text slack_error
+        text slack_text "送り直し用の本文"
     }
     notification_settings {
         int id PK "1行のみ"
@@ -953,7 +954,7 @@ target_month,account_code,department_code,box_code,amount,description
 | 勘定科目 | **code**, name, category, parent_code, sort_order |
 | 会計科目 | **code**, name, subject_code（空は対象外）, hide_details |
 | 割当ルール | **account_code**, **department_code**, activity_code |
-| ユーザー | **email**, name, role, is_active, slack_user_id |
+| ユーザー | **email**, name, role, is_active, slack_user_id（省略可。列がなければ登録済みの ID を変えない） |
 | 施策 | **code**, name, unit_code, activity_type, status, start_date, end_date, owner_email, confidence_level, assumptions, external_codes |
 
 - インポートは**追加と更新のみ**。CSV にないデータは削除しない。キーが既存のデータと一致すれば更新、なければ追加する。

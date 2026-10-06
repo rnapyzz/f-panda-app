@@ -16,6 +16,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/config"
+	"github.com/rnapyzz/f-panda-app/api/internal/notify"
 	"github.com/rnapyzz/f-panda-app/api/internal/server"
 )
 
@@ -41,6 +42,7 @@ func run(logger *slog.Logger) error {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	authSvc := auth.NewService(db, cfg.SessionTTL)
+	notifier := notify.NewService(db, notify.Options{SlackWebhookURL: cfg.SlackWebhookURL, BaseURL: cfg.AppBaseURL, Logger: logger})
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
@@ -49,6 +51,7 @@ func run(logger *slog.Logger) error {
 			Auth:         authSvc,
 			CookieSecure: cfg.CookieSecure,
 			Logger:       logger,
+			Notifier:     notifier,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -57,6 +60,8 @@ func run(logger *slog.Logger) error {
 	defer stop()
 
 	go cleanupSessions(ctx, authSvc, logger)
+	// 締切の前・超過の通知を、送信時刻を過ぎたら送る（docs/plan.md「2.13」）
+	go notifier.Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {

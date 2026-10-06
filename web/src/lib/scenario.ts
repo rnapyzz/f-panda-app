@@ -40,3 +40,22 @@ export function fiscalMonths(fiscalYear: number): string[] {
 export function currentFiscalYear(today = new Date()): number {
   return today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
 }
+
+/**
+ * 締切の表示（docs/plan.md「2.13」）。today は日本時間の今日（YYYY-MM-DD）。
+ * 3日以内は soon、過ぎたら overdue。
+ */
+export function deadlineStatus(deadline: string | null, today: string): { text: string; tone: 'normal' | 'soon' | 'overdue' } | null {
+  if (!deadline) return null
+  const [y, m, d] = deadline.split('-').map(Number)
+  const days = Math.round((Date.UTC(y, m - 1, d) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)
+  const date = `${m}/${d}`
+  if (days < 0) return { text: `締切 ${date}（${-days}日過ぎています）`, tone: 'overdue' }
+  if (days === 0) return { text: `締切 ${date}（今日）`, tone: 'soon' }
+  return { text: `締切 ${date}（あと${days}日）`, tone: days <= 3 ? 'soon' : 'normal' }
+}
+
+/** 日本時間の今日（YYYY-MM-DD） */
+export function todayInTokyo(now = new Date()): string {
+  return new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10)
+}

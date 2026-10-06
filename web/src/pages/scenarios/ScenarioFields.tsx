@@ -207,13 +207,14 @@ export function CreateScenarioDialog({ scenarios, onClose, onCreated }: { scenar
   )
 }
 
-/** シナリオの設定（名称・エイリアス・前回見込・決算確定月）の変更。決算確定月の変更は理由が必須 */
+/** シナリオの設定（名称・エイリアス・前回見込・決算確定月・締切）の変更。決算確定月の変更は理由が必須 */
 export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenario: Scenario; onClose: () => void; onSaved: (s: Scenario) => void }) {
   const scenarios = useApi<List<Scenario>>('/scenarios')
   const [name, setName] = useState(scenario.name)
   const [planRole, setPlanRole] = useState<PlanRole | ''>(scenario.plan_role ?? '')
   const [actualThrough, setActualThrough] = useState(scenario.actual_through ?? '')
   const [previousId, setPreviousId] = useState(scenario.previous_scenario_id ? String(scenario.previous_scenario_id) : '')
+  const [deadline, setDeadline] = useState(scenario.update_deadline ?? '')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -223,7 +224,14 @@ export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenari
     setBusy(true)
     setError(null)
     try {
-      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, { name, plan_role: planRole, actual_through: actualThrough, previous_scenario_id: previousId ? Number(previousId) : null, reason }))
+      onSaved(await api.put<Scenario>(`/scenarios/${scenario.id}`, {
+          name,
+          plan_role: planRole,
+          actual_through: actualThrough,
+          previous_scenario_id: previousId ? Number(previousId) : null,
+          update_deadline: deadline,
+          reason,
+        }))
     } catch (err) {
       setError(err)
     } finally {
@@ -260,12 +268,23 @@ export function ScenarioSettingsDialog({ scenario, onClose, onSaved }: { scenari
           throughDisabled={scenario.is_locked}
           error={error}
         />
+        <Field
+          label="現場の更新の締切日"
+          error={fieldError(error, 'update_deadline')}
+          hint={
+            scenario.update_deadline
+              ? '締切の前と、締切を過ぎた後に、未完了の担当者へ自動で通知します'
+              : '作成中のシナリオに締切を入れると、担当者に「更新の開始」が通知されます'
+          }
+        >
+          {(p) => <Input {...p} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-44" />}
+        </Field>
         {throughChanged && (
           <Field label="変更理由" required error={fieldError(error, 'reason')} hint="決算確定月を変えると、表示する金額（実績と計画値の境目）が変わります">
             {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" placeholder="例: 2026-09 決算確定" />}
           </Field>
         )}
-        <FormError error={error} fields={['name', 'previous_scenario_id', 'plan_role', 'actual_through', 'reason']} />
+        <FormError error={error} fields={['name', 'previous_scenario_id', 'plan_role', 'actual_through', 'update_deadline', 'reason']} />
       </form>
     </Dialog>
   )

@@ -737,23 +737,27 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 
 // --- ユーザー ---
 
-var userColumns = []string{"email", "name", "role", "is_active"}
+var (
+	userColumns = []string{"email", "name", "role", "is_active", "slack_user_id"}
+	// userRequired はインポートで必須の列。slack_user_id は省略できる（省略した行は Slack のメンバー ID を変えない）
+	userRequired = []string{"email", "name", "role", "is_active"}
+)
 
 // exportUsers は GET /api/users/export。パスワードは含めない。
 func (h *Handler) exportUsers(w http.ResponseWriter, r *http.Request) error {
-	rows, err := h.db.QueryContext(r.Context(), "SELECT email, name, role, is_active FROM users ORDER BY id")
+	rows, err := h.db.QueryContext(r.Context(), "SELECT email, name, role, is_active, COALESCE(slack_user_id, '') FROM users ORDER BY id")
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	var out [][]string
 	for rows.Next() {
-		var email, name, role string
+		var email, name, role, slackID string
 		var active bool
-		if err := rows.Scan(&email, &name, &role, &active); err != nil {
+		if err := rows.Scan(&email, &name, &role, &active, &slackID); err != nil {
 			return err
 		}
-		out = append(out, []string{email, name, role, strconv.FormatBool(active)})
+		out = append(out, []string{email, name, role, strconv.FormatBool(active), slackID})
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -770,7 +774,7 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := csvio.Parse(up.Data, userColumns)
+	rows, err := csvio.ParseWithOptional(up.Data, userRequired, []string{"slack_user_id"})
 	if err != nil {
 		return err
 	}
@@ -782,6 +786,8 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 			name, email string
 			role        auth.Role
 			active      bool
+			slackID     string
+			keepSlack   bool // slack_user_id の列がないので、既存の値を変えない
 		}
 		errs := &csvio.RowErrors{}
 		var items []item
@@ -790,6 +796,7 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 			v := httpx.Validator{}
 			role := auth.Role(row.Get("role"))
 			name, email := validateUserFields(v, row.Get("name"), row.Get("email"), role)
+			slackID := validateSlackID(v, row.Get("slack_user_id"))
 			active, ok := parseBool(row.Get("is_active"))
 			if !ok {
 				v.Add("is_active", "is_active は true / false で入力してください")
@@ -805,7 +812,7 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 				errs.AddDetails(row.Line, err)
 				continue
 			}
-			items = append(items, item{name: name, email: email, role: role, active: active})
+			items = append(items, item{name: name, email: email, role: role, active: active, slackID: slackID, keepSlack: !row.Has("slack_user_id")})
 		}
 		if err := errs.Err(); err != nil {
 			return err
@@ -816,8 +823,8 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 			err := tx.QueryRowContext(ctx, "SELECT id FROM users WHERE email = ? FOR UPDATE", it.email).Scan(&id)
 			if errors.Is(err, sql.ErrNoRows) {
 				res, err := tx.ExecContext(ctx,
-					"INSERT INTO users (name, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?)",
-					it.name, it.email, unusablePasswordHash, it.role, it.active)
+					"INSERT INTO users (name, email, password_hash, role, is_active, slack_user_id) VALUES (?, ?, ?, ?, ?, ?)",
+					it.name, it.email, unusablePasswordHash, it.role, it.active, dbx.NullString(it.slackID))
 				if err != nil {
 					return err
 				}
@@ -839,11 +846,14 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 			if err != nil {
 				return err
 			}
-			if before.Name == it.name && before.Role == it.role && before.IsActive == it.active {
+			if it.keepSlack {
+				it.slackID = before.SlackUserID
+			}
+			if before.Name == it.name && before.Role == it.role && before.IsActive == it.active && before.SlackUserID == it.slackID {
 				result.Unchanged++
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, "UPDATE users SET name = ?, role = ?, is_active = ? WHERE id = ?", it.name, it.role, it.active, id); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE users SET name = ?, role = ?, is_active = ?, slack_user_id = ? WHERE id = ?", it.name, it.role, it.active, dbx.NullString(it.slackID), id); err != nil {
 				return err
 			}
 			if !it.active {

@@ -19,6 +19,7 @@ import { HistoryPage } from './pages/history/HistoryPage'
 import { ReportPage } from './pages/reports/ReportPage'
 import { RiskPage } from './pages/reports/RiskPage'
 import { ActualsPage } from './pages/scenarios/ActualsPage'
+import { NotificationSettingsPage } from './pages/scenarios/NotificationSettingsPage'
 import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
@@ -35,6 +36,7 @@ const routes: Route[] = [
   { path: '/scenarios/:sid/activities/:aid', render: (p) => <ValuesPage key={`${p.sid}/${p.aid}`} scenarioId={p.sid} activityId={p.aid} /> },
   { path: '/admin/scenarios', render: () => <ScenarioAdminPage /> },
   { path: '/admin/actuals', render: () => <ActualsPage /> },
+  { path: '/admin/notifications', render: () => <NotificationSettingsPage /> },
   { path: '/reports', render: () => <ReportPage /> },
   { path: '/history', render: () => <HistoryPage /> },
   { path: '/risks', render: () => <RiskPage /> },

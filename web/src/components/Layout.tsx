@@ -2,12 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { roleLabels } from '../api/types'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useAuth, useCurrentUser } from '../lib/auth'
-import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
+import { actualThroughLabel, deadlineStatus, scenarioLabel, todayInTokyo } from '../lib/scenario'
 import { Link, useLocation } from '../lib/router'
 import {
   IconActivities,
   IconAdmin,
   IconAllocate,
+  IconBell,
   IconClose,
   IconCollapse,
   IconConfidence,
@@ -26,6 +27,7 @@ import {
   IconUnits,
   IconUsers,
 } from './icons'
+import { NotificationBell } from './NotificationBell'
 import { cx } from './ui'
 
 type NavItem = { to: string; label: string; icon: (p: { className?: string }) => ReactNode }
@@ -70,6 +72,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin },
       { to: '/admin/actuals', label: '実績の割当', icon: IconAllocate },
+      { to: '/admin/notifications', label: '通知の設定', icon: IconBell },
     ],
   },
 ]
@@ -171,6 +174,7 @@ function ActiveScenarioBar() {
             <span className="text-emerald-700">
               {active.fiscal_year}年度・{actualThroughLabel(active.actual_through)}
             </span>
+            <DeadlineBadge deadline={active.update_deadline} />
           </>
         ) : (
           <span className="text-emerald-700">
@@ -182,8 +186,28 @@ function ActiveScenarioBar() {
             )}
           </span>
         )}
+        <span className="ml-auto">
+          <NotificationBell />
+        </span>
       </div>
     </div>
+  )
+}
+
+/** 作成中のシナリオの締切（docs/plan.md「2.13」）。3日以内は黄、過ぎたら赤 */
+export function DeadlineBadge({ deadline }: { deadline: string | null }) {
+  const st = deadlineStatus(deadline, todayInTokyo())
+  if (!st) return null
+  return (
+    <span
+      className={cx(
+        'rounded px-1.5 py-0.5 font-medium',
+        st.tone === 'overdue' ? 'bg-red-100 text-red-800' : st.tone === 'soon' ? 'bg-amber-100 text-amber-800' : 'bg-white/70 text-emerald-800',
+      )}
+      aria-label="更新の締切"
+    >
+      {st.text}
+    </span>
   )
 }
 
