@@ -568,7 +568,8 @@
 | `segments`            | 事業マスタ。ポートフォリオ管理のための階層構造を表現した集計軸。ツリー構造（parent_id）を持つ。        |
 | `organizations`       | 組織マスタ。ツリー構造（parent_id）および階層レベルを持つ。                                           |
 | `subjects`            | 勘定科目マスタ。P/Lを構成する営業収益・営業費用のカテゴリを持つ。                                      |
-| `users`               | ユーザー。ロールと有効/無効、Slack のメンバー ID を持つ。                                             |
+| `users`               | ユーザー。ロールと有効/無効、Slack のメンバー ID、SSO のアカウント ID（初回の SSO ログインで記録）を持つ。 |
+| `login_attempts`      | パスワードでのログインの失敗の記録（メールアドレス・IP・日時）。ログイン失敗の制限に使う。          |
 | `notifications`       | アプリ内のお知らせ。宛先のユーザー・種類・シナリオ・本文・リンク・既読日時を持つ（2.13）。            |
 | `notification_runs`   | 通知の送信の記録。種類・シナリオ・日付で一意。宛先の数と Slack の送信結果を持つ（2.13）。              |
 | `notification_settings` | 通知の設定（1行）。種類ごとの有効・無効、締切の前の日数、送信時刻を持つ（2.13）。                   |
@@ -686,6 +687,13 @@ erDiagram
         enum role "fpa_admin / manager / member / viewer"
         boolean is_active
         varchar slack_user_id "Slack のメンバー ID、NULL可"
+        varchar oidc_subject "SSO のアカウント ID（sub）、一意、NULL可"
+    }
+    login_attempts {
+        bigint id PK
+        varchar email
+        varchar ip
+        datetime attempted_at
     }
     notifications {
         bigint id PK
@@ -1098,7 +1106,8 @@ target_month,account_code,department_code,box_code,amount,description
 | 通貨             | 日本円のみ                                                                                                  |
 | 金額の符号       | 収益・費用ともプラスで登録する。利益 = 収益 − 費用（科目の区分で判定）。マイナスは戻し・訂正などに使う |
 | 金額単位         | 円単位で保持・表示する。`budget_facts.amount` は `DECIMAL(18,0)`。式で算出した金額は円未満を四捨五入する |
-| 認証             | メールアドレス＋パスワード（パスワードはハッシュ化して保存）。将来 SSO に対応する。詳細は architecture.md   |
+| 認証             | Google Workspace の SSO（OIDC）。事前に登録したユーザーだけがログインできる。SSO を設定した環境では、パスワードでのログインは FP&A の非常用だけ。詳細は architecture.md |
+| 本番環境         | AWS（ALB・ECS Fargate・RDS for MySQL）。バックアップは RDS の自動バックアップ 30日。監査ログは消さない。手順は docs/deploy.md |
 
 ## 8. 未決事項
 
