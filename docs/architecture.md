@@ -115,6 +115,9 @@
 
 ### HTTP のヘッダー（nginx）
 
+本番用の nginx の設定は `web/nginx.prod.conf`（`web/Dockerfile` の `prod` ステージで画面と一緒にイメージにする）。HSTS は ALB から HTTPS で来たとき（`X-Forwarded-Proto: https`）だけ付ける。
+
+
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains`（HTTPS のときだけ）
 - `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`
 - `Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`

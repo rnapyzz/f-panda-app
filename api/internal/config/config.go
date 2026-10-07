@@ -3,6 +3,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -20,6 +21,19 @@ type Config struct {
 	SlackWebhookURL string
 	// AppBaseURL は通知の本文に載せるアプリの URL（例: https://fpanda.example.com）。
 	AppBaseURL string
+	// TrustProxy が true のとき、接続元の IP を X-Forwarded-For から読む（ALB の後ろで動かす本番用）。
+	TrustProxy bool
+	// OIDC は SSO の設定。ClientID が空なら SSO は無効。
+	OIDC OIDCConfig
+}
+
+// OIDCConfig は SSO（OIDC）の設定。
+type OIDCConfig struct {
+	Issuer         string
+	ClientID       string
+	ClientSecret   string
+	RedirectURL    string
+	AllowedDomains []string
 }
 
 // DBConfig は MySQL の接続設定。
@@ -39,6 +53,14 @@ func Load() Config {
 		CookieSecure:    getenv("COOKIE_SECURE", "false") == "true",
 		SlackWebhookURL: getenv("SLACK_WEBHOOK_URL", ""),
 		AppBaseURL:      getenv("APP_BASE_URL", ""),
+		TrustProxy:      getenv("TRUST_PROXY", "false") == "true",
+		OIDC: OIDCConfig{
+			Issuer:         getenv("OIDC_ISSUER", "https://accounts.google.com"),
+			ClientID:       getenv("OIDC_CLIENT_ID", ""),
+			ClientSecret:   getenv("OIDC_CLIENT_SECRET", ""),
+			RedirectURL:    getenv("OIDC_REDIRECT_URL", ""),
+			AllowedDomains: splitList(getenv("OIDC_ALLOWED_DOMAINS", "")),
+		},
 		DB: DBConfig{
 			Host:     getenv("DB_HOST", "localhost"),
 			Port:     getenv("DB_PORT", "3306"),
@@ -92,4 +114,15 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// splitList はカンマ区切りの値を、前後の空白を除いた小文字の一覧にする（空の要素は除く）。
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
