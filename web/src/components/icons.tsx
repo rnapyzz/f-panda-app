@@ -182,3 +182,12 @@ export const IconBell = (p: P) => (
     <path d="M10 20.5a2 2 0 0 0 4 0" />
   </Icon>
 )
+
+/** 組織変更の予約: 予定表と矢印 */
+export const IconOrgChange = (p: P) => (
+  <Icon {...p}>
+    <rect x="3.5" y="5" width="13" height="13" rx="1.5" />
+    <path d="M3.5 9h13M7 3.5v3M13 3.5v3" />
+    <path d="M14.5 15h6M18 12.5l2.5 2.5-2.5 2.5" />
+  </Icon>
+)

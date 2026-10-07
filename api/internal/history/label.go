@@ -63,6 +63,7 @@ var tableNouns = map[string]string{
 	"confidence_levels":     "確度の段階",
 	"gl_accounts":           "会計科目",
 	"notification_settings": "通知の設定",
+	"org_change_plans":      "組織変更の予約",
 	"users":                 "ユーザー",
 }
 

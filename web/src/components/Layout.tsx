@@ -17,6 +17,7 @@ import {
   IconLedger,
   IconLogout,
   IconMenu,
+  IconOrgChange,
   IconOrganizations,
   IconReports,
   IconRules,
@@ -73,6 +74,7 @@ const navGroups: NavGroup[] = [
       { to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin },
       { to: '/admin/actuals', label: '実績の割当', icon: IconAllocate },
       { to: '/admin/notifications', label: '通知の設定', icon: IconBell },
+      { to: '/admin/org-changes', label: '組織変更の予約', icon: IconOrgChange },
     ],
   },
 ]

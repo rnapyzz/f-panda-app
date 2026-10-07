@@ -18,7 +18,8 @@ const unitTypeTone: Record<UnitType, 'indigo' | 'amber' | 'slate'> = {
 export function UnitsPage() {
   const user = useCurrentUser()
   const canWrite = user.role === 'fpa_admin'
-  const units = useApi<List<Unit>>('/units')
+  const [showArchived, setShowArchived] = useState(false)
+  const units = useApi<List<Unit>>(showArchived ? '/units?include_archived=true' : '/units')
   const segments = useApi<List<TreeNode>>('/segments')
   const organizations = useApi<List<TreeNode>>('/organizations')
   const users = useApi<List<User>>('/users')
@@ -29,6 +30,17 @@ export function UnitsPage() {
 
   const [editing, setEditing] = useState<Unit | 'new' | null>(null)
   const [deleting, setDeleting] = useState<Unit | null>(null)
+  const [merging, setMerging] = useState<Unit | null>(null)
+  const [actionError, setActionError] = useState<unknown>(null)
+  const setArchived = async (f: Unit, archived: boolean) => {
+    setActionError(null)
+    try {
+      await api.post(`/units/${f.id}/${archived ? 'archive' : 'unarchive'}`, {})
+      await units.reload()
+    } catch (err) {
+      setActionError(err)
+    }
+  }
   const error = units.error ?? segments.error ?? organizations.error ?? users.error
   const ready = units.data && segments.data && organizations.data && users.data
 
@@ -55,6 +67,17 @@ export function UnitsPage() {
           </>
         }
       />
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" className="size-4 rounded border-slate-300" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          廃止したユニットも表示
+        </label>
+      </div>
+      {actionError ? (
+        <div className="mb-2">
+          <ErrorMessage error={actionError} />
+        </div>
+      ) : null}
       <Card>
         {error ? (
           <ErrorMessage error={error} />
@@ -77,9 +100,16 @@ export function UnitsPage() {
             </thead>
             <tbody>
               {units.data!.items.map((f) => (
-                <tr key={f.id}>
+                <tr key={f.id} className={f.is_archived ? 'text-slate-400' : undefined}>
                   <td className="font-mono text-xs">{f.code}</td>
-                  <td className="font-medium">{f.name}</td>
+                  <td className="font-medium">
+                    {f.name}
+                    {f.is_archived && (
+                      <span className="ml-1">
+                        <Badge>廃止</Badge>
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <Badge tone={unitTypeTone[f.unit_type]}>{unitTypeLabels[f.unit_type]}</Badge>
                   </td>
@@ -87,10 +117,24 @@ export function UnitsPage() {
                   <td className="text-slate-600">{pathName(orgTree, f.organization_id)}</td>
                   <td>{f.owner_user_id ? userName.get(f.owner_user_id) : <span className="text-slate-400">未設定</span>}</td>
                   {canWrite && (
-                    <td className="text-right">
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(f)}>
-                        編集
-                      </Button>
+                    <td className="text-right whitespace-nowrap">
+                      {f.is_archived ? (
+                        <Button size="sm" variant="ghost" onClick={() => setArchived(f, false)}>
+                          廃止を取り消す
+                        </Button>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(f)}>
+                            編集
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setMerging(f)} aria-label={`${f.name}を統合`}>
+                            統合
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setArchived(f, true)} aria-label={`${f.name}を廃止`}>
+                            廃止
+                          </Button>
+                        </>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => setDeleting(f)}>
                         削除
                       </Button>
@@ -103,6 +147,17 @@ export function UnitsPage() {
         )}
       </Card>
 
+      {merging && units.data && (
+        <MergeDialog
+          unit={merging}
+          units={units.data.items.filter((u) => !u.is_archived && u.id !== merging.id)}
+          onClose={() => setMerging(null)}
+          onMerged={async () => {
+            setMerging(null)
+            await units.reload()
+          }}
+        />
+      )}
       {editing && ready && (
         <UnitDialog
           initial={editing === 'new' ? null : editing}
@@ -253,5 +308,63 @@ function LeafSelect({ label, tree, value, onChange, error }: { label: string; tr
         </Select>
       )}
     </Field>
+  )
+}
+
+/** ユニットの統合（docs/plan.md「2.15」）。施策をすべて統合先へ移し、元のユニットを廃止にする */
+function MergeDialog({ unit, units, onClose, onMerged }: { unit: Unit; units: Unit[]; onClose: () => void; onMerged: () => Promise<void> }) {
+  const [target, setTarget] = useState('')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<unknown>(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await api.post(`/units/${unit.id}/merge`, { target_unit_id: Number(target) || 0, reason })
+      await onMerged()
+    } catch (err) {
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog
+      open
+      title="ユニットの統合"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>キャンセル</Button>
+          <Button variant="primary" type="submit" form="merge-form" disabled={busy || !target || !reason.trim()}>
+            {busy ? '処理中…' : '統合する'}
+          </Button>
+        </>
+      }
+    >
+      <form id="merge-form" onSubmit={submit} className="space-y-4">
+        <p className="text-sm text-slate-600">
+          「{unit.name}」の施策をすべて統合先へ移し、「{unit.name}」を廃止にします。過去のシナリオも含め、移した施策の数字は統合先で集計されます。日付を決めて行うときは、組織変更の予約を使ってください。
+        </p>
+        <Field label="統合先のユニット" required error={fieldError(error, 'target_unit_id')}>
+          {(p) => (
+            <Select {...p} value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="">選択してください</option>
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}（{u.code}）
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label="変更理由" required error={fieldError(error, 'reason')}>
+          {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" placeholder="例: 10月の組織改編で課を統合" />}
+        </Field>
+        <FormError error={error} fields={['target_unit_id', 'reason']} />
+      </form>
+    </Dialog>
   )
 }

@@ -40,6 +40,8 @@ export type Unit = Timestamps & {
   segment_id: number
   organization_id: number
   owner_user_id: number | null
+  /** 廃止（統合したユニットなど）。一覧・選択肢に出さない */
+  is_archived: boolean
 }
 
 export type SubjectCategory = 'revenue' | 'expense'
@@ -617,7 +619,8 @@ export const notificationKindDescriptions: Record<NotificationKind, string> = {
 
 export type AppNotification = {
   id: number
-  kind: NotificationKind
+  /** org_change_failed は組織変更の予約の失敗（FP&A 宛て） */
+  kind: NotificationKind | 'org_change_failed'
   scenario_id: number | null
   title: string
   body: string
@@ -665,3 +668,50 @@ export type ScenarioDrift = {
 export type RefreshActualsResult = { dry_run: boolean; drift: ScenarioDrift; saved: number }
 
 export type FiscalYearClosing = { fiscal_year: number; closed_at: string; closed_by: number; closed_by_name: string }
+
+// --- 組織変更と異動（docs/plan.md「2.15」） ---
+
+export type OrgChangeKind = 'move_activity' | 'move_unit' | 'merge_unit' | 'change_owner'
+
+export const orgChangeKindLabels: Record<OrgChangeKind, string> = {
+  move_activity: '施策の移動',
+  move_unit: 'ユニットの所属の変更',
+  merge_unit: 'ユニットの統合',
+  change_owner: '担当者の変更',
+}
+
+export type OrgChangeItem = {
+  id?: number
+  kind: OrgChangeKind
+  activity_id: number | null
+  unit_id: number | null
+  target_unit_id: number | null
+  segment_id: number | null
+  organization_id: number | null
+  /** 変更後の担当者・マネージャー（null は未設定） */
+  owner_user_id: number | null
+}
+
+export type OrgChangeStatus = 'scheduled' | 'applied' | 'failed' | 'cancelled'
+
+export const orgChangeStatusLabels: Record<OrgChangeStatus, string> = {
+  scheduled: '予約中',
+  applied: '適用済み',
+  failed: '失敗',
+  cancelled: '取り消し',
+}
+
+export type OrgChangePlan = {
+  id: number
+  name: string
+  effective_date: string
+  status: OrgChangeStatus
+  created_by: number
+  created_by_name: string
+  applied_at: string | null
+  error: string
+  item_count: number
+  items?: OrgChangeItem[]
+}
+
+export type Assignments = { activities: number; units: number }

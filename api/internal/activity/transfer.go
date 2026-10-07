@@ -84,7 +84,7 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) error {
 	result := csvio.Result{DryRun: up.DryRun, Rows: len(rows)}
 
 	err = inTx(r, h.db, u, up.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
-		units, err := idIndex(ctx, tx, "SELECT code, id FROM units FOR SHARE")
+		units, err := idIndex(ctx, tx, "SELECT code, id FROM units WHERE NOT is_archived FOR SHARE") // 廃止したユニットには所属させられない
 		if err != nil {
 			return err
 		}
