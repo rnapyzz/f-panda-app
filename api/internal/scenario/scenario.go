@@ -69,6 +69,9 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("POST /api/scenarios/{id}/unlock", write(h.unlock))
 
 	// 数値の入力は施策ごとに権限を判定する
+	mux.Handle("GET /api/scenarios/{id}/amounts/export", read(h.exportAmounts))
+	mux.Handle("GET /api/scenarios/{id}/driver-values/export", read(h.exportDriverValues))
+	mux.Handle("POST /api/scenarios/{id}/plan-values/import", read(h.importPlanValues))
 	mux.Handle("GET /api/scenarios/{id}/activities/{aid}", read(h.getValues))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/driver-values", read(h.putDriverValues))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/amounts", read(h.putAmounts))
