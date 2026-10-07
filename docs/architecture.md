@@ -312,6 +312,17 @@
 - 共通処理（アップロードの読込、ヘッダーと行の検証、行エラー、結果、CSV の書き出し）は `internal/csvio`
 - 結果: `{"dry_run", "rows", "inserted", "updated", "unchanged"}`。エラーは 422（`code: invalid_csv`、`error.rows` に行番号とメッセージ）
 
+### 計画値の CSV（docs/plan.md「6.3」）
+
+| API | 内容 | 権限 |
+| --- | ---- | ---- |
+| `GET /api/scenarios/{id}/amounts/export?unit_id=` | 金額の CSV（施策 × 科目 × 内訳、月を横に12列）をダウンロード | 全員 |
+| `GET /api/scenarios/{id}/driver-values/export?unit_id=` | ドライバー値の CSV（施策 × ドライバー、月を横に12列）をダウンロード | 全員 |
+| `POST /api/scenarios/{id}/plan-values/import` | 金額かドライバー値の CSV を取込（ヘッダーで判定。`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | 数値の入力と同じ（施策ごとに判定） |
+
+- 取込の結果: `{"dry_run", "kind": "amounts"|"driver_values", "rows", "inserted", "updated", "deleted", "unchanged", "activities": [{"activity_id", "code", "name", "changed"}], "warnings": [{"kind": "actual_month"|"formula_line", "count"}]}`（件数はセルの数）
+- 値の書き込みは、数値入力 API（`PUT .../amounts`・`.../driver-values`）と同じ処理を使う（権限・入力できる月の判定、監査ログ、`internal/calc` の再計算、仮の値、更新の状態）
+
 ## リスク API
 
 `GET /api/reports/risk?scenario_id=&compare_id=&period=`（ログインユーザー全員）。画面の仕様は docs/plan.md「2.9 リスク画面」。
