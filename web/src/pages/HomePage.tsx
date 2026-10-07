@@ -177,8 +177,9 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
           </div>
         }
       >
+        <p className="mb-2 text-xs text-slate-500">ステータスが「完了」「中止」の施策は、計画値の月に金額が残っているときだけ表示します。</p>
         {items.length === 0 ? (
-          <Empty>{scope === 'mine' ? '担当している施策はありません。' : '施策はありません。'}</Empty>
+          <Empty>{scope === 'mine' ? '更新する施策はありません。' : '施策はありません。'}</Empty>
         ) : (
           <Table>
             <thead>

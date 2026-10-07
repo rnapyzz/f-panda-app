@@ -12,6 +12,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/target"
 )
 
 // ホーム（docs/plan.md「2.10 現場担当の動線」）。シナリオでの施策ごとの状態と、基準・前回見込との差を返す。
@@ -125,13 +126,13 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 		}
 	}
 
-	// 対象の施策
-	where, args := "", []any{}
+	// 対象の施策（更新の対象、docs/plan.md「2.10」）
+	where, args := " WHERE "+target.Condition("a"), []any{id}
 	switch scope {
 	case "mine":
-		where, args = " WHERE a.owner_user_id = ?", []any{u.ID}
+		where, args = where+" AND a.owner_user_id = ?", append(args, u.ID)
 	case "units":
-		where, args = " WHERE un.owner_user_id = ? OR a.owner_user_id = ?", []any{u.ID, u.ID}
+		where, args = where+" AND (un.owner_user_id = ? OR a.owner_user_id = ?)", append(args, u.ID, u.ID)
 	}
 	rows, err := h.db.QueryContext(ctx, `
 		SELECT a.id, a.code, a.name, a.unit_id, a.owner_user_id, a.is_priority, w.user_id IS NOT NULL,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/rnapyzz/f-panda-app/api/internal/target"
 	"sort"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ type person struct {
 	slackID string
 }
 
-// loadActivities は、シナリオの施策（ホームの「すべて」と同じ範囲）と更新の状態（docs/plan.md「2.10」）を返す。
+// loadActivities は、シナリオの更新の対象の施策（docs/plan.md「2.10」）と更新の状態を返す。
 // 無効なユーザーは宛先にしない。
 func (s *Service) loadActivities(ctx context.Context, scenarioID int64) ([]activityItem, map[int64]person, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -73,7 +74,8 @@ func (s *Service) loadActivities(ctx context.Context, scenarioID int64) ([]activ
 		LEFT JOIN users ou ON ou.id = a.owner_user_id
 		LEFT JOIN users mu ON mu.id = un.owner_user_id
 		LEFT JOIN activity_scenario_notes n ON n.activity_id = a.id AND n.scenario_id = ?
-		ORDER BY a.code`, scenarioID)
+		WHERE `+target.Condition("a")+`
+		ORDER BY a.code`, scenarioID, scenarioID)
 	if err != nil {
 		return nil, nil, err
 	}
