@@ -130,7 +130,7 @@
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service）。一覧は既定で廃止したユニットを除く（`include_archived=true` で含める）。`POST /api/units/{id}/merge`（`target_unit_id`・`reason` 必須。施策をすべて移して廃止する）、`POST /api/units/{id}/archive`・`/unarchive` |
-| 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`       |
+| 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`（`is_restricted` で閲覧制限） |
 | 会計科目                       | `GET/POST /api/gl-accounts`、`PUT/DELETE /api/gl-accounts/{id}`（コード・名前・対応する科目 `subject_id`・対象外 `is_excluded`・明細を FP&A 以外に見せない `hide_details`。明細から参照されている会計科目は削除できない） |
 | 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。`GET /api/users/{id}/assignments`（担当している施策・所管ユニットの件数）、`POST /api/users/{id}/deactivate`（`successor_user_id`（null で担当者未設定）・`reason`。担当とマネージャーを付け替えてから無効にする）。Slack のメンバー ID（`slack_user_id`、U または W で始まる英大文字・数字、空で未登録）を持つ |
@@ -299,6 +299,13 @@
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
 
+## 閲覧制限のある科目（docs/plan.md「2.17」）
+
+- FP&A と経営陣・レビュアー以外（`manager`・`member`）には、`subjects.is_restricted` の科目の金額を返さない。合計・差異・利益なども、その科目を除いて計算する
+- 金額を返す API（数値入力、施策の P/L、予実比較、リスク、ホーム、計画値の CSV、実績の明細・未割当、変更履歴）は、ユーザーのロールから「見られる科目」の条件を作る共通処理（`internal/visibility`）を通して読む
+- 制限のある科目を除いたレスポンスには `restricted_hidden: true` を付け、画面は「閲覧制限のある科目を除いた金額です」と表示する
+- 制限のある科目の内訳の作成・金額の入力は FP&A のみ（それ以外は 403、計画値の CSV では行のエラー）
+
 ## CSV インポート・エクスポート API
 
 | API | 内容 | 権限 |
@@ -346,7 +353,7 @@
 | `GET /api/change-sets`      | 変更セットの一覧（新しい順）。`scenario_id` / `activity_id` / `user_id` / `reason`（with・without）/ `from`・`to`（YYYY-MM-DD）で絞り込み、`before_id` と `limit` で続きを取得 |
 | `GET /api/change-sets/{id}` | 変更セットと監査ログ（変更前後の値と、対象を人が読める形にした `label`）                |
 
-- 参照はログインユーザー全員
+- 参照は FP&A と経営陣・レビュアー（`viewer`）。現場マネージャー・現場担当は、`activity_id` で自分が編集できる施策に絞り込んだときだけ参照できる（それ以外は 403）。その場合、制限のある科目（`subjects.is_restricted`）の金額の監査ログは返さない（docs/plan.md「2.17」）
 - 一覧の各行は、テーブル別の件数と、関係する施策（最大5件）を含む
 - `activity_id` の絞り込みは、施策自体・施策に紐づくレコード（`activity_id` を持つもの）・ドライバー値（ドライバー経由）の変更を対象にする
 - 変更のなかった操作（監査ログが0件の変更セット）は一覧に出さない
