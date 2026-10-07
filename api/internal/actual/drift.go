@@ -231,3 +231,18 @@ func (h *Handler) refreshActuals(w http.ResponseWriter, r *http.Request) error {
 	httpx.WriteJSON(w, http.StatusOK, result)
 	return nil
 }
+
+// DriftedScenarios は、年度のロック済みのシナリオのうち、実績が今の実績と食い違うものの名前を返す（シナリオの切り替えの注意に使う）。
+func DriftedScenarios(ctx context.Context, tx *sql.Tx, fiscalYear int) ([]string, error) {
+	drift, err := loadDrift(ctx, tx, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, d := range drift {
+		if d.FiscalYear == fiscalYear {
+			names = append(names, d.Name)
+		}
+	}
+	return names, nil
+}

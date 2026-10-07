@@ -11,6 +11,7 @@ import { Link } from '../../lib/router'
 import { currentFiscalYear, fiscalMonths, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 import { ActualsImportDialog } from './ActualsImportDialog'
+import { CycleDialog } from './CycleDialog'
 import { RefreshActualsDialog } from './RefreshActualsDialog'
 import { CreateScenarioDialog, ScenarioSettingsDialog } from './ScenarioFields'
 import { ScenarioBadges } from './ScenarioListPage'
@@ -49,6 +50,7 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
   const closing = closings.data?.items.find((c) => c.fiscal_year === fy)
   const [refreshing, setRefreshing] = useState<Scenario | null>(null)
 
+  const [cycle, setCycle] = useState<'monthly' | 'fiscal-year' | null>(null)
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [editing, setEditing] = useState<Scenario | null>(null)
@@ -92,12 +94,14 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
     <>
       <PageHeader
         title="シナリオ管理"
-        description="作成中のシナリオ（アプリ全体での入力の対象）の指定、エイリアス・決算確定月の設定、ロック、実績の取込を行います。"
+        description="毎月の見込は「月次の見込を始める」で、前の版のロック・複製・決算確定月・エイリアス・前回見込・作成中・締切をまとめて切り替えます。個別の作成・ロック・設定や、実績の取込もここで行います。"
         actions={
           <>
             <Button onClick={() => setImporting(true)}>実績を取り込む</Button>
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              ＋ シナリオを作成
+            <Button onClick={() => setCreating(true)}>＋ シナリオを作成</Button>
+            <Button onClick={() => setCycle('fiscal-year')}>新年度の期初計画を始める</Button>
+            <Button variant="primary" onClick={() => setCycle('monthly')}>
+              月次の見込を始める
             </Button>
           </>
         }
@@ -247,6 +251,18 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
         )}
       </Card>
 
+      {cycle && (
+        <CycleDialog
+          mode={cycle}
+          active={active ?? null}
+          onClose={() => setCycle(null)}
+          onDone={async (s) => {
+            setCycle(null)
+            setFy(s.fiscal_year)
+            await refresh()
+          }}
+        />
+      )}
       {creating && (
         <CreateScenarioDialog
           scenarios={scenarios}
