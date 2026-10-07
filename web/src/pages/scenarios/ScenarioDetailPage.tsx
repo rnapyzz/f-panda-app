@@ -4,6 +4,7 @@ import { Card, Empty, ErrorMessage, Input, Loading, PageHeader, Table } from '..
 import { useCurrentUser } from '../../lib/auth'
 import { Link } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
+import { PlanValuesCsvCard } from './PlanValuesCsv'
 import { ScenarioBadges } from './ScenarioListPage'
 
 export function ScenarioDetailPage({ id }: { id: string }) {
@@ -61,6 +62,8 @@ export function ScenarioDetailPage({ id }: { id: string }) {
       {!s.is_locked && !s.is_active && (
         <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">このシナリオは作成中ではないため、数値を入力できるのは FP&A のみです。</p>
       )}
+
+      <PlanValuesCsvCard scenario={s} units={units.data.items} canImport={!s.is_locked && (s.is_active ? me.role !== 'viewer' : isAdmin)} />
 
       <Card
         title="施策"

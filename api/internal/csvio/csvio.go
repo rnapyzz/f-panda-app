@@ -250,3 +250,22 @@ func WriteCSV(w http.ResponseWriter, name string, header []string, rows [][]stri
 	}
 	return cw.Error()
 }
+
+// Header は CSV のヘッダー行の列名（小文字・前後の空白なし）を返す。列によって形式を判定するときに使う。
+func Header(data []byte) ([]string, error) {
+	data = bytes.TrimPrefix(data, bom)
+	if !utf8.Valid(data) {
+		return nil, httpx.BadRequest("CSV の文字コードが UTF-8 ではありません。UTF-8 で保存してください")
+	}
+	header, err := csv.NewReader(bytes.NewReader(data)).Read()
+	if errors.Is(err, io.EOF) {
+		return nil, httpx.BadRequest("CSV が空です")
+	}
+	if err != nil {
+		return nil, httpx.BadRequest("CSV のヘッダー行を読み込めません: " + err.Error())
+	}
+	for i, h := range header {
+		header[i] = strings.ToLower(strings.TrimSpace(h))
+	}
+	return header, nil
+}
