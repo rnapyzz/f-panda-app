@@ -60,6 +60,8 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/scenarios/{id}/activity-status", read(h.activityStatuses))
 	mux.Handle("GET /api/scenarios/{id}/milestones", read(h.milestones))
 	mux.Handle("POST /api/scenarios", write(h.create))
+	mux.Handle("POST /api/scenarios/start-monthly", write(h.startMonthly))
+	mux.Handle("POST /api/scenarios/start-fiscal-year", write(h.startFiscalYear))
 	mux.Handle("GET /api/scenarios/{id}", read(h.get))
 	mux.Handle("PUT /api/scenarios/{id}", write(h.update))
 	mux.Handle("POST /api/scenarios/{id}/activate", write(h.activate))
@@ -327,53 +329,75 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
-		res, err := tx.ExecContext(ctx,
-			"INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, base_scenario_id, previous_scenario_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			name, req.FiscalYear, role, through, dbx.NullInt64(req.BaseScenarioID), dbx.NullInt64(previous), u.ID,
-		)
-		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
-			return httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
-		}
-		if err != nil {
-			return err
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-
-		copied := map[string]int64{}
-		if req.BaseScenarioID != nil {
-			for _, c := range []struct{ table, columns string }{
-				{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
-				{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
-				{"scenario_conditions", "activity_id, description"},
-			} {
-				res, err := tx.ExecContext(ctx,
-					"INSERT INTO "+c.table+" (scenario_id, "+c.columns+") SELECT ?, "+c.columns+" FROM "+c.table+" WHERE scenario_id = ?",
-					id, *req.BaseScenarioID,
-				)
-				if err != nil {
-					return err
-				}
-				copied[c.table], _ = res.RowsAffected()
-			}
-		}
-
-		if created, err = findScenario(ctx, tx, id, ""); err != nil {
-			return err
-		}
-		// 複製した行は件数だけを記録する（行ごとの監査ログは複製元に残っている）。
-		return rec.Insert(ctx, "scenarios", id, struct {
-			Scenario
-			Copied map[string]int64 `json:"copied,omitempty"`
-		}{created, copied})
+		var err error
+		created, err = insertScenario(ctx, tx, rec, scenarioInsert{
+			name: name, fiscalYear: req.FiscalYear, role: role, through: through,
+			base: req.BaseScenarioID, previous: previous, createdBy: u.ID,
+		})
+		return err
 	})
 	if err != nil {
 		return err
 	}
 	httpx.WriteJSON(w, http.StatusCreated, created)
 	return nil
+}
+
+// scenarioInsert は新しいシナリオの内容。base があれば、その数値（ドライバー値・金額・想定条件）を複製する。
+type scenarioInsert struct {
+	name       string
+	fiscalYear int
+	role       any // エイリアス（NULL 可）
+	through    any // 決算確定月（月初日、NULL 可）
+	base       *int64
+	previous   *int64
+	deadline   sql.NullString
+	createdBy  int64
+}
+
+// insertScenario はシナリオを作り（複製元があれば数値を複製し）、監査ログに残す。
+func insertScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, in scenarioInsert) (Scenario, error) {
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, update_deadline, base_scenario_id, previous_scenario_id, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.name, in.fiscalYear, in.role, in.through, in.deadline, dbx.NullInt64(in.base), dbx.NullInt64(in.previous), in.createdBy,
+	)
+	if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
+		return Scenario{}, httpx.Validation(map[string]string{"name": "このシナリオ名は既に使われています"})
+	}
+	if err != nil {
+		return Scenario{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Scenario{}, err
+	}
+	copied := map[string]int64{}
+	if in.base != nil {
+		for _, c := range []struct{ table, columns string }{
+			{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
+			{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
+			{"scenario_conditions", "activity_id, description"},
+		} {
+			res, err := tx.ExecContext(ctx,
+				"INSERT INTO "+c.table+" (scenario_id, "+c.columns+") SELECT ?, "+c.columns+" FROM "+c.table+" WHERE scenario_id = ?",
+				id, *in.base,
+			)
+			if err != nil {
+				return Scenario{}, err
+			}
+			copied[c.table], _ = res.RowsAffected()
+		}
+	}
+	created, err := findScenario(ctx, tx, id, "")
+	if err != nil {
+		return Scenario{}, err
+	}
+	// 複製した行は件数だけを記録する（行ごとの監査ログは複製元に残っている）。
+	return created, rec.Insert(ctx, "scenarios", id, struct {
+		Scenario
+		Copied map[string]int64 `json:"copied,omitempty"`
+	}{created, copied})
 }
 
 // update は PUT /api/scenarios/{id}。名称・エイリアス・決算確定月を変更する（年度は変更できない）。
@@ -616,6 +640,35 @@ func deactivateCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder) err
 	return rec.Update(ctx, "scenarios", cur.ID, cur, after)
 }
 
+// lockScenario はシナリオをロックする。決算確定月以前の実績を scenario_actuals に保存して固定し、作成中の指定は外す。
+// before は行ロック付きで読んだロックされていないシナリオ。
+func lockScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, before Scenario) (Scenario, error) {
+	var actuals int64
+	if before.ActualThrough != nil {
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO scenario_actuals (scenario_id, activity_id, subject_id, target_month, amount)
+			SELECT ?, activity_id, subject_id, target_month, amount FROM actual_facts
+			WHERE target_month BETWEEN ? AND ?`,
+			before.ID, calc.FiscalMonths(before.FiscalYear)[0]+"-01", monthDate(*before.ActualThrough))
+		if err != nil {
+			return Scenario{}, err
+		}
+		actuals, _ = res.RowsAffected()
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_locked = TRUE, is_active = FALSE WHERE id = ?", before.ID); err != nil {
+		return Scenario{}, err
+	}
+	updated, err := findScenario(ctx, tx, before.ID, "")
+	if err != nil {
+		return Scenario{}, err
+	}
+	// 保存した実績は件数だけを記録する（行ごとの監査ログは actual_facts に残っている）
+	return updated, rec.Update(ctx, "scenarios", before.ID, before, struct {
+		Scenario
+		FrozenActuals int64 `json:"frozen_actuals"`
+	}{updated, actuals})
+}
+
 // lock は POST /api/scenarios/{id}/lock。ロックしたシナリオの数値は変更できなくなる。
 // 決算確定月以前の実績を scenario_actuals に保存して固定し、作成中の指定は外す。
 func (h *Handler) lock(w http.ResponseWriter, r *http.Request) error {
@@ -658,27 +711,17 @@ func (h *Handler) setLocked(w http.ResponseWriter, r *http.Request, locked bool)
 			}
 			return httpx.Conflict("このシナリオはロックされていません")
 		}
-		// ロック時は決算確定月以前の実績をシナリオに保存して固定し、解除時は外す（再び実績データを参照する）
-		var actuals int64
-		if locked && before.ActualThrough != nil {
-			res, err := tx.ExecContext(ctx, `
-				INSERT INTO scenario_actuals (scenario_id, activity_id, subject_id, target_month, amount)
-				SELECT ?, activity_id, subject_id, target_month, amount FROM actual_facts
-				WHERE target_month BETWEEN ? AND ?`,
-				id, calc.FiscalMonths(before.FiscalYear)[0]+"-01", monthDate(*before.ActualThrough))
-			if err != nil {
-				return err
-			}
-			actuals, _ = res.RowsAffected()
-		} else if !locked {
-			res, err := tx.ExecContext(ctx, "DELETE FROM scenario_actuals WHERE scenario_id = ?", id)
-			if err != nil {
-				return err
-			}
-			actuals, _ = res.RowsAffected()
+		if locked {
+			updated, err = lockScenario(ctx, tx, rec, before)
+			return err
 		}
-		// 作成中のシナリオをロックすると、作成中の指定は外れる
-		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_locked = ?, is_active = is_active AND NOT ? WHERE id = ?", locked, locked, id); err != nil {
+		// 解除時は保存した実績を外す（再び実績データを参照する）
+		res, err := tx.ExecContext(ctx, "DELETE FROM scenario_actuals WHERE scenario_id = ?", id)
+		if err != nil {
+			return err
+		}
+		actuals, _ := res.RowsAffected()
+		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_locked = FALSE WHERE id = ?", id); err != nil {
 			return err
 		}
 		if updated, err = findScenario(ctx, tx, id, ""); err != nil {
