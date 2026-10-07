@@ -47,20 +47,77 @@
 
 ## 認証
 
-- メールアドレス＋パスワードでログインし、セッション Cookie（`fpanda_session`）で認証する
+- 通常は **Google Workspace の SSO（OIDC）** でログインする。SSO を設定していない環境（開発環境など）は、メールアドレス＋パスワードでログインする
+- ログイン後はセッション Cookie（`fpanda_session`）で認証する（SSO・パスワードで共通）
 - パスワード: 標準ライブラリの PBKDF2-HMAC-SHA256（600,000回）でハッシュ化。12〜128文字
 - セッション: ランダムな32バイトのトークンを Cookie で渡し、DB（`sessions`）には SHA-256 のみ保存する。有効期間は `SESSION_TTL`（デフォルト12時間）。期限切れは API サーバーが1時間ごとに削除する
 - Cookie: `HttpOnly`・`SameSite=Lax`。HTTPS 環境では `COOKIE_SECURE=true` で `Secure` を付ける
 - CSRF: Go 1.25 の `http.CrossOriginProtection` で、別オリジンからの更新系リクエストを拒否する
 - 権限: `auth.RequireAuth`（ログイン必須）と `auth.RequireRole(...)`（ロール制限）のミドルウェアで制御する。施策のようにデータごとに権限が変わるものはハンドラー内で判定する
 - 無効化（`users.is_active = false`）したユーザーはログインできず、既存のセッションも使えなくなる
-- 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`）
+- 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`、本番は ECS の単発のタスク）
+
+### SSO（OIDC）
+
+- 認可コードフロー（PKCE・`state`・`nonce` 付き）。外部ライブラリは使わず、標準ライブラリ（`net/http`・`crypto/rsa`・`encoding/json`）で実装する
+  1. `GET /api/auth/oidc/login`: `state`・`nonce`・PKCE の検証値を短命の Cookie（10分、`HttpOnly`・`Secure`）に入れ、IdP の認可エンドポイントへリダイレクトする
+  2. `GET /api/auth/oidc/callback`: `state` を確かめ、トークンエンドポイントで認可コードを ID トークンに交換する
+  3. ID トークン（JWT、RS256）を検証する: IdP の公開鍵（JWKS、`kid` で選ぶ。1時間キャッシュ）で署名、`iss`・`aud`・`exp`・`iat`・`nonce`、`email_verified`、ドメイン（`hd` またはメールアドレスのドメインが `OIDC_ALLOWED_DOMAINS` に含まれる）
+  4. メールアドレス（大文字小文字を区別しない）でアプリのユーザーを探す。未登録・無効なら、ログイン画面へ戻して「FP&A に登録を依頼してください」と表示する
+  5. 初回は `sub` を `users.oidc_subject` に記録する。以後は `sub` も一致しなければ通さない（メールアドレスの付け替えによるなりすましを防ぐ）
+  6. セッションを作り、`/` へリダイレクトする
+- 設定（環境変数）: `OIDC_ISSUER`（既定 `https://accounts.google.com`）、`OIDC_CLIENT_ID`、`OIDC_CLIENT_SECRET`、`OIDC_REDIRECT_URL`（例 `https://fpanda.example.com/api/auth/oidc/callback`）、`OIDC_ALLOWED_DOMAINS`（カンマ区切り）。`OIDC_CLIENT_ID` が空なら SSO は無効
+- IdP の設定（エンドポイント）は、起動時に `OIDC_ISSUER` の `/.well-known/openid-configuration` から読む
+- `GET /api/auth/config`: ログイン画面用。SSO が有効か、パスワードでのログインができるロールを返す
+
+### パスワードでのログイン
+
+- SSO が有効な環境では、パスワードでログインできるのは FP&A（`fpa_admin`）だけ（IdP の障害に備えた非常用）。ログイン画面の「非常用のログイン」から入る。ほかのロールは 403
+- ログイン失敗の制限: 同じメールアドレス、または同じ IP からの失敗が15分に5回に達したら、15分間ログインを止める（429）。失敗は `login_attempts` に記録し、成功したらそのメールアドレスの記録を消す。古い記録は1日で消す
+- IP は、`TRUST_PROXY=true` のとき `X-Forwarded-For` の最後の値（ALB が付けたもの）、それ以外は接続元のアドレスを使う
 
 | API                      | 内容                     |
 | ------------------------ | ------------------------ |
 | `POST /api/auth/login`   | ログイン                 |
 | `POST /api/auth/logout`  | ログアウト               |
 | `GET /api/auth/me`       | ログイン中のユーザー     |
+
+## 本番環境（AWS）
+
+手順は docs/deploy.md。
+
+```
+  browser ──HTTPS──▶ ALB（ACM の証明書。HTTP は HTTPS へ転送）
+                       │
+                       ▼
+            ECS Fargate のタスク（1台以上）
+            ┌───────────────────────────────┐
+            │ nginx（ビルドした画面、/api を転送）│
+            │ api（Go）                      │──▶ RDS for MySQL 8
+            └───────────────────────────────┘
+                 │ ログ                     秘密情報
+                 ▼                          ▲
+            CloudWatch Logs           Secrets Manager
+```
+
+| 項目 | 内容 |
+| ---- | ---- |
+| イメージ | `web`（本番用のステージで画面をビルドし nginx に入れる）・`api`。ECR に置く |
+| マイグレーション | リリースの前に、`api` イメージの `migrate up` を ECS の単発のタスクとして実行する |
+| 自動の処理 | 通知・組織変更の予約は API 内のゴルーチンで動く。複数台でも DB の一意制約・行ロックで二重に動かない |
+| 秘密情報 | `DB_PASSWORD`・`SLACK_WEBHOOK_URL`・`OIDC_CLIENT_SECRET` は Secrets Manager からタスクの環境変数に渡す |
+| 環境変数 | `COOKIE_SECURE=true`・`TRUST_PROXY=true`・`TZ=Asia/Tokyo`・`APP_BASE_URL`・OIDC の設定 |
+| ヘルスチェック | ALB のターゲットのヘルスチェックは `GET /api/health`（DB に接続できなければ 503） |
+| バックアップ | RDS の自動バックアップを 30日に設定する（毎日のスナップショットと、30日以内の任意の時点への復元）。復旧は新しい DB への復元と接続先の切り替え。四半期に1回、復旧を練習する |
+| 監視 | CloudWatch のアラーム: ALB の 5xx の増加、ヘルスチェックの失敗、RDS の CPU・空き容量・接続数 |
+| 監査ログ | 消さない。テーブルの大きさを監視する |
+| リリースの自動化 | 今は手順書で行う。GitHub Actions などでの自動化は将来の課題 |
+
+### HTTP のヘッダー（nginx）
+
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains`（HTTPS のときだけ）
+- `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`
+- `Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
 
 ## マスタ管理 API
 
