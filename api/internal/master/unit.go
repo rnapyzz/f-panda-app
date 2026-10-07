@@ -28,6 +28,8 @@ type unit struct {
 	SegmentID      int64  `json:"segment_id"`
 	OrganizationID int64  `json:"organization_id"`
 	OwnerUserID    *int64 `json:"owner_user_id"`
+	// IsArchived は廃止（統合したユニットなど）。一覧・選択肢に出さず、施策を所属させられない（docs/plan.md「2.15」）
+	IsArchived bool `json:"is_archived"`
 	timestamps
 }
 
@@ -41,12 +43,12 @@ type unitRequest struct {
 	reasonRequest
 }
 
-const unitSelect = "SELECT id, code, name, unit_type, segment_id, organization_id, owner_user_id, created_at, updated_at FROM units"
+const unitSelect = "SELECT id, code, name, unit_type, segment_id, organization_id, owner_user_id, is_archived, created_at, updated_at FROM units"
 
 func scanUnit(row interface{ Scan(...any) error }) (unit, error) {
 	var f unit
 	var owner sql.NullInt64
-	err := row.Scan(&f.ID, &f.Code, &f.Name, &f.UnitType, &f.SegmentID, &f.OrganizationID, &owner, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Code, &f.Name, &f.UnitType, &f.SegmentID, &f.OrganizationID, &owner, &f.IsArchived, &f.CreatedAt, &f.UpdatedAt)
 	f.OwnerUserID = dbx.PtrInt64(owner)
 	return f, err
 }
@@ -59,9 +61,13 @@ func findUnit(ctx context.Context, q dbx.Querier, id int64, lock string) (unit, 
 	return f, err
 }
 
-// listUnits は GET /api/units。
+// listUnits は GET /api/units。廃止したユニットは include_archived=true のときだけ含める。
 func (h *Handler) listUnits(w http.ResponseWriter, r *http.Request) error {
-	rows, err := h.db.QueryContext(r.Context(), unitSelect+" ORDER BY id")
+	where := " WHERE NOT is_archived"
+	if r.URL.Query().Get("include_archived") == "true" {
+		where = ""
+	}
+	rows, err := h.db.QueryContext(r.Context(), unitSelect+where+" ORDER BY id")
 	if err != nil {
 		return err
 	}

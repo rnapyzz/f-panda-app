@@ -1,7 +1,7 @@
 import { CsvActions } from '../../components/CsvTransfer'
 import { useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import { roleLabels, type List, type Role, type User } from '../../api/types'
+import { roleLabels, type Assignments, type List, type Role, type User } from '../../api/types'
 import { Badge, Button, Card, Dialog, Empty, ErrorMessage, Field, FormError, Input, Loading, PageHeader, Select, Table, Textarea, fieldError } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { useApi } from '../../lib/useApi'
@@ -93,6 +93,7 @@ export function UsersPage() {
         <UserDialog
           initial={editing === 'new' ? null : editing}
           isSelf={editing !== 'new' && editing.id === me.id}
+          users={data?.items ?? []}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -105,7 +106,20 @@ export function UsersPage() {
   )
 }
 
-function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | null; isSelf: boolean; onClose: () => void; onSaved: () => void }) {
+function UserDialog({
+  initial,
+  isSelf,
+  users,
+  onClose,
+  onSaved,
+}: {
+  initial: User | null
+  isSelf: boolean
+  /** 後任者の選択肢（有効なユーザー） */
+  users: User[]
+  onClose: () => void
+  onSaved: () => void
+}) {
   const [name, setName] = useState(initial?.name ?? '')
   const [email, setEmail] = useState(initial?.email ?? '')
   const [role, setRole] = useState<Role>(initial?.role ?? 'member')
@@ -115,13 +129,22 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  // 無効にするとき、担当している施策・所管ユニットがあれば後任者を選ぶ（docs/plan.md「2.15」）
+  const deactivating = initial !== null && initial.is_active && !isActive
+  const assignments = useApi<Assignments>(deactivating ? `/users/${initial!.id}/assignments` : null)
+  const hasAssignments = (assignments.data?.activities ?? 0) + (assignments.data?.units ?? 0) > 0
+  const [successor, setSuccessor] = useState('')
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      if (initial) await api.put(`/users/${initial.id}`, { name, email, role, is_active: isActive, slack_user_id: slackId, reason })
+      if (initial && deactivating) {
+        // ほかの項目を保存してから、担当を後任者へ付け替えて無効にする
+        await api.put(`/users/${initial.id}`, { name, email, role, is_active: true, slack_user_id: slackId, reason })
+        await api.post(`/users/${initial.id}/deactivate`, { successor_user_id: successor ? Number(successor) : null, reason })
+      } else if (initial) await api.put(`/users/${initial.id}`, { name, email, role, is_active: isActive, slack_user_id: slackId, reason })
       else await api.post('/users', { name, email, role, password, slack_user_id: slackId, reason })
       onSaved()
     } catch (err) {
@@ -181,10 +204,31 @@ function UserDialog({ initial, isSelf, onClose, onSaved }: { initial: User | nul
           </Field>
         )}
         {fieldError(error, 'is_active') && <p className="text-xs text-red-600">{fieldError(error, 'is_active')}</p>}
+        {deactivating && hasAssignments && (
+          <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/60 p-3" aria-label="後任者の付け替え">
+            <p className="text-sm text-amber-900">
+              {initial!.name} さんは、施策 {assignments.data!.activities} 件の担当者、ユニット {assignments.data!.units} 件のマネージャーです。無効にする前に、後任者へまとめて付け替えます。
+            </p>
+            <Field label="後任者" error={fieldError(error, 'successor_user_id')}>
+              {(p) => (
+                <Select {...p} value={successor} onChange={(e) => setSuccessor(e.target.value)}>
+                  <option value="">後任者なし（担当者未設定にする）</option>
+                  {users
+                    .filter((u) => u.is_active && u.id !== initial!.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}（{roleLabels[u.role]}）
+                      </option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+        )}
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['name', 'email', 'role', 'password', 'is_active', 'slack_user_id', 'reason']} />
+        <FormError error={error} fields={['name', 'email', 'role', 'password', 'is_active', 'slack_user_id', 'successor_user_id', 'reason']} />
       </form>
     </Dialog>
   )

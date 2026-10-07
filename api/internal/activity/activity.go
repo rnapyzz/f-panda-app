@@ -231,11 +231,16 @@ func lockEditable(ctx context.Context, tx *sql.Tx, u auth.User, id int64) (activ
 }
 
 // lockUnit はユニットを行ロック付きで取得し、担当者を返す。
+// 廃止したユニット（docs/plan.md「2.15」）には施策を所属させられない。
 func lockUnit(ctx context.Context, tx *sql.Tx, id int64) (owner *int64, err error) {
 	var o sql.NullInt64
-	err = tx.QueryRowContext(ctx, "SELECT owner_user_id FROM units WHERE id = ? FOR SHARE", id).Scan(&o)
+	var archived bool
+	err = tx.QueryRowContext(ctx, "SELECT owner_user_id, is_archived FROM units WHERE id = ? FOR SHARE", id).Scan(&o, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, httpx.Validation(map[string]string{"unit_id": "ユニットが見つかりません"})
+	}
+	if err == nil && archived {
+		return nil, httpx.Validation(map[string]string{"unit_id": "廃止したユニットには施策を所属させられません"})
 	}
 	return dbx.PtrInt64(o), err
 }

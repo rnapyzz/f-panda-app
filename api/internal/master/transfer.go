@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -869,6 +870,25 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 			result.Updated++
+		}
+		// 無効にしたユーザーに担当が残っていれば知らせる（CSV では付け替えない。docs/plan.md「2.15」）
+		for _, it := range items {
+			if it.active {
+				continue
+			}
+			var name string
+			var acts, units int
+			err := tx.QueryRowContext(ctx, `
+				SELECT u.name,
+				       (SELECT COUNT(*) FROM activities WHERE owner_user_id = u.id),
+				       (SELECT COUNT(*) FROM units WHERE owner_user_id = u.id AND NOT is_archived)
+				FROM users u WHERE u.email = ?`, it.email).Scan(&name, &acts, &units)
+			if err != nil {
+				return err
+			}
+			if acts+units > 0 {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("無効なユーザー「%s」に、担当の施策 %d 件・所管ユニット %d 件が残っています。ユーザーの画面で後任者に付け替えてください", name, acts, units))
+			}
 		}
 		if up.DryRun {
 			return csvio.ErrDryRun

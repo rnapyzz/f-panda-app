@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { api, ApiError, download } from '../api/client'
 import { Button, Dialog, ErrorMessage, Field, Input, Table, Textarea } from './ui'
 
-type ImportResult = { dry_run: boolean; rows: number; inserted: number; updated: number; unchanged: number }
+type ImportResult = { dry_run: boolean; rows: number; inserted: number; updated: number; unchanged: number; warnings?: string[] }
 
 /**
  * マスタ・施策の CSV エクスポートとインポートのボタン。
@@ -223,6 +223,13 @@ function CsvImportDialog({
                 </div>
               ))}
             </div>
+            {result.warnings && result.warnings.length > 0 && (
+              <ul className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800" aria-label="注意">
+                {result.warnings.map((w) => (
+                  <li key={w}>⚠ {w}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

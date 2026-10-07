@@ -160,6 +160,8 @@
 - 変更（`items[]`）の種類: `move_activity`（`activity_id`・`target_unit_id`）、`move_unit`（`unit_id`・`segment_id`・`organization_id`）、`merge_unit`（`unit_id`・`target_unit_id`）、`change_owner`（`activity_id` または `unit_id` と `owner_user_id`、null で未設定）
 - 適用: 予約を作った FP&A の変更セットとして、1トランザクションで変更を順に適用する。検証はマスタ・施策の更新と同じ（末端ノード、廃止したユニット、無効なユーザーなど）。1つでもエラーなら全体をロールバックし、予約を失敗（`error` に理由）にして FP&A にお知らせを送る
 - 自動の適用: 通知と同じく API 内のゴルーチン（1分ごと）で、有効日が今日以前の予約中の予約を適用する（`internal/orgchange`）。予約の行ロックで二重の適用を防ぐ
+- 予約の作成・変更のときに、今の状態で適用できるかを確かめる（適用してロールバックする）。適用できない予約は 422（`details.items` に何件目の変更か）
+- ユニットの廃止（`/archive`）は施策が所属していないときだけ。施策があるときは統合を使う
 
 ## 年度の締め API
 
@@ -232,7 +234,7 @@
 
 - 形式と取込のルールは docs/plan.md「6.2」
 - 省略できる列（ユーザーの `slack_user_id`）は `csvio.ParseWithOptional` で読む
-- ユーザーの取込の結果に、担当している施策・所管ユニットが残っている無効なユーザー（`inactive_with_assignments`）を返す
+- 取込の結果の `warnings` に注意を返す（ユーザーの取込では、担当している施策・所管ユニットが残っている無効なユーザー）
 - 共通処理（アップロードの読込、ヘッダーと行の検証、行エラー、結果、CSV の書き出し）は `internal/csvio`
 - 結果: `{"dry_run", "rows", "inserted", "updated", "unchanged"}`。エラーは 422（`code: invalid_csv`、`error.rows` に行番号とメッセージ）
 

@@ -215,6 +215,8 @@ type Result struct {
 	Inserted  int  `json:"inserted"`
 	Updated   int  `json:"updated"`
 	Unchanged int  `json:"unchanged"`
+	// Warnings は取り込んだうえでの注意（例: 担当が残っている無効なユーザー）
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ErrDryRun は dry run でトランザクションをロールバックさせるためのエラー。
