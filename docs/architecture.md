@@ -206,6 +206,20 @@
 - エイリアスを付けると、同じ年度で同じエイリアスを持つシナリオからは外れる
 - 金額の再計算は `internal/calc` が行い、変更した金額は同じ変更セットの監査ログに残す
 
+## シナリオの切り替え API
+
+シナリオの切り替えの仕様は docs/plan.md「2.16」。すべて FP&A のみ。
+
+| API | 内容 |
+| --- | ---- |
+| `POST /api/scenarios/start-monthly` | 月次の見込を始める（`name`・`actual_through`・`update_deadline`、`reason` 任意） |
+| `POST /api/scenarios/start-fiscal-year` | 新年度の期初計画を始める（`fiscal_year`・`name`・`update_deadline`） |
+
+- どちらも `dry_run: true` で保存せず、変わる内容（ロックする版、複製元、新しい版、付け替えるエイリアス、前回見込）と注意（`warnings`: 種類と件数・月）を返す。注意があっても実行できる
+- 実行は1つの変更セット（全部か無しか）。ロック・複製・エイリアスの付け替え・作成中の指定は、それぞれの API と同じ処理（`scenario` パッケージ）を使い、監査ログに残す
+- 締切が入っていれば、保存の後に「更新の開始」を送る（`notify`）
+- レスポンスは新しい版（`Scenario`）と、ロックした版の ID
+
 ## 組織変更の予約 API
 
 組織変更と異動の仕様は docs/plan.md「2.15」。すべて FP&A のみ。
