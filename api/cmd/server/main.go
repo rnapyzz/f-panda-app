@@ -43,6 +43,13 @@ func run(logger *slog.Logger) error {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	authSvc := auth.NewService(db, cfg.SessionTTL)
+	// SSO（OIDC）を設定した環境では、パスワードでのログインは FP&A の非常用だけにする
+	var oidc *auth.OIDC
+	if cfg.OIDC.ClientID != "" {
+		oidc = auth.NewOIDC(auth.OIDCConfig(cfg.OIDC))
+		authSvc.RestrictPasswordLogin(auth.RoleFPAAdmin)
+		logger.Info("sso enabled", "issuer", cfg.OIDC.Issuer, "allowed_domains", cfg.OIDC.AllowedDomains)
+	}
 	orgChanges := orgchange.NewService(db, orgchange.Options{Logger: logger})
 	notifier := notify.NewService(db, notify.Options{SlackWebhookURL: cfg.SlackWebhookURL, BaseURL: cfg.AppBaseURL, Logger: logger})
 
@@ -52,6 +59,8 @@ func run(logger *slog.Logger) error {
 			DB:           db,
 			Auth:         authSvc,
 			CookieSecure: cfg.CookieSecure,
+			TrustProxy:   cfg.TrustProxy,
+			OIDC:         oidc,
 			Logger:       logger,
 			Notifier:     notifier,
 			OrgChanges:   orgChanges,

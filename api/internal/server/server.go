@@ -25,7 +25,11 @@ type Deps struct {
 	DB           *sql.DB
 	Auth         *auth.Service
 	CookieSecure bool
-	Logger       *slog.Logger
+	// TrustProxy は X-Forwarded-For から接続元の IP を読むか（ALB の後ろで動かす本番用）
+	TrustProxy bool
+	// OIDC は SSO。nil なら SSO は無効（パスワードでのログインだけ）
+	OIDC   *auth.OIDC
+	Logger *slog.Logger
 	// Notifier は締切と通知。nil なら Slack に送らない Service を作る
 	Notifier *notify.Service
 	// OrgChanges は組織変更。nil なら作る
@@ -36,12 +40,15 @@ type Deps struct {
 func NewHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	authH := auth.NewHandler(d.Auth, d.CookieSecure)
+	authH := auth.NewHandler(d.Auth, auth.HandlerOptions{SecureCookie: d.CookieSecure, TrustProxy: d.TrustProxy, OIDC: d.OIDC, Logger: d.Logger})
 	requireAuth := d.Auth.RequireAuth
 
 	mux.HandleFunc("GET /api/health", healthHandler(d.DB))
 	mux.HandleFunc("POST /api/auth/login", httpx.Handle(authH.Login))
 	mux.HandleFunc("POST /api/auth/logout", httpx.Handle(authH.Logout))
+	mux.HandleFunc("GET /api/auth/config", httpx.Handle(authH.Config))
+	mux.HandleFunc("GET /api/auth/oidc/login", httpx.Handle(authH.OIDCLogin))
+	mux.HandleFunc("GET /api/auth/oidc/callback", httpx.Handle(authH.OIDCCallback))
 	mux.Handle("GET /api/auth/me", requireAuth(httpx.Handle(authH.Me)))
 
 	master.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
