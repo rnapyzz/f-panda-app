@@ -17,6 +17,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 const (
@@ -95,6 +96,8 @@ type valuesView struct {
 	Condition    *string     `json:"condition"`
 	// Note は差異の説明と更新の状態（docs/plan.md「2.10」）
 	Note note `json:"note"`
+	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
+	RestrictedHidden bool `json:"restricted_hidden"`
 }
 
 // getValues は GET /api/scenarios/{id}/activities/{aid}。
@@ -179,7 +182,10 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 	}
 
 	// 金額: 内訳がある科目と、金額がある科目
-	if v.Amounts, err = loadAmounts(ctx, q, scenarioID, activityID); err != nil {
+	if v.Amounts, err = loadAmounts(ctx, q, u, scenarioID, activityID); err != nil {
+		return valuesView{}, err
+	}
+	if v.RestrictedHidden, err = visibility.Hidden(ctx, q, u); err != nil {
 		return valuesView{}, err
 	}
 
@@ -205,7 +211,8 @@ func canEditScenario(u auth.User, s Scenario) bool {
 
 // loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
 // 決算確定月以前の月は実績（scenario_amounts ビュー、source は actual）で、科目への直接入力として返す。
-func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) ([]amountRow, error) {
+// ユーザーが見られない科目（閲覧制限）は、内訳も金額も返さない。
+func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activityID int64) ([]amountRow, error) {
 	rows := map[int64]*amountRow{}
 	lineOf := map[int64]*lineRow{}
 	get := func(subjectID int64) *amountRow {
@@ -219,7 +226,7 @@ func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) (
 
 	lrows, err := q.QueryContext(ctx, `
 		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook
-		FROM activity_lines WHERE activity_id = ? ORDER BY subject_id, sort_order, id`, activityID)
+		FROM activity_lines WHERE activity_id = ?`+visibility.SubjectFilter(u, "subject_id")+` ORDER BY subject_id, sort_order, id`, activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +255,7 @@ func loadAmounts(ctx context.Context, q queryer, scenarioID, activityID int64) (
 
 	frows, err := q.QueryContext(ctx, `
 		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
-		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ? ORDER BY target_month`, scenarioID, activityID)
+		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ?`+visibility.SubjectFilter(u, "subject_id")+` ORDER BY target_month`, scenarioID, activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -598,6 +605,10 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 	if err := checkBatch(len(req.Amounts), req.Reason); err != nil {
 		return err
 	}
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
 
 	err = h.editTx(r, scenarioID, activityID, req.Reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
 		lines, err := calc.Lines(ctx, tx, activityID)
@@ -616,6 +627,10 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 				return err
 			case !ok:
 				v.Add(prefix+".subject_id", "科目が見つかりません")
+			default:
+				if err := checkRestrictedInput(ctx, tx, u, in.SubjectID); err != nil {
+					return err
+				}
 			}
 			if in.LineID != nil {
 				switch l, ok := lines[*in.LineID]; {
@@ -708,6 +723,21 @@ func parseAmount(v httpx.Validator, field string, n json.Number) string {
 		return x.String()
 	}
 	return ""
+}
+
+// checkRestrictedInput は、閲覧制限のある科目の金額を入力できるか（FP&A のみ）を確かめる（docs/plan.md「2.17」）。
+func checkRestrictedInput(ctx context.Context, q queryer, u auth.User, subjectID int64) error {
+	if u.Role == auth.RoleFPAAdmin {
+		return nil
+	}
+	restricted, err := visibility.IsRestricted(ctx, q, subjectID)
+	if err != nil {
+		return err
+	}
+	if restricted {
+		return &httpx.Error{Status: http.StatusForbidden, Code: "forbidden", Message: "閲覧制限のある科目の金額は FP&A のみが入力できます"}
+	}
+	return nil
 }
 
 // --- 想定条件 ---

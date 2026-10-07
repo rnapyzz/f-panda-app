@@ -53,6 +53,8 @@ export type Subject = Timestamps & {
   name: string
   category: SubjectCategory
   sort_order: number
+  /** 閲覧制限（金額は FP&A と経営陣だけが見られる。docs/plan.md「2.17」） */
+  is_restricted: boolean
 }
 
 export type User = Timestamps & {
@@ -336,6 +338,8 @@ export type ValuesView = {
   amounts: AmountRow[]
   condition: string | null
   note: ActivityNote
+  /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
+  restricted_hidden: boolean
 }
 
 export type ImportResult = {
@@ -450,6 +454,8 @@ export type ActualEntries = {
   hidden: { gl_account_code: string; gl_account_name: string; subject_id: number; count: number; amount: string }[]
   entries_total: string
   fact_total: string
+  /** 閲覧制限のある科目を除いたか（docs/plan.md「2.17」） */
+  restricted_hidden: boolean
 }
 
 // --- 予実比較 ---
@@ -477,6 +483,8 @@ export type ComparisonReport = {
   months: string[]
   series: ReportSeries[]
   rows: ReportRow[]
+  /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
+  restricted_hidden: boolean
 }
 
 // --- 変更履歴 ---
@@ -588,6 +596,8 @@ export type RiskReport = {
   compare: RiskScenarioRef | null
   levels: { code: string; name: string; rate: string; high: boolean }[]
   activities: RiskActivity[]
+  /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
+  restricted_hidden: boolean
 }
 
 // --- ホーム ---
@@ -630,6 +640,8 @@ export type ActivityProgressReport = {
   previous: ScenarioRef | null
   new_actual_months: string[]
   items: ActivityProgress[]
+  /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
+  restricted_hidden: boolean
 }
 
 // --- 締切と通知（docs/plan.md「2.13」） ---

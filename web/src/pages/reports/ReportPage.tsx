@@ -21,6 +21,7 @@ import { Link, navigate, useLocation } from '../../lib/router'
 import { defaultScenarios, fiscalMonths, scenarioLabel as labelOf } from '../../lib/scenario'
 import { buildTree, subtreeIds, type Tree } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
+import { RestrictedNote } from '../../components/RestrictedNote'
 
 type Axis = 'segment' | 'organization'
 
@@ -212,6 +213,7 @@ function ReportView({
         description="シナリオ（決算確定月以前は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。「加重見込」にすると、計画値に確度の段階の標準の確率を掛けます（実績はそのまま）。"
       />
 
+      <RestrictedNote hidden={data?.restricted_hidden} className="mb-4" />
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-4">
           <Control label="年度">

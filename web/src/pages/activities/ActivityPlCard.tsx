@@ -7,6 +7,7 @@ import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain
 import { Link } from '../../lib/router'
 import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { RestrictedNote } from '../../components/RestrictedNote'
 
 const grains: Grain[] = ['month', 'quarter', 'half', 'year']
 
@@ -85,6 +86,7 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
         <Empty>シナリオがまだありません。</Empty>
       ) : (
         <div className="space-y-3">
+          <RestrictedNote hidden={base.data?.restricted_hidden || latest.data?.restricted_hidden} />
           <div className="flex flex-wrap items-end gap-3 text-xs">
             <label className="space-y-1">
               <span className="block font-medium text-slate-500">年度</span>

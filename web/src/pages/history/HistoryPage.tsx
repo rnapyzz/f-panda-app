@@ -25,6 +25,8 @@ import { formatDateTime, formatNumber, formatPercent, formatYen } from '../../li
 import { Link, navigate, useLocation } from '../../lib/router'
 import { scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { useCurrentUser } from '../../lib/auth'
+import { seesAll } from '../../lib/visibility'
 
 type ListResponse = { items: ChangeSet[]; has_more: boolean }
 
@@ -197,7 +199,7 @@ export function HistoryPage() {
         )}
       </Card>
 
-      {selected && <ChangeSetDialog summary={selected} onClose={() => setSelected(null)} />}
+      {selected && <ChangeSetDialog summary={selected} activityId={filters.activity_id} onClose={() => setSelected(null)} />}
     </>
   )
 }
@@ -216,8 +218,11 @@ function Filter({ label, className, children }: { label: string; className?: str
 const actionLabels = { insert: '追加', update: '変更', delete: '削除' } as const
 const actionTones = { insert: 'green', update: 'indigo', delete: 'red' } as const
 
-function ChangeSetDialog({ summary, onClose }: { summary: ChangeSet; onClose: () => void }) {
-  const { data, error } = useApi<{ change_set: ChangeSet; logs: ChangeLog[] }>(`/change-sets/${summary.id}`)
+function ChangeSetDialog({ summary, activityId, onClose }: { summary: ChangeSet; activityId: string; onClose: () => void }) {
+  const me = useCurrentUser()
+  // FP&A と経営陣以外は、施策を指定して、その施策に関係する変更だけを見る（docs/plan.md「2.17」）
+  const { data, error } = useApi<{ change_set: ChangeSet; logs: ChangeLog[] }>(`/change-sets/${summary.id}${query({ activity_id: activityId || undefined })}`)
+  const partial = !seesAll(me.role)
   return (
     <Dialog
       open
@@ -244,6 +249,7 @@ function ChangeSetDialog({ summary, onClose }: { summary: ChangeSet; onClose: ()
         <dt className="text-slate-500">変更理由</dt>
         <dd className="whitespace-pre-wrap">{summary.reason || <Badge tone="amber">理由なし</Badge>}</dd>
       </dl>
+      {partial && <p className="mb-3 text-xs text-slate-500">この施策に関係する変更だけを表示しています（閲覧制限のある科目の変更は除きます）。</p>}
       {error ? (
         <ErrorMessage error={error} />
       ) : !data ? (

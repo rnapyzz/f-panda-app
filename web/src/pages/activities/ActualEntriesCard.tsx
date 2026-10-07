@@ -3,6 +3,7 @@ import { allocatedByLabels, type ActualEntries, type List, type Subject } from '
 import { Card, Empty, ErrorMessage, Loading, Select, Table } from '../../components/ui'
 import { formatYen, yearMonthLabel } from '../../lib/format'
 import { useApi } from '../../lib/useApi'
+import { RestrictedNote } from '../../components/RestrictedNote'
 
 /**
  * 施策の実績の明細（docs/plan.md「2.12」の実績の明細）。月を選ぶと、施策に割り当てた会計の明細を表示する。
@@ -32,6 +33,7 @@ export function ActualEntriesCard({ activityId }: { activityId: number }) {
         ) : undefined
       }
     >
+      <RestrictedNote hidden={data?.restricted_hidden} className="mb-3" />
       {entries.error ? (
         <ErrorMessage error={entries.error} />
       ) : !data ? (

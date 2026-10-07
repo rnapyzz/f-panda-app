@@ -24,6 +24,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 // Handler は施策 API のハンドラー。
@@ -396,7 +397,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	if d.ExternalCodes, err = listExternalCodes(ctx, h.db, id); err != nil {
 		return err
 	}
-	if d.Lines, err = listLines(ctx, h.db, id); err != nil {
+	if d.Lines, err = listLines(ctx, h.db, id, visibility.SubjectFilter(u, "subject_id")); err != nil {
 		return err
 	}
 	httpx.WriteJSON(w, http.StatusOK, d)
@@ -625,7 +626,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		lines, err := listLines(ctx, tx, id)
+		lines, err := listLines(ctx, tx, id, "")
 		if err != nil {
 			return err
 		}

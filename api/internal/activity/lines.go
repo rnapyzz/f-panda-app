@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/formula"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 // 金額の内訳。施策 × 科目の下に、名前付きの内訳を複数持てる（例: 売上高 = 月額利用料 + 初期導入費）。
@@ -65,8 +67,9 @@ func scanLine(row interface{ Scan(...any) error }) (line, error) {
 	return l, err
 }
 
-func listLines(ctx context.Context, q querier, activityID int64) ([]line, error) {
-	rows, err := q.QueryContext(ctx, lineSelect+" WHERE activity_id = ? ORDER BY subject_id, sort_order, id", activityID)
+// listLines は施策の内訳を返す。subjectFilter は見られない科目を除く条件（visibility.SubjectFilter、空文字はすべて）。
+func listLines(ctx context.Context, q querier, activityID int64, subjectFilter string) ([]line, error) {
+	rows, err := q.QueryContext(ctx, lineSelect+" WHERE activity_id = ?"+subjectFilter+" ORDER BY subject_id, sort_order, id", activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +83,21 @@ func listLines(ctx context.Context, q querier, activityID int64) ([]line, error)
 		items = append(items, l)
 	}
 	return items, rows.Err()
+}
+
+// checkRestrictedLine は、閲覧制限のある科目の内訳を作成・変更・削除できるか（FP&A のみ）を確かめる（docs/plan.md「2.17」）。
+func checkRestrictedLine(ctx context.Context, tx *sql.Tx, u auth.User, subjectID int64) error {
+	if u.Role == auth.RoleFPAAdmin {
+		return nil
+	}
+	restricted, err := visibility.IsRestricted(ctx, tx, subjectID)
+	if err != nil {
+		return err
+	}
+	if restricted {
+		return &httpx.Error{Status: http.StatusForbidden, Code: "forbidden", Message: "閲覧制限のある科目の内訳は FP&A のみが作成・変更できます"}
+	}
+	return nil
 }
 
 func findLine(ctx context.Context, tx *sql.Tx, activityID, id int64) (line, error) {
@@ -174,6 +192,9 @@ func (h *Handler) createLine(w http.ResponseWriter, r *http.Request) error {
 		if !ok {
 			return httpx.Validation(map[string]string{"subject_id": "科目を選択してください"})
 		}
+		if err := checkRestrictedLine(ctx, tx, u, req.SubjectID); err != nil {
+			return err
+		}
 		if err := validateLine(ctx, tx, activityID, &req); err != nil {
 			return err
 		}
@@ -234,6 +255,9 @@ func (h *Handler) updateLine(w http.ResponseWriter, r *http.Request) error {
 		}
 		before, err := findLine(ctx, tx, activityID, id)
 		if err != nil {
+			return err
+		}
+		if err := checkRestrictedLine(ctx, tx, u, before.SubjectID); err != nil {
 			return err
 		}
 		if err := validateLine(ctx, tx, activityID, &req); err != nil {
@@ -305,6 +329,9 @@ func (h *Handler) deleteLine(w http.ResponseWriter, r *http.Request) error {
 		}
 		before, err := findLine(ctx, tx, activityID, id)
 		if err != nil {
+			return err
+		}
+		if err := checkRestrictedLine(ctx, tx, u, before.SubjectID); err != nil {
 			return err
 		}
 		n, err := dbx.Count(ctx, tx, `

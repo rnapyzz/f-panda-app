@@ -28,8 +28,13 @@ export function SubjectsPage() {
               resource="subjects"
               label="勘定科目"
               canImport={canWrite}
-              columns="code,name,category,parent_code,sort_order"
-              notes={<p>category は revenue（収益）/ expense（費用）。親科目は同じ区分のもののコードを指定します。</p>}
+              columns="code,name,category,parent_code,sort_order,is_restricted"
+              notes={
+                <>
+                  <p>category は revenue（収益）/ expense（費用）。親科目は同じ区分のもののコードを指定します。</p>
+                  <p>is_restricted は閲覧制限（true / false）。列を省略すると、今の設定を変えません。</p>
+                </>
+              }
               onImported={reload}
             />
             {canWrite && (
@@ -63,7 +68,14 @@ export function SubjectsPage() {
               {subjects.map((s) => (
                 <tr key={s.id}>
                   <td className="font-mono text-xs">{s.code}</td>
-                  <td className="font-medium">{s.name}</td>
+                  <td className="font-medium">
+                    {s.name}
+                    {s.is_restricted && (
+                      <span className="ml-2">
+                        <Badge tone="red">閲覧制限</Badge>
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <Badge tone={s.category === 'revenue' ? 'green' : 'amber'}>{categoryLabels[s.category]}</Badge>
                   </td>
@@ -118,6 +130,7 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
   const [category, setCategory] = useState<SubjectCategory>(initial?.category ?? 'revenue')
   const [parentId, setParentId] = useState(initial?.parent_id ? String(initial.parent_id) : '')
   const [sortOrder, setSortOrder] = useState(String(initial?.sort_order ?? 0))
+  const [restricted, setRestricted] = useState(initial?.is_restricted ?? false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -126,7 +139,7 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const body = { code, name, category, parent_id: parentId ? Number(parentId) : null, sort_order: Number(sortOrder) || 0, reason }
+    const body = { code, name, category, parent_id: parentId ? Number(parentId) : null, sort_order: Number(sortOrder) || 0, is_restricted: restricted, reason }
     try {
       if (initial) await api.put(`/subjects/${initial.id}`, body)
       else await api.post('/subjects', body)
@@ -193,10 +206,17 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
         <Field label="表示順" error={fieldError(error, 'sort_order')}>
           {(p) => <Input {...p} type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} className="w-32" />}
         </Field>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5 size-4 rounded border-slate-300" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
+          <span>
+            閲覧制限（FP&A と経営陣だけが金額を見られる）
+            <span className="block text-xs text-slate-500">人件費など、金額から個人の情報が推測できる科目に使います。現場マネージャー・現場担当には、金額を合計からも除いて表示し、入力もできなくします。</span>
+          </span>
+        </label>
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['code', 'name', 'category', 'parent_id', 'sort_order', 'reason']} />
+        <FormError error={error} fields={['code', 'name', 'category', 'parent_id', 'sort_order', 'is_restricted', 'reason']} />
       </form>
     </Dialog>
   )

@@ -519,7 +519,8 @@ func (h *Handler) notifyAfterUpdate(ctx context.Context, before, after Scenario)
 	if len(months) == 0 {
 		return
 	}
-	acc, err := accuracyOf(ctx, h.db, after.ID, *after.PreviousScenarioID, months)
+	// 通知の宛先は現場（閲覧制限のある科目を見られない）なので、その科目を除いて判定する（ホームの表示と同じ）
+	acc, err := accuracyOf(ctx, h.db, auth.User{Role: auth.RoleMember}, after.ID, *after.PreviousScenarioID, months)
 	if err != nil {
 		slog.Error("notify: accuracy", "scenario_id", after.ID, "error", err)
 		return

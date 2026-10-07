@@ -17,8 +17,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 const maxScenarios = 4
@@ -65,6 +67,8 @@ type comparisonResponse struct {
 	Months     []string `json:"months"`
 	Series     []Series `json:"series"`
 	Rows       []Row    `json:"rows"`
+	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
+	RestrictedHidden bool `json:"restricted_hidden"`
 }
 
 type scenarioInfo struct {
@@ -86,6 +90,10 @@ type scenarioInfo struct {
 func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	q := r.URL.Query()
+	u, ok := auth.UserFrom(ctx)
+	if !ok {
+		return httpx.Unauthorized("ログインしてください")
+	}
 
 	scenarioIDs, err := parseIDs(q.Get("scenario_ids"))
 	if err != nil {
@@ -128,6 +136,9 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	months := calc.FiscalMonths(fiscalYear)
 
 	resp := comparisonResponse{FiscalYear: fiscalYear, Measure: measure, Months: months, Rows: []Row{}}
+	if resp.RestrictedHidden, err = visibility.Hidden(ctx, h.db, u); err != nil {
+		return err
+	}
 	for i, id := range scenarioIDs {
 		id := id
 		resp.Series = append(resp.Series, Series{Key: fmt.Sprintf("s%d", i+1), Label: infos[id].name, Kind: "scenario", ScenarioID: &id, ActualThrough: infos[id].actualThrough})
@@ -136,7 +147,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		resp.Series = append(resp.Series, Series{Key: "actual", Label: "実績", Kind: "actual"})
 	}
 
-	amounts, err := loadAmounts(ctx, h.db, scenarioIDs, unitID, measure)
+	amounts, err := loadAmounts(ctx, h.db, u, scenarioIDs, unitID, measure)
 	if err != nil {
 		return err
 	}
@@ -165,7 +176,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if includeActual {
-		actuals, err := loadActuals(ctx, h.db, months, unitID)
+		actuals, err := loadActuals(ctx, h.db, u, months, unitID)
 		if err != nil {
 			return err
 		}
@@ -175,7 +186,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	}
 	// 全社の合計を会計と一致させるため、ユニットを指定しないときは未割当の実績も返す（ユニット ID 0 → null）
 	if unitID == nil {
-		unallocated, err := loadUnallocated(ctx, h.db, scenarioIDs, months, includeActual)
+		unallocated, err := loadUnallocated(ctx, h.db, u, scenarioIDs, months, includeActual)
 		if err != nil {
 			return err
 		}
@@ -259,7 +270,7 @@ type rowKey struct {
 // loadAmounts はシナリオごとに、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
 // 金額は scenario_amounts ビュー（決算確定月以前は実績、それより後は計画値）から読む。
 // measure は指標（full 満額 / weighted 加重見込 / optimistic 楽観 / pessimistic 悲観）。
-func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *int64, measure string) (map[int64]map[rowKey]*big.Int, error) {
+func loadAmounts(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int64, unitID *int64, measure string) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
 	for _, id := range scenarioIDs {
@@ -275,7 +286,7 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *i
 	rows, err := db.QueryContext(ctx, `
 		SELECT b.scenario_id, a.unit_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), `+measureSum(measure)+`
 		FROM scenario_amounts b JOIN activities a ON a.id = b.activity_id`+measureJoins+`
-		WHERE b.scenario_id IN (`+placeholders+`)`+where+`
+		WHERE b.scenario_id IN (`+placeholders+`)`+where+visibility.SubjectFilter(u, "b.subject_id")+`
 		GROUP BY b.scenario_id, a.unit_id, `+groupActivity+`b.subject_id, b.target_month`, args...)
 	if err != nil {
 		return nil, err
@@ -302,7 +313,7 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *i
 }
 
 // loadActuals は実績データの、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
-func loadActuals(ctx context.Context, db *sql.DB, months []string, unitID *int64) (map[rowKey]*big.Int, error) {
+func loadActuals(ctx context.Context, db *sql.DB, u auth.User, months []string, unitID *int64) (map[rowKey]*big.Int, error) {
 	args := []any{months[0] + "-01", months[len(months)-1] + "-01"}
 	activityCol, groupActivity, where := "0", "", ""
 	if unitID != nil {
@@ -313,7 +324,7 @@ func loadActuals(ctx context.Context, db *sql.DB, months []string, unitID *int64
 	rows, err := db.QueryContext(ctx, `
 		SELECT a.unit_id, `+activityCol+`, f.subject_id, DATE_FORMAT(f.target_month, '%Y-%m'), CAST(SUM(f.amount) AS CHAR)
 		FROM actual_facts f JOIN activities a ON a.id = f.activity_id
-		WHERE f.target_month BETWEEN ? AND ?`+where+`
+		WHERE f.target_month BETWEEN ? AND ?`+where+visibility.SubjectFilter(u, "f.subject_id")+`
 		GROUP BY a.unit_id, `+groupActivity+`f.subject_id, f.target_month`, args...)
 	if err != nil {
 		return nil, err
@@ -337,20 +348,20 @@ func loadActuals(ctx context.Context, db *sql.DB, months []string, unitID *int64
 
 // loadUnallocated は未割当の実績の、科目 × 月の合計を返す（ユニット ID・施策 ID は 0）。
 // シナリオは決算確定月以前の月（scenario_unallocated ビュー）、キー 0 は実績データ（includeActual のとき）。
-func loadUnallocated(ctx context.Context, db *sql.DB, scenarioIDs []int64, months []string, includeActual bool) (map[int64]map[rowKey]*big.Int, error) {
+func loadUnallocated(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int64, months []string, includeActual bool) (map[int64]map[rowKey]*big.Int, error) {
 	args := make([]any, 0, len(scenarioIDs)+2)
 	for _, id := range scenarioIDs {
 		args = append(args, id)
 	}
 	query := `
 		SELECT scenario_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), CAST(SUM(amount) AS CHAR)
-		FROM scenario_unallocated WHERE scenario_id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",") + `)
+		FROM scenario_unallocated WHERE scenario_id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",") + `)` + visibility.SubjectFilter(u, "subject_id") + `
 		GROUP BY scenario_id, subject_id, target_month`
 	if includeActual {
 		query += `
 		UNION ALL
 		SELECT 0, subject_id, DATE_FORMAT(target_month, '%Y-%m'), CAST(SUM(amount) AS CHAR)
-		FROM actual_facts WHERE activity_id IS NULL AND target_month BETWEEN ? AND ?
+		FROM actual_facts WHERE activity_id IS NULL AND target_month BETWEEN ? AND ?` + visibility.SubjectFilter(u, "subject_id") + `
 		GROUP BY subject_id, target_month`
 		args = append(args, months[0]+"-01", months[len(months)-1]+"-01")
 	}

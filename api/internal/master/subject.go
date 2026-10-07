@@ -19,24 +19,27 @@ type subject struct {
 	Name      string `json:"name"`
 	Category  string `json:"category"`
 	SortOrder int    `json:"sort_order"`
+	// IsRestricted は閲覧制限（docs/plan.md「2.17」）。金額は FP&A と経営陣だけが見られる
+	IsRestricted bool `json:"is_restricted"`
 	timestamps
 }
 
 type subjectRequest struct {
-	ParentID  *int64 `json:"parent_id"`
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	Category  string `json:"category"`
-	SortOrder int    `json:"sort_order"`
+	ParentID     *int64 `json:"parent_id"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Category     string `json:"category"`
+	SortOrder    int    `json:"sort_order"`
+	IsRestricted bool   `json:"is_restricted"`
 	reasonRequest
 }
 
-const subjectSelect = "SELECT id, parent_id, code, name, category, sort_order, created_at, updated_at FROM subjects"
+const subjectSelect = "SELECT id, parent_id, code, name, category, sort_order, is_restricted, created_at, updated_at FROM subjects"
 
 func scanSubject(row interface{ Scan(...any) error }) (subject, error) {
 	var s subject
 	var parent sql.NullInt64
-	err := row.Scan(&s.ID, &parent, &s.Code, &s.Name, &s.Category, &s.SortOrder, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &parent, &s.Code, &s.Name, &s.Category, &s.SortOrder, &s.IsRestricted, &s.CreatedAt, &s.UpdatedAt)
 	s.ParentID = dbx.PtrInt64(parent)
 	return s, err
 }
@@ -104,8 +107,8 @@ func (h *Handler) createSubject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO subjects (parent_id, code, name, category, sort_order) VALUES (?, ?, ?, ?, ?)",
-			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder,
+			"INSERT INTO subjects (parent_id, code, name, category, sort_order, is_restricted) VALUES (?, ?, ?, ?, ?, ?)",
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
@@ -164,8 +167,8 @@ func (h *Handler) updateSubject(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		_, err = tx.ExecContext(ctx,
-			"UPDATE subjects SET parent_id = ?, code = ?, name = ?, category = ?, sort_order = ? WHERE id = ?",
-			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, id,
+			"UPDATE subjects SET parent_id = ?, code = ?, name = ?, category = ?, sort_order = ?, is_restricted = ? WHERE id = ?",
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted, id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})

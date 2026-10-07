@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rnapyzz/f-panda-app/api/internal/activity"
+	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
@@ -80,6 +82,44 @@ const activityFilter = `(
 	        IN (SELECT id FROM activity_drivers WHERE activity_id = ?))
 )`
 
+// restrictedLog は、監査ログ a が閲覧制限のある科目の金額・内訳（docs/plan.md「2.17」）かを判定する SQL 条件。
+const restrictedLog = `(a.table_name IN ('budget_facts', 'actual_facts', 'scenario_actuals', 'activity_lines')
+	AND CAST(COALESCE(JSON_EXTRACT(a.after_json, '$.subject_id'), JSON_EXTRACT(a.before_json, '$.subject_id')) AS UNSIGNED)
+	    IN (SELECT id FROM subjects WHERE is_restricted))`
+
+// scope は、ユーザーが見られる変更履歴の範囲（docs/plan.md「2.17」）。
+// FP&A と経営陣・レビュアーはすべて（activityID は 0）。それ以外は、activity_id で指定した、自分が編集できる施策の履歴だけ。
+type scope struct {
+	all        bool
+	activityID int64
+}
+
+func (h *Handler) scopeOf(r *http.Request) (scope, error) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		return scope{}, httpx.Unauthorized("ログインしてください")
+	}
+	if u.Role == auth.RoleFPAAdmin || u.Role == auth.RoleViewer {
+		return scope{all: true}, nil
+	}
+	s := r.URL.Query().Get("activity_id")
+	if s == "" {
+		return scope{}, &httpx.Error{Status: http.StatusForbidden, Code: "forbidden", Message: "変更履歴は FP&A と経営陣が見られます。施策の画面から、編集できる施策の履歴を開いてください"}
+	}
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return scope{}, httpx.BadRequest("activity_id は数値で指定してください")
+	}
+	a, err := activity.Load(r.Context(), h.db, u, id)
+	if err != nil {
+		return scope{}, err
+	}
+	if !a.CanEdit {
+		return scope{}, &httpx.Error{Status: http.StatusForbidden, Code: "forbidden", Message: "編集できる施策の変更履歴だけを見られます"}
+	}
+	return scope{activityID: id}, nil
+}
+
 // list は GET /api/change-sets。新しい順に返す。
 //
 // クエリパラメーター:
@@ -91,6 +131,10 @@ const activityFilter = `(
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	q := r.URL.Query()
+	sc, err := h.scopeOf(r)
+	if err != nil {
+		return err
+	}
 
 	var where []string
 	var args []any
@@ -115,7 +159,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return httpx.BadRequest("activity_id は数値で指定してください")
 		}
-		where = append(where, "EXISTS (SELECT 1 FROM audit_logs a WHERE a.change_set_id = c.id AND "+activityFilter+")")
+		cond := "EXISTS (SELECT 1 FROM audit_logs a WHERE a.change_set_id = c.id AND " + activityFilter
+		if !sc.all {
+			// 閲覧制限のある科目の変更だけの変更セットは出さない
+			cond += " AND NOT " + restrictedLog
+		}
+		where = append(where, cond+")")
 		args = append(args, id, id, id)
 	}
 	switch q.Get("reason") {
@@ -300,9 +349,14 @@ type Log struct {
 }
 
 // get は GET /api/change-sets/{id}。変更セットと、含まれる監査ログをすべて返す。
+// FP&A と経営陣以外は activity_id の指定が必要で、その施策に関係する監査ログだけを返す（閲覧制限のある科目の金額は除く）。
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		return err
+	}
+	sc, err := h.scopeOf(r)
 	if err != nil {
 		return err
 	}
@@ -323,9 +377,14 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 		cs.Scenario = &ref{ID: sid.Int64, Name: sname.String}
 	}
 
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT id, table_name, record_id, action, COALESCE(before_json, 'null'), COALESCE(after_json, 'null')
-		FROM audit_logs WHERE change_set_id = ? ORDER BY id`, id)
+	query, args := `
+		SELECT a.id, a.table_name, a.record_id, a.action, COALESCE(a.before_json, 'null'), COALESCE(a.after_json, 'null')
+		FROM audit_logs a WHERE a.change_set_id = ?`, []any{id}
+	if !sc.all {
+		query += " AND " + activityFilter + " AND NOT " + restrictedLog
+		args = append(args, sc.activityID, sc.activityID, sc.activityID)
+	}
+	rows, err := h.db.QueryContext(ctx, query+" ORDER BY a.id", args...)
 	if err != nil {
 		return err
 	}
@@ -342,6 +401,9 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	if !sc.all && len(logs) == 0 {
+		return httpx.NotFound("変更履歴が見つかりません")
 	}
 	cs.Changes = len(logs)
 

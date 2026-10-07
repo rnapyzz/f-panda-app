@@ -9,6 +9,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 // 施策の実績の明細（docs/plan.md「2.12」の実績の明細）。
@@ -45,6 +46,8 @@ type entriesResponse struct {
 	// 明細のない実績（明細を持たない移行前の実績）があると一致しない
 	EntriesTotal string `json:"entries_total"`
 	FactTotal    string `json:"fact_total"`
+	// RestrictedHidden は、閲覧制限のある科目を除いたか（docs/plan.md「2.17」）
+	RestrictedHidden bool `json:"restricted_hidden"`
 }
 
 // activityEntries は GET /api/activities/{id}/actual-entries?month=YYYY-MM&subject_id=。
@@ -77,8 +80,11 @@ func (h *Handler) activityEntries(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	resp := entriesResponse{Month: q.Get("month"), Months: []string{}, Items: []entryItem{}, Hidden: []hiddenTotal{}}
+	if resp.RestrictedHidden, err = visibility.Hidden(ctx, h.db, u); err != nil {
+		return err
+	}
 	rows, err := h.db.QueryContext(ctx,
-		"SELECT DISTINCT DATE_FORMAT(target_month, '%Y-%m') FROM actual_facts WHERE activity_id = ? ORDER BY 1", id)
+		"SELECT DISTINCT DATE_FORMAT(target_month, '%Y-%m') FROM actual_facts WHERE activity_id = ?"+visibility.SubjectFilter(u, "subject_id")+" ORDER BY 1", id)
 	if err != nil {
 		return err
 	}
@@ -106,8 +112,9 @@ func (h *Handler) activityEntries(w http.ResponseWriter, r *http.Request) error 
 		return httpx.BadRequest("month は YYYY-MM 形式で指定してください")
 	}
 
-	where, args := "e.activity_id = ? AND e.target_month = ?", []any{id, resp.Month + "-01"}
-	factWhere, factArgs := "activity_id = ? AND target_month = ?", []any{id, resp.Month + "-01"}
+	// 閲覧制限のある科目は、明細も合計も出さない
+	where, args := "e.activity_id = ? AND e.target_month = ?"+visibility.SubjectFilter(u, "e.subject_id"), []any{id, resp.Month + "-01"}
+	factWhere, factArgs := "activity_id = ? AND target_month = ?"+visibility.SubjectFilter(u, "subject_id"), []any{id, resp.Month + "-01"}
 	if subjectID != nil {
 		where += " AND e.subject_id = ?"
 		args = append(args, *subjectID)

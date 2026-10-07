@@ -18,6 +18,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/csvio"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 const (
@@ -80,8 +81,13 @@ func exportActivities(ctx context.Context, q queryer, cond string, args []any) (
 
 // exportAmounts は GET /api/scenarios/{id}/amounts/export。
 // 1行が施策 × 科目 × 内訳（内訳名が空は科目への直接入力）で、月を横に並べる。実績の月は実績を出す。
+// ユーザーが見られない科目（閲覧制限）の行は出さない。
 func (h *Handler) exportAmounts(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
 	s, cond, args, err := h.exportFilter(r)
 	if err != nil {
 		return err
@@ -94,7 +100,7 @@ func (h *Handler) exportAmounts(w http.ResponseWriter, r *http.Request) error {
 
 	type subject struct{ id, code, name string }
 	var subjects []subject
-	srows, err := h.db.QueryContext(ctx, "SELECT id, code, name FROM subjects ORDER BY category, sort_order, code")
+	srows, err := h.db.QueryContext(ctx, "SELECT id, code, name FROM subjects WHERE 1 = 1"+visibility.SubjectFilter(u, "id")+" ORDER BY category, sort_order, code")
 	if err != nil {
 		return err
 	}
@@ -581,6 +587,17 @@ func (p *planImport) planAmounts(rows []csvio.Row) error {
 	if err != nil {
 		return err
 	}
+	// 閲覧制限のある科目は FP&A のみが入力できる（docs/plan.md「2.17」）
+	restricted := map[string]bool{}
+	if p.u.Role != auth.RoleFPAAdmin {
+		ids, err := codeIndex(p.ctx, p.tx, "SELECT code, id FROM subjects WHERE is_restricted")
+		if err != nil {
+			return err
+		}
+		for code := range ids {
+			restricted[code] = true
+		}
+	}
 	type lineInfo struct {
 		id      int64
 		formula bool
@@ -639,8 +656,12 @@ func (p *planImport) planAmounts(rows []csvio.Row) error {
 		}
 		subjectCode := row.Get("subject_code")
 		subjectID, subjectOK := subjects[subjectCode]
-		if !subjectOK {
+		switch {
+		case !subjectOK:
 			p.errs.Add(row.Line, "科目コード「%s」が見つかりません", subjectCode)
+		case restricted[subjectCode]:
+			p.errs.Add(row.Line, "科目「%s」は閲覧制限があるため、FP&A のみが入力できます", subjectCode)
+			continue
 		}
 		var line lineInfo
 		lineName := row.Get("line_name")
