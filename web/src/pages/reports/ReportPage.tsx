@@ -45,6 +45,8 @@ type Settings = {
   actual: boolean
   axis: Axis
   measure: Measure
+  /** 金額の指標（docs/plan.md「2.8」）: 満額（既定）か加重見込（確度の段階の標準の確率を掛ける） */
+  amount: 'full' | 'weighted'
   period: string
   /** ユニットの種別で絞り込む（空ならすべて） */
   unitType: UnitType | ''
@@ -95,6 +97,7 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
     actual: search.get('act') === '1',
     axis: search.get('axis') === 'organization' ? 'organization' : 'segment',
     measure: (['profit', 'revenue', 'expense'] as const).find((m) => m === search.get('measure')) ?? 'profit',
+    amount: search.get('amount') === 'weighted' ? 'weighted' : 'full',
     period: search.get('period') ?? 'year',
     unitType: (['service', 'cost_center', 'corporate'] as const).find((t) => t === search.get('unit')) ?? '',
   }
@@ -108,6 +111,7 @@ function useSettings(scenarios: Scenario[]): [Settings, (patch: Partial<Settings
         act: s.actual ? '1' : '',
         axis: s.axis,
         measure: s.measure,
+        amount: s.amount === 'weighted' ? 'weighted' : '',
         period: s.period,
         unit: s.unitType,
       })}`,
@@ -137,7 +141,8 @@ function ReportView({
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
 
   const scenarioIds = [settings.base, ...settings.compare].filter((id): id is number => id !== null && inYear.some((s) => s.id === id))
-  const reportQuery = scenarioIds.length > 0 ? query({ scenario_ids: scenarioIds.join(','), include_actual: settings.actual ? 'true' : undefined }) : null
+  const reportQuery =
+    scenarioIds.length > 0 ? query({ scenario_ids: scenarioIds.join(','), include_actual: settings.actual ? 'true' : undefined, measure: settings.amount === 'weighted' ? 'weighted' : undefined }) : null
   const report = useApi<ComparisonReport>(reportQuery ? `/reports/comparison${reportQuery}` : null)
 
   // 展開したユニットの施策別データ（ユニット ID → 行）
@@ -202,7 +207,10 @@ function ReportView({
 
   return (
     <>
-      <PageHeader title="予実比較" description="シナリオ（決算確定月以前は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。" />
+      <PageHeader
+        title="予実比較"
+        description="シナリオ（決算確定月以前は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。「加重見込」にすると、計画値に確度の段階の標準の確率を掛けます（実績はそのまま）。"
+      />
 
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-4">
@@ -257,6 +265,7 @@ function ReportView({
         <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
           <Segmented label="集計軸" value={settings.axis} options={{ segment: 'セグメント', organization: '組織' }} onChange={(v) => update({ axis: v as Axis })} />
           <Segmented label="指標" value={settings.measure} options={measureLabels} onChange={(v) => update({ measure: v as Measure })} />
+          <Segmented label="金額" value={settings.amount} options={{ full: '満額', weighted: '加重見込' }} onChange={(v) => update({ amount: v as 'full' | 'weighted' })} />
           <Control label="ユニットの種別">
             <Select value={settings.unitType} onChange={(e) => update({ unitType: e.target.value as UnitType | '' })} className="w-36">
               <option value="">すべて</option>

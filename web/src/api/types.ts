@@ -528,6 +528,27 @@ export const tableLabels: Record<string, string> = {
 
 export type PL = { revenue: string; expense: string }
 
+export type RiskMilestone = { name: string; due_date: string; status: MilestoneStatus; risk: 'overdue' | 'delayed' | 'upcoming' }
+
+/** リスクの警告（docs/plan.md「2.8」の客観的なシグナル） */
+export type RiskWarnings = {
+  milestones: RiskMilestone[]
+  postponed: { count: number; days: number }
+  downward: { diff: string; rate: number } | null
+  consecutive: boolean
+  accuracy: number | null
+}
+
+export type RiskLine = {
+  /** null は科目への直接入力 */
+  line_id: number | null
+  subject_id: number
+  name: string
+  confidence_level: string
+  outlook: Outlook
+  amount: string
+}
+
 export type RiskActivity = {
   id: number
   code: string
@@ -537,23 +558,35 @@ export type RiskActivity = {
   activity_type: ActivityType
   status: ActivityStatus
   confidence_level: string
-  /** 確度の段階の標準の確率（0〜1、文字列） */
-  confidence_rate: number | string
   assumptions: string
-  base: PL
-  optimistic: PL | null
-  pessimistic: PL | null
-  provisional: { count: number; revenue: string; expense: string; reasons: string[] }
-  milestones: { name: string; due_date: string; status: MilestoneStatus; risk: 'overdue' | 'delayed' | 'upcoming' }[]
-  conditions: Partial<Record<'base' | 'optimistic' | 'pessimistic', string>>
+  /** 期間の満額・加重見込・楽観・悲観、うち実績 */
+  full: PL
+  weighted: PL
+  optimistic: PL
+  pessimistic: PL
+  actual: PL
+  /** 期間の売上（満額）を「actual・段階のコード・downside」に分けたもの */
+  revenue_by_level: Record<string, string>
+  /** 比較シナリオの期間の加重見込 */
+  compare: PL | null
+  lines: RiskLine[]
+  warnings: RiskWarnings
+  warning_count: number
+  /** 段階に対して状況が悪い（確度の高い段階で警告あり） */
+  bad_for_level: boolean
+  conditions: Partial<Record<'scenario' | 'compare', string>>
 }
+
+export type RiskScenarioRef = { id: number; name: string; plan_role: PlanRole | null; actual_through: string | null; base_scenario_id: number | null }
 
 export type RiskReport = {
   fiscal_year: number
   today: string
-  base: { id: number; name: string; plan_role: PlanRole | null }
-  optimistic: { id: number; name: string; plan_role: PlanRole | null } | null
-  pessimistic: { id: number; name: string; plan_role: PlanRole | null } | null
+  period: 'year' | 'remaining'
+  months: string[]
+  scenario: RiskScenarioRef
+  compare: RiskScenarioRef | null
+  levels: { code: string; name: string; rate: string; high: boolean }[]
   activities: RiskActivity[]
 }
 
