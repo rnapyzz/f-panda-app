@@ -3,6 +3,7 @@ package server_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,79 +17,133 @@ func riskActivity(body map[string]any, code string) map[string]any {
 	return nil
 }
 
-func TestRiskReport(t *testing.T) {
+func plOf(a map[string]any, key string) string {
+	p := a[key].(map[string]any)
+	return fmt.Sprintf("%v/%v", p["revenue"], p["expense"])
+}
+
+// TestRiskMeasures は docs/plan.md「2.8」の例（楽観・基準・悲観）を確かめる。
+func TestRiskMeasures(t *testing.T) {
 	f := newScenarioFixture(t)
-	amounts := func(sid int64, items ...map[string]any) {
+	a := f.admin
+	line := func(act int64, name, level, outlook string) int64 {
+		return a.mustCreate(fmt.Sprintf("/api/activities/%d/lines", act), map[string]any{"subject_id": f.sales, "name": name, "confidence_level": level, "outlook": outlook, "reason": "r"})
+	}
+	put := func(act int64, items ...map[string]any) {
 		t.Helper()
-		if status, body := f.admin.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
+		if status, body := a.do("PUT", f.valuesPath(f.budget, act)+"/amounts", map[string]any{"reason": "r", "amounts": items}); status != http.StatusOK {
 			t.Fatalf("amounts: status = %d, body = %v", status, body)
 		}
 	}
-	amounts(f.budget,
-		map[string]any{"subject_id": f.sales, "target_month": "2026-04", "amount": 1000},
-		map[string]any{"subject_id": f.sales, "target_month": "2026-05", "amount": 500, "is_provisional": true, "provisional_reason": "受注待ち"},
-		map[string]any{"subject_id": f.cost, "target_month": "2026-05", "amount": 200, "is_provisional": true, "provisional_reason": "見積待ち"},
-	)
-	opt := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "楽観", "fiscal_year": 2026, "base_scenario_id": f.budget})
-	pes := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "悲観", "fiscal_year": 2026, "base_scenario_id": f.budget})
-	amounts(opt, map[string]any{"subject_id": f.sales, "target_month": "2026-06", "amount": 800})
-	amounts(pes, map[string]any{"subject_id": f.sales, "target_month": "2026-05", "amount": nil})
-	f.admin.do("PUT", f.valuesPath(opt, f.manualAct)+"/condition", map[string]any{"description": "追加発注が確定した場合"})
+	item := func(lineID int64, amount int) map[string]any {
+		return map[string]any{"subject_id": f.sales, "line_id": lineID, "target_month": "2026-10", "amount": amount}
+	}
+	// フロー型（PRJ-1）: 案件 1,000（C・ベース）、追加要件 200（D・アドオン）
+	put(f.manualAct, item(line(f.manualAct, "案件", "C", "base"), 1000), item(line(f.manualAct, "追加要件", "D", "addon"), 200))
+	// ストック型: ベース 500（A）、アドオン 100（C）、ダウンサイド −50（D）
+	stock := a.mustCreate("/api/activities", activityBody(f.fn1, "STOCK-1", map[string]any{"confidence_level": "A"}))
+	put(stock, item(line(stock, "既存顧客", "A", "base"), 500), item(line(stock, "新規", "C", "addon"), 100), item(line(stock, "解約", "D", "downside"), -50))
 
-	// マイルストーン: 期日超過・遅延・期日が近い・完了（対象外）・先の予定（対象外）
-	today := time.Now().In(time.FixedZone("JST", 9*60*60))
-	ms := fmt.Sprintf("/api/activities/%d/milestones", f.manualAct)
-	for _, m := range []map[string]any{
-		{"name": "期日超過", "due_date": "2020-01-01", "status": "in_progress"},
-		{"name": "遅延", "due_date": "2099-01-01", "status": "delayed"},
-		{"name": "期日が近い", "due_date": today.AddDate(0, 0, 5).Format("2006-01-02"), "status": "not_started"},
-		{"name": "完了済み", "due_date": "2020-01-01", "status": "completed"},
-		{"name": "先の予定", "due_date": today.AddDate(0, 0, 60).Format("2006-01-02"), "status": "not_started"},
-	} {
-		f.member.mustCreate(ms, m)
+	body := a.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d", f.budget))
+	flow := riskActivity(body, "PRJ-1")
+	if got := plOf(flow, "optimistic") + " " + plOf(flow, "weighted") + " " + plOf(flow, "pessimistic"); got != "1200/0 540/0 0/0" {
+		t.Errorf("フロー型 楽観・基準・悲観 = %s, want 1200/0 540/0 0/0", got)
+	}
+	st := riskActivity(body, "STOCK-1")
+	if got := plOf(st, "optimistic") + " " + plOf(st, "weighted") + " " + plOf(st, "pessimistic"); got != "600/0 540/0 450/0" {
+		t.Errorf("ストック型 楽観・基準・悲観 = %s, want 600/0 540/0 450/0", got)
+	}
+	if got := fmt.Sprint(st["revenue_by_level"]); got != "map[A:500 C:100 downside:-50]" {
+		t.Errorf("段階別の売上 = %s", got)
+	}
+	if lines := st["lines"].([]any); len(lines) != 3 || lines[2].(map[string]any)["outlook"] != "downside" || lines[2].(map[string]any)["amount"] != "-50" {
+		t.Errorf("内訳 = %v", lines)
 	}
 
-	body := f.viewer.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d&optimistic_id=%d&pessimistic_id=%d", f.budget, opt, pes))
-	a := riskActivity(body, "PRJ-1")
-	if a == nil {
-		t.Fatalf("PRJ-1 がない: %v", body)
+	// 予実比較の measure
+	cmp := a.mustGet(fmt.Sprintf("/api/reports/comparison?scenario_ids=%d&unit_id=%d&measure=weighted", f.budget, f.fn1))
+	var weighted int
+	for _, r := range cmp["rows"].([]any) {
+		row := r.(map[string]any)
+		var v int
+		fmt.Sscan(row["values"].(map[string]any)["s1"].(string), &v)
+		weighted += v
 	}
-	check := func(name string, got, want any) {
+	if weighted != 1080 || cmp["measure"] != "weighted" {
+		t.Errorf("予実比較の加重見込の合計 = %d, want 1080", weighted)
+	}
+	if status, _ := a.do("GET", fmt.Sprintf("/api/reports/comparison?scenario_ids=%d&measure=x", f.budget), nil); status != http.StatusBadRequest {
+		t.Errorf("不正な measure: status = %d", status)
+	}
+
+	// 実績の月はどの指標でも実績の金額。期間「残り」なら実績の月を除く
+	a.upload(actualsPath, "target_month,box_code,account_code,amount\n2026-04,PRJ-1,4110,300\n", "4月実績")
+	a.do("PUT", fmt.Sprintf("/api/scenarios/%d", f.budget), map[string]any{"name": "2026年度 当初予算", "plan_role": "initial", "actual_through": "2026-04", "reason": "4月確定"})
+	body = a.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d", f.budget))
+	flow = riskActivity(body, "PRJ-1")
+	if plOf(flow, "pessimistic") != "300/0" || plOf(flow, "actual") != "300/0" || flow["revenue_by_level"].(map[string]any)["actual"] != "300" {
+		t.Errorf("実績を含む悲観 = %s, actual = %s", plOf(flow, "pessimistic"), plOf(flow, "actual"))
+	}
+	body = a.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d&period=remaining", f.budget))
+	if flow = riskActivity(body, "PRJ-1"); plOf(flow, "pessimistic") != "0/0" || len(body["months"].([]any)) != 11 {
+		t.Errorf("残り期間の悲観 = %s, months = %v", plOf(flow, "pessimistic"), body["months"])
+	}
+}
+
+// TestRiskWarnings は docs/plan.md「2.8」の客観的なシグナル（警告）を確かめる。
+func TestRiskWarnings(t *testing.T) {
+	f := newScenarioFixture(t)
+	a := f.admin
+	put := func(sid int64, month string, amount int) {
 		t.Helper()
-		if fmt.Sprint(got) != fmt.Sprint(want) {
-			t.Errorf("%s = %v, want %v", name, got, want)
+		if status, body := a.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": month, "amount": amount}}}); status != http.StatusOK {
+			t.Fatalf("amounts: status = %d, body = %v", status, body)
 		}
 	}
-	check("基準の収益", a["base"].(map[string]any)["revenue"], "1500")
-	check("基準の費用", a["base"].(map[string]any)["expense"], "200")
-	check("楽観の収益", a["optimistic"].(map[string]any)["revenue"], "2300")
-	check("悲観の収益", a["pessimistic"].(map[string]any)["revenue"], "1000")
-	p := a["provisional"].(map[string]any)
-	check("仮の値の件数", p["count"], 2)
-	check("仮の値の収益", p["revenue"], "500")
-	check("仮の値の理由", p["reasons"], []any{"受注待ち", "見積待ち"})
-	check("楽観の想定条件", a["conditions"].(map[string]any)["optimistic"], "追加発注が確定した場合")
+	// PRJ-1 を確度 A にする（「段階に対して状況が悪い」の対象）
+	act := a.mustGet(fmt.Sprintf("/api/activities/%d", f.manualAct))
+	a.do("PUT", fmt.Sprintf("/api/activities/%d", f.manualAct), activityBody(f.fn1, "PRJ-1", map[string]any{"owner_user_id": f.memberID, "confidence_level": "A", "name": act["name"], "reason": "受注"}))
 
-	var got []string
-	for _, m := range a["milestones"].([]any) {
-		mm := m.(map[string]any)
-		got = append(got, mm["name"].(string)+":"+mm["risk"].(string))
+	// 見込の推移: 期初 1,000,000 → 9月見込 800,000 → 10月見込 500,000（2回続けて下がる）。4月の計画 400,000 に対し実績 200,000
+	put(f.budget, "2026-04", 400_000)
+	put(f.budget, "2026-10", 600_000)
+	sep := a.mustCreate("/api/scenarios", map[string]any{"name": "9月見込", "fiscal_year": 2026, "base_scenario_id": f.budget})
+	put(sep, "2026-10", 400_000)
+	ms := a.mustCreate(fmt.Sprintf("/api/activities/%d/milestones", f.manualAct), map[string]any{"name": "検収", "due_date": time.Now().AddDate(0, 0, 10).Format("2006-01-02")})
+	oct := a.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": sep})
+	put(oct, "2026-10", 100_000)
+	a.upload(actualsPath, "target_month,box_code,account_code,amount\n2026-04,PRJ-1,4110,200000\n", "4月実績")
+	a.do("PUT", fmt.Sprintf("/api/scenarios/%d", oct), map[string]any{"name": "10月見込", "actual_through": "2026-04", "reason": "4月確定"})
+	// 比較シナリオの作成後に、マイルストーンの期日を後ろにずらす
+	a.do("PUT", fmt.Sprintf("/api/activities/%d/milestones/%d", f.manualAct, ms), map[string]any{"name": "検収", "due_date": time.Now().AddDate(0, 0, 40).Format("2006-01-02"), "status": "in_progress", "reason": "先方都合"})
+
+	body := a.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d&compare_id=%d", oct, sep))
+	p := riskActivity(body, "PRJ-1")
+	w := p["warnings"].(map[string]any)
+	if d := w["downward"]; d == nil || d.(map[string]any)["diff"] != "-500000" {
+		t.Errorf("下方修正 = %v", d)
 	}
-	check("マイルストーン", got, []string{"期日超過:overdue", "期日が近い:upcoming", "遅延:delayed"})
-
-	// 金額のない施策も 0 で返る
-	other := riskActivity(body, "SAAS-1")
-	check("金額のない施策の楽観", other["optimistic"].(map[string]any)["revenue"], "0")
-
-	// 入力検証
-	nextYear := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "2027予算", "fiscal_year": 2027})
-	for name, q := range map[string]string{
-		"基準なし":  "",
-		"年度違い":  fmt.Sprintf("scenario_id=%d&optimistic_id=%d", f.budget, nextYear),
-		"存在しない": "scenario_id=99999",
-	} {
-		if status, _ := f.viewer.do("GET", "/api/reports/risk?"+q, nil); status != http.StatusUnprocessableEntity {
-			t.Errorf("%s: status = %d, want 422", name, status)
-		}
+	if w["consecutive"] != true {
+		t.Errorf("連続の下方修正 = %v", w["consecutive"])
+	}
+	if acc := w["accuracy"]; acc == nil || acc.(float64) != 50 {
+		t.Errorf("当たり具合 = %v, want 50", acc)
+	}
+	if pp := w["postponed"].(map[string]any); pp["count"] != float64(1) || pp["days"] != float64(30) {
+		t.Errorf("後ろ倒し = %v", pp)
+	}
+	if p["warning_count"] != float64(4) || p["bad_for_level"] != true {
+		t.Errorf("警告の数 = %v, 段階に対して状況が悪い = %v", p["warning_count"], p["bad_for_level"])
+	}
+	if c := p["compare"].(map[string]any); c["revenue"] != "800000" {
+		t.Errorf("比較シナリオの加重見込 = %v", c)
+	}
+	// 比較シナリオなしでは、比較に基づく警告は出ない
+	body = a.mustGet(fmt.Sprintf("/api/reports/risk?scenario_id=%d", oct))
+	if p = riskActivity(body, "PRJ-1"); p["compare"] != nil || p["warnings"].(map[string]any)["downward"] != nil {
+		t.Errorf("比較なし = %v", p)
+	}
+	if status, body := a.do("GET", fmt.Sprintf("/api/reports/risk?scenario_id=%d&period=x", oct), nil); status != http.StatusBadRequest || !strings.Contains(fmt.Sprint(body), "period") {
+		t.Errorf("不正な period: status = %d", status)
 	}
 }

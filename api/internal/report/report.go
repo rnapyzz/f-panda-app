@@ -61,6 +61,7 @@ type Row struct {
 
 type comparisonResponse struct {
 	FiscalYear int      `json:"fiscal_year"`
+	Measure    string   `json:"measure"`
 	Months     []string `json:"months"`
 	Series     []Series `json:"series"`
 	Rows       []Row    `json:"rows"`
@@ -97,6 +98,13 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Validation(map[string]string{"scenario_ids": fmt.Sprintf("比較できるシナリオは%dつまでです", maxScenarios)})
 	}
 	includeActual := q.Get("include_actual") == "true"
+	measure := q.Get("measure")
+	if measure == "" {
+		measure = "full"
+	}
+	if !measures[measure] {
+		return httpx.BadRequest("measure は full / weighted / optimistic / pessimistic のいずれかを指定してください")
+	}
 	var unitID *int64
 	if s := q.Get("unit_id"); s != "" {
 		id, err := strconv.ParseInt(s, 10, 64)
@@ -119,7 +127,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 	}
 	months := calc.FiscalMonths(fiscalYear)
 
-	resp := comparisonResponse{FiscalYear: fiscalYear, Months: months, Rows: []Row{}}
+	resp := comparisonResponse{FiscalYear: fiscalYear, Measure: measure, Months: months, Rows: []Row{}}
 	for i, id := range scenarioIDs {
 		id := id
 		resp.Series = append(resp.Series, Series{Key: fmt.Sprintf("s%d", i+1), Label: infos[id].name, Kind: "scenario", ScenarioID: &id, ActualThrough: infos[id].actualThrough})
@@ -128,7 +136,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		resp.Series = append(resp.Series, Series{Key: "actual", Label: "実績", Kind: "actual"})
 	}
 
-	amounts, err := loadAmounts(ctx, h.db, scenarioIDs, unitID)
+	amounts, err := loadAmounts(ctx, h.db, scenarioIDs, unitID, measure)
 	if err != nil {
 		return err
 	}
@@ -250,7 +258,8 @@ type rowKey struct {
 
 // loadAmounts はシナリオごとに、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
 // 金額は scenario_amounts ビュー（決算確定月以前は実績、それより後は計画値）から読む。
-func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *int64) (map[int64]map[rowKey]*big.Int, error) {
+// measure は指標（full 満額 / weighted 加重見込 / optimistic 楽観 / pessimistic 悲観）。
+func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *int64, measure string) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
 	for _, id := range scenarioIDs {
@@ -264,8 +273,8 @@ func loadAmounts(ctx context.Context, db *sql.DB, scenarioIDs []int64, unitID *i
 		args = append(args, *unitID)
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT b.scenario_id, a.unit_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), CAST(SUM(b.amount) AS CHAR)
-		FROM scenario_amounts b JOIN activities a ON a.id = b.activity_id
+		SELECT b.scenario_id, a.unit_id, `+activityCol+`, b.subject_id, DATE_FORMAT(b.target_month, '%Y-%m'), `+measureSum(measure)+`
+		FROM scenario_amounts b JOIN activities a ON a.id = b.activity_id`+measureJoins+`
 		WHERE b.scenario_id IN (`+placeholders+`)`+where+`
 		GROUP BY b.scenario_id, a.unit_id, `+groupActivity+`b.subject_id, b.target_month`, args...)
 	if err != nil {
