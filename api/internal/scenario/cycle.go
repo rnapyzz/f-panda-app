@@ -13,6 +13,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/target"
 )
 
 // シナリオの切り替え（docs/plan.md「2.16」）。
@@ -67,13 +68,13 @@ func roleHolder(ctx context.Context, tx *sql.Tx, fiscalYear int, role string) (*
 	return &s, err
 }
 
-// incompleteCount は、シナリオで更新を完了にしていない施策の数（docs/plan.md「2.10」の未着手・入力中）。
+// incompleteCount は、シナリオの更新の対象のうち、更新を完了にしていない施策の数（docs/plan.md「2.10」の未着手・入力中）。
 func incompleteCount(ctx context.Context, tx *sql.Tx, scenarioID int64) (int, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM activities a
 		LEFT JOIN activity_scenario_notes n ON n.activity_id = a.id AND n.scenario_id = ?
-		WHERE n.completed_at IS NULL`, scenarioID).Scan(&n)
+		WHERE n.completed_at IS NULL AND `+target.Condition("a"), scenarioID, scenarioID).Scan(&n)
 	return n, err
 }
 
