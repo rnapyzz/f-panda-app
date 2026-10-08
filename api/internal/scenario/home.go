@@ -13,6 +13,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/target"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 // ホーム（docs/plan.md「2.10 現場担当の動線」）。シナリオでの施策ごとの状態と、基準・前回見込との差を返す。
@@ -74,6 +75,8 @@ type activityStatusResponse struct {
 	// NewActualMonths は、前回見込より新しく実績になった月（実績のお知らせ）
 	NewActualMonths []string         `json:"new_actual_months"`
 	Items           []activityStatus `json:"items"`
+	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
+	RestrictedHidden bool `json:"restricted_hidden"`
 }
 
 // activityStatuses は GET /api/scenarios/{id}/activity-status?scope=mine|units|all。
@@ -103,6 +106,9 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	resp := activityStatusResponse{Scenario: s, Scope: scope, NewActualMonths: []string{}, Items: []activityStatus{}}
+	if resp.RestrictedHidden, err = visibility.Hidden(ctx, h.db, u); err != nil {
+		return err
+	}
 	if resp.Base, err = baseScenarioOf(ctx, h.db, s.FiscalYear); err != nil {
 		return err
 	}
@@ -188,7 +194,7 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 
 	// 年間の収益・費用（決算確定月以前は実績）
 	fill := func(scenarioID int64, set func(*activityStatus, plTotals)) error {
-		totals, err := annualTotals(ctx, h.db, scenarioID, nil)
+		totals, err := annualTotals(ctx, h.db, u, scenarioID, nil)
 		if err != nil {
 			return err
 		}
@@ -227,7 +233,7 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 
 	// 見込の当たり具合（新しく実績になった月の、前回見込の計画値と実績）
 	if resp.Previous != nil && len(resp.NewActualMonths) > 0 {
-		acc, err := accuracyOf(ctx, h.db, s.ID, resp.Previous.ID, resp.NewActualMonths)
+		acc, err := accuracyOf(ctx, h.db, u, s.ID, resp.Previous.ID, resp.NewActualMonths)
 		if err != nil {
 			return err
 		}
@@ -280,13 +286,14 @@ func roleScenarioOf(ctx context.Context, db *sql.DB, fiscalYear int, role string
 }
 
 // annualTotals はシナリオの施策ごとの収益・費用の合計（months を指定すればその月だけ）を返す。
-func annualTotals(ctx context.Context, db *sql.DB, scenarioID int64, months []string) (map[int64]plTotals, error) {
+// ユーザーが見られない科目（閲覧制限）は除く。
+func annualTotals(ctx context.Context, db *sql.DB, u auth.User, scenarioID int64, months []string) (map[int64]plTotals, error) {
 	query := `
 		SELECT b.activity_id,
 		       CAST(COALESCE(SUM(CASE WHEN s.category = 'revenue' THEN b.amount END), 0) AS CHAR),
 		       CAST(COALESCE(SUM(CASE WHEN s.category = 'expense' THEN b.amount END), 0) AS CHAR)
 		FROM scenario_amounts b JOIN subjects s ON s.id = b.subject_id
-		WHERE b.scenario_id = ?`
+		WHERE b.scenario_id = ?` + visibility.SubjectFilter(u, "b.subject_id")
 	args := []any{scenarioID}
 	if len(months) > 0 {
 		query += " AND b.target_month BETWEEN ? AND ?"
@@ -311,7 +318,8 @@ func annualTotals(ctx context.Context, db *sql.DB, scenarioID int64, months []st
 
 // accuracyOf は、months（新しく実績になった月）について、施策ごとに前回見込の計画値と今回の実績を比べる。
 // 差の率は、科目 × 月の差の絶対値の合計 ÷ 前回見込の絶対値の合計（docs/plan.md「2.8」の見込の当たり具合）。
-func accuracyOf(ctx context.Context, db *sql.DB, currentID, previousID int64, months []string) (map[int64]accuracy, error) {
+// ユーザーが見られない科目（閲覧制限）は除く。
+func accuracyOf(ctx context.Context, db *sql.DB, u auth.User, currentID, previousID int64, months []string) (map[int64]accuracy, error) {
 	type key struct {
 		activityID, subjectID int64
 		month                 string
@@ -319,7 +327,7 @@ func accuracyOf(ctx context.Context, db *sql.DB, currentID, previousID int64, mo
 	load := func(scenarioID int64) (map[key]*big.Int, error) {
 		rows, err := db.QueryContext(ctx, `
 			SELECT activity_id, subject_id, DATE_FORMAT(target_month, '%Y-%m'), CAST(SUM(amount) AS CHAR)
-			FROM scenario_amounts WHERE scenario_id = ? AND target_month BETWEEN ? AND ?
+			FROM scenario_amounts WHERE scenario_id = ? AND target_month BETWEEN ? AND ?`+visibility.SubjectFilter(u, "subject_id")+`
 			GROUP BY activity_id, subject_id, target_month`, scenarioID, months[0]+"-01", months[len(months)-1]+"-01")
 		if err != nil {
 			return nil, err
@@ -345,11 +353,11 @@ func accuracyOf(ctx context.Context, db *sql.DB, currentID, previousID int64, mo
 	if err != nil {
 		return nil, err
 	}
-	planTotals, err := annualTotals(ctx, db, previousID, months)
+	planTotals, err := annualTotals(ctx, db, u, previousID, months)
 	if err != nil {
 		return nil, err
 	}
-	actualTotals, err := annualTotals(ctx, db, currentID, months)
+	actualTotals, err := annualTotals(ctx, db, u, currentID, months)
 	if err != nil {
 		return nil, err
 	}

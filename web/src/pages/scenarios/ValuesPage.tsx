@@ -5,10 +5,13 @@ import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sh
 import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { useActiveScenario } from '../../lib/activeScenario'
+import { useCurrentUser } from '../../lib/auth'
 import { confidenceLabel } from '../../lib/confidence'
 import { Link, navigate } from '../../lib/router'
 import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { canOpenHistory, inputSubjects } from '../../lib/visibility'
+import { RestrictedNote } from '../../components/RestrictedNote'
 import { ComparisonCard } from './ComparisonCard'
 import { NoteCard } from './NoteCard'
 import { ScenarioBadges } from './ScenarioListPage'
@@ -69,6 +72,7 @@ function ValuesEditor({
   reload: () => Promise<void>
 }) {
   const { active } = useActiveScenario()
+  const me = useCurrentUser()
   const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
 
   // 比較するシナリオ: 基準（修正計画、なければ期初計画）と前回見込（シナリオに FP&A が指定）
@@ -208,7 +212,7 @@ function ValuesEditor({
         return { subject_id: id, code: s.code, name: s.name, category: s.category, values: [], lines: [] }
       }),
   ].sort((a, b) => (a.category === b.category ? 0 : a.category === 'revenue' ? -1 : 1))
-  const addableSubjects = subjects.filter((s) => !amountRows.some((r) => r.subject_id === s.id))
+  const addableSubjects = inputSubjects(subjects, me.role).filter((s) => !amountRows.some((r) => r.subject_id === s.id))
   const hasFormulaLines = amountRows.some((r) => r.lines.some((l) => l.formula_enabled))
 
   /** 科目の月の金額（内訳と科目への直接入力の合計） */
@@ -393,9 +397,11 @@ function ValuesEditor({
         <Link to={`/activities/${v.activity.id}`} className="text-slate-500 hover:text-slate-700">
           施策の詳細 →
         </Link>
-        <Link to={`/history?activity_id=${v.activity.id}&scenario_id=${v.scenario.id}`} className="text-slate-500 hover:text-slate-700">
-          このシナリオでの変更履歴 →
-        </Link>
+        {canOpenHistory(me.role, v.activity.can_edit) && (
+          <Link to={`/history?activity_id=${v.activity.id}&scenario_id=${v.scenario.id}`} className="text-slate-500 hover:text-slate-700">
+            このシナリオでの変更履歴 →
+          </Link>
+        )}
       </div>
       <PageHeader
         title={
@@ -529,6 +535,7 @@ function ValuesEditor({
         ) : null}
       </Card>
 
+      <RestrictedNote hidden={v.restricted_hidden} className="mb-2" />
       <Card
         title="金額（円）"
         className="mb-4"

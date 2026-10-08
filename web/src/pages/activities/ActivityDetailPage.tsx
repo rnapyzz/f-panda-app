@@ -32,6 +32,7 @@ import { ActivityPlCard } from './ActivityPlCard'
 import { ActualEntriesCard } from './ActualEntriesCard'
 import { ExternalCodesCard } from './ExternalCodesCard'
 import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
+import { canOpenHistory, inputSubjects } from '../../lib/visibility'
 
 const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 'green', delayed: 'red' } as const
 
@@ -133,12 +134,14 @@ export function ActivityDetailPage({ id }: { id: string }) {
             >
               数値を見る・入力する
             </Link>
-            <Link
-              to={`/history?activity_id=${a.id}`}
-              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              変更履歴
-            </Link>
+            {canOpenHistory(me.role, a.can_edit) && (
+              <Link
+                to={`/history?activity_id=${a.id}`}
+                className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                変更履歴
+              </Link>
+            )}
             {canEdit && (
               <Button variant="primary" onClick={() => setEditing(true)}>
                 編集
@@ -369,7 +372,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
       {line && (
         <LineDialog
           initial={line === 'new' ? null : line}
-          subjects={subjects.data.items}
+          subjects={line === 'new' ? inputSubjects(subjects.data.items, me.role) : subjects.data.items}
           drivers={a.drivers}
           levels={levels.data?.items ?? []}
           activityLevel={a.confidence_level}

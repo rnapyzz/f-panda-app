@@ -13,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/formula"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
 // リスク画面（docs/plan.md「2.8 確度とリスク」「2.9 リスク画面」）。
@@ -163,6 +165,8 @@ type riskResponse struct {
 	Compare    *riskScenario  `json:"compare"`
 	Levels     []riskLevel    `json:"levels"`
 	Activities []RiskActivity `json:"activities"`
+	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
+	RestrictedHidden bool `json:"restricted_hidden"`
 }
 
 func findRiskScenario(ctx context.Context, db *sql.DB, id int64, field string) (riskScenario, error) {
@@ -190,6 +194,12 @@ func findRiskScenario(ctx context.Context, db *sql.DB, id int64, field string) (
 func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	q := r.URL.Query()
+	u, ok := auth.UserFrom(ctx)
+	if !ok {
+		return httpx.Unauthorized("ログインしてください")
+	}
+	// 閲覧制限のある科目（docs/plan.md「2.17」）を除く条件
+	filter := func(col string) string { return visibility.SubjectFilter(u, col) }
 	parseID := func(p string) (*int64, error) {
 		s := q.Get(p)
 		if s == "" {
@@ -225,6 +235,9 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	resp := riskResponse{FiscalYear: s.fiscalYear, Period: period, Scenario: s, Activities: []RiskActivity{}}
+	if resp.RestrictedHidden, err = visibility.Hidden(ctx, h.db, u); err != nil {
+		return err
+	}
 	var compare *riskScenario
 	if cid != nil {
 		c, err := findRiskScenario(ctx, h.db, *cid, "compare_id")
@@ -265,10 +278,10 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := accumulate(ctx, h.db, s.ID, index, inPeriod); err != nil {
+	if err := accumulate(ctx, h.db, filter, s.ID, index, inPeriod); err != nil {
 		return err
 	}
-	if err := fillLines(ctx, h.db, s.ID, resp.Months, index); err != nil {
+	if err := fillLines(ctx, h.db, filter, s.ID, resp.Months, index); err != nil {
 		return err
 	}
 
@@ -282,7 +295,7 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 		for i := range cmp {
 			cmpIndex[cmp[i].ID] = &cmp[i]
 		}
-		if err := accumulate(ctx, h.db, compare.ID, cmpIndex, inPeriod); err != nil {
+		if err := accumulate(ctx, h.db, filter, compare.ID, cmpIndex, inPeriod); err != nil {
 			return err
 		}
 		for _, a := range index {
@@ -291,14 +304,14 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 			a.Compare = &v
 			a.Warnings.Downward = downward(a.year["weighted"].profit(), c.year["weighted"].profit())
 		}
-		if err := fillAccuracy(ctx, h.db, s, *compare, index); err != nil {
+		if err := fillAccuracy(ctx, h.db, filter, s, *compare, index); err != nil {
 			return err
 		}
 		if err := fillPostponed(ctx, h.db, compare.createdAt, index); err != nil {
 			return err
 		}
 	}
-	if err := fillConsecutive(ctx, h.db, s, index, resp.Levels); err != nil {
+	if err := fillConsecutive(ctx, h.db, filter, s, index, resp.Levels); err != nil {
 		return err
 	}
 	if err := fillRiskMilestones(ctx, h.db, index, today); err != nil {
@@ -406,12 +419,12 @@ func loadRiskActivities(ctx context.Context, db *sql.DB, levels []riskLevel) ([]
 }
 
 // accumulate はシナリオの金額を、内訳の段階・見通しの種類ごとに読み、施策ごとの指標（docs/plan.md「2.8」）を合計する。
-func accumulate(ctx context.Context, db *sql.DB, scenarioID int64, index map[int64]*RiskActivity, inPeriod map[string]bool) error {
+func accumulate(ctx context.Context, db *sql.DB, filter func(string) string, scenarioID int64, index map[int64]*RiskActivity, inPeriod map[string]bool) error {
 	rows, err := db.QueryContext(ctx, `
 		SELECT b.activity_id, s.category, b.kind, cl.code, cl.rate, cl.rate >= `+highRate+`, COALESCE(l.outlook, 'base'),
 		       DATE_FORMAT(b.target_month, '%Y-%m'), CAST(SUM(b.amount) AS CHAR)
 		FROM scenario_amounts b JOIN subjects s ON s.id = b.subject_id`+measureJoins+`
-		WHERE b.scenario_id = ?
+		WHERE b.scenario_id = ?`+filter("b.subject_id")+`
 		GROUP BY b.activity_id, s.category, b.kind, cl.code, cl.rate, l.outlook, b.target_month`, scenarioID)
 	if err != nil {
 		return err
@@ -481,7 +494,7 @@ func accumulate(ctx context.Context, db *sql.DB, scenarioID int64, index map[int
 }
 
 // fillLines は内訳ごとの段階・見通しの種類と、期間の計画値の月の満額を加える。科目への直接入力は、科目ごとに1行（line_id が nil）にまとめる。
-func fillLines(ctx context.Context, db *sql.DB, scenarioID int64, months []string, index map[int64]*RiskActivity) error {
+func fillLines(ctx context.Context, db *sql.DB, filter func(string) string, scenarioID int64, months []string, index map[int64]*RiskActivity) error {
 	type key struct {
 		activity, subject int64
 		line              int64 // 0 は直接入力
@@ -494,7 +507,7 @@ func fillLines(ctx context.Context, db *sql.DB, scenarioID int64, months []strin
 		}
 		rows, err := db.QueryContext(ctx, `
 			SELECT activity_id, subject_id, COALESCE(line_id, 0), CAST(SUM(amount) AS CHAR)
-			FROM scenario_amounts WHERE scenario_id = ? AND kind = 'plan' AND target_month IN (`+strings.TrimSuffix(strings.Repeat("?,", len(months)), ",")+`)
+			FROM scenario_amounts WHERE scenario_id = ? AND kind = 'plan' AND target_month IN (`+strings.TrimSuffix(strings.Repeat("?,", len(months)), ",")+`)`+filter("subject_id")+`
 			GROUP BY activity_id, subject_id, line_id`, args...)
 		if err != nil {
 			return err
@@ -515,7 +528,7 @@ func fillLines(ctx context.Context, db *sql.DB, scenarioID int64, months []strin
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT l.id, l.activity_id, l.subject_id, l.name, COALESCE(l.confidence_level, a.confidence_level), l.outlook
-		FROM activity_lines l JOIN activities a ON a.id = l.activity_id ORDER BY l.activity_id, l.subject_id, l.id`)
+		FROM activity_lines l JOIN activities a ON a.id = l.activity_id WHERE 1 = 1`+filter("l.subject_id")+` ORDER BY l.activity_id, l.subject_id, l.id`)
 	if err != nil {
 		return err
 	}
@@ -598,7 +611,7 @@ func downward(cur, cmp *big.Rat) *struct {
 }
 
 // fillAccuracy は見込の当たり具合を加える: 基準の決算確定済みの直近3か月で、比較シナリオの計画値と実績の差の率が 20% 以上。
-func fillAccuracy(ctx context.Context, db *sql.DB, s, compare riskScenario, index map[int64]*RiskActivity) error {
+func fillAccuracy(ctx context.Context, db *sql.DB, filter func(string) string, s, compare riskScenario, index map[int64]*RiskActivity) error {
 	if s.ActualThrough == nil {
 		return nil
 	}
@@ -630,10 +643,10 @@ func fillAccuracy(ctx context.Context, db *sql.DB, s, compare riskScenario, inde
 			SELECT activity_id, subject_id, target_month, SUM(actual) - SUM(plan) AS diff, SUM(plan) AS plan
 			FROM (
 				SELECT activity_id, subject_id, target_month, amount AS plan, 0 AS actual
-				FROM scenario_amounts WHERE scenario_id = ? AND kind = 'plan' AND target_month IN (`+ph+`)
+				FROM scenario_amounts WHERE scenario_id = ? AND kind = 'plan' AND target_month IN (`+ph+`)`+filter("subject_id")+`
 				UNION ALL
 				SELECT activity_id, subject_id, target_month, 0, amount
-				FROM scenario_amounts WHERE scenario_id = ? AND kind = 'actual' AND target_month IN (`+ph+`)
+				FROM scenario_amounts WHERE scenario_id = ? AND kind = 'actual' AND target_month IN (`+ph+`)`+filter("subject_id")+`
 			) x GROUP BY activity_id, subject_id, target_month
 		) y GROUP BY activity_id`, args...)
 	if err != nil {
@@ -688,7 +701,7 @@ func fillPostponed(ctx context.Context, db *sql.DB, since time.Time, index map[i
 }
 
 // fillConsecutive は連続の下方修正を加える: 基準から複製元を2回たどった3つの版で、年間の加重見込の利益が2回続けて下がった。
-func fillConsecutive(ctx context.Context, db *sql.DB, s riskScenario, index map[int64]*RiskActivity, levels []riskLevel) error {
+func fillConsecutive(ctx context.Context, db *sql.DB, filter func(string) string, s riskScenario, index map[int64]*RiskActivity, levels []riskLevel) error {
 	chain := []map[int64]*big.Rat{profits(index)}
 	cur := s
 	for len(chain) < consecutiveDepth && cur.BaseID != nil {
@@ -703,7 +716,7 @@ func fillConsecutive(ctx context.Context, db *sql.DB, s riskScenario, index map[
 		if err != nil {
 			return err
 		}
-		if err := accumulate(ctx, db, prev.ID, idx, map[string]bool{}); err != nil {
+		if err := accumulate(ctx, db, filter, prev.ID, idx, map[string]bool{}); err != nil {
 			return err
 		}
 		chain = append(chain, profits(idx))

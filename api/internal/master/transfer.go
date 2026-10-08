@@ -530,12 +530,16 @@ func emailIndex(ctx context.Context, tx *sql.Tx) (map[string]int64, error) {
 
 // --- 勘定科目 ---
 
-var subjectColumns = []string{"code", "name", "category", "parent_code", "sort_order"}
+var (
+	subjectColumns = []string{"code", "name", "category", "parent_code", "sort_order", "is_restricted"}
+	// subjectRequired はインポートで必須の列。is_restricted は省略できる（省略した行は閲覧制限を変えない）
+	subjectRequired = []string{"code", "name", "category", "parent_code", "sort_order"}
+)
 
 // exportSubjects は GET /api/subjects/export。親が子より先に来る順で書き出す。
 func (h *Handler) exportSubjects(w http.ResponseWriter, r *http.Request) error {
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT s.code, s.name, s.category, COALESCE(p.code, ''), s.sort_order
+		SELECT s.code, s.name, s.category, COALESCE(p.code, ''), s.sort_order, s.is_restricted
 		FROM subjects s LEFT JOIN subjects p ON p.id = s.parent_id
 		ORDER BY s.parent_id IS NOT NULL, s.category, s.sort_order, s.code`)
 	if err != nil {
@@ -544,12 +548,14 @@ func (h *Handler) exportSubjects(w http.ResponseWriter, r *http.Request) error {
 	defer rows.Close()
 	var out [][]string
 	for rows.Next() {
-		rec := make([]string, 5)
+		rec := make([]string, 6)
 		var sortOrder int
-		if err := rows.Scan(&rec[0], &rec[1], &rec[2], &rec[3], &sortOrder); err != nil {
+		var restricted bool
+		if err := rows.Scan(&rec[0], &rec[1], &rec[2], &rec[3], &sortOrder, &restricted); err != nil {
 			return err
 		}
 		rec[4] = strconv.Itoa(sortOrder)
+		rec[5] = strconv.FormatBool(restricted)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -564,7 +570,7 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := csvio.Parse(up.Data, subjectColumns)
+	rows, err := csvio.ParseWithOptional(up.Data, subjectRequired, []string{"is_restricted"})
 	if err != nil {
 		return err
 	}
@@ -595,6 +601,8 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 			category   string
 			parentCode string
 			sortOrder  int
+			// restricted は閲覧制限（nil は列がなく、今の設定を変えない）
+			restricted *bool
 		}
 		errs := &csvio.RowErrors{}
 		items := map[string]item{}
@@ -614,6 +622,17 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 					continue
 				}
 				it.sortOrder = n
+			}
+			if row.Has("is_restricted") {
+				v := false
+				if s := row.Get("is_restricted"); s != "" {
+					var ok bool
+					if v, ok = parseBool(s); !ok {
+						errs.Add(row.Line, "閲覧制限 %q は true か false で入力してください", s)
+						continue
+					}
+				}
+				it.restricted = &v
 			}
 			if _, dup := items[code]; dup {
 				errs.Add(row.Line, "コード %s が CSV 内で重複しています", code)
@@ -691,10 +710,14 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 				parentID = &id
 			}
 			before, exists := existing[c]
+			restricted := before.IsRestricted
+			if it.restricted != nil {
+				restricted = *it.restricted
+			}
 			if !exists {
 				res, err := tx.ExecContext(ctx,
-					"INSERT INTO subjects (parent_id, code, name, category, sort_order) VALUES (?, ?, ?, ?, ?)",
-					dbx.NullInt64(parentID), c, it.name, it.category, it.sortOrder)
+					"INSERT INTO subjects (parent_id, code, name, category, sort_order, is_restricted) VALUES (?, ?, ?, ?, ?, ?)",
+					dbx.NullInt64(parentID), c, it.name, it.category, it.sortOrder, restricted)
 				if err != nil {
 					return err
 				}
@@ -710,13 +733,13 @@ func (h *Handler) importSubjects(w http.ResponseWriter, r *http.Request) error {
 				result.Inserted++
 				continue
 			}
-			if sameParent(before.ParentID, parentID) && before.Name == it.name && before.Category == it.category && before.SortOrder == it.sortOrder {
+			if sameParent(before.ParentID, parentID) && before.Name == it.name && before.Category == it.category && before.SortOrder == it.sortOrder && before.IsRestricted == restricted {
 				result.Unchanged++
 				continue
 			}
 			if _, err := tx.ExecContext(ctx,
-				"UPDATE subjects SET parent_id = ?, name = ?, category = ?, sort_order = ? WHERE id = ?",
-				dbx.NullInt64(parentID), it.name, it.category, it.sortOrder, before.ID); err != nil {
+				"UPDATE subjects SET parent_id = ?, name = ?, category = ?, sort_order = ?, is_restricted = ? WHERE id = ?",
+				dbx.NullInt64(parentID), it.name, it.category, it.sortOrder, restricted, before.ID); err != nil {
 				return err
 			}
 			after, err := findSubject(ctx, tx, before.ID, "")

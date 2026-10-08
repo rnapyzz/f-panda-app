@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { roleLabels } from '../api/types'
+import { roleLabels, type Role } from '../api/types'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useAuth, useCurrentUser } from '../lib/auth'
 import { actualThroughLabel, deadlineStatus, scenarioLabel, todayInTokyo } from '../lib/scenario'
 import { Link, useLocation } from '../lib/router'
+import { seesAll } from '../lib/visibility'
 import {
   IconActivities,
   IconAdmin,
@@ -32,7 +33,7 @@ import { NotificationBell } from './NotificationBell'
 import { cx } from './ui'
 
 type NavItem = { to: string; label: string; icon: (p: { className?: string }) => ReactNode }
-type NavGroup = { label: string; items: NavItem[]; adminOnly?: boolean }
+type NavGroup = { label: string; items: NavItem[]; adminOnly?: boolean; visibleTo?: (role: Role) => boolean }
 
 const navGroups: NavGroup[] = [
   {
@@ -53,6 +54,8 @@ const navGroups: NavGroup[] = [
   {
     label: '記録',
     items: [{ to: '/history', label: '変更履歴', icon: IconHistory }],
+    // 変更履歴は FP&A と経営陣（現場は施策の画面から開く。docs/plan.md「2.17」）
+    visibleTo: seesAll,
   },
   {
     label: 'マスタ',
@@ -247,7 +250,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3" aria-label="メインメニュー">
-        {navGroups.filter((g) => !g.adminOnly || user.role === 'fpa_admin').map((g) => (
+        {navGroups.filter((g) => (!g.adminOnly || user.role === 'fpa_admin') && (!g.visibleTo || g.visibleTo(user.role))).map((g) => (
           <div key={g.label} className="mb-3">
             {collapsed ? (
               <div className="mx-3 mb-2 border-t border-slate-100" aria-hidden="true" />

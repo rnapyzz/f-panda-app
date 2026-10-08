@@ -36,6 +36,7 @@ import { Link, navigate, useLocation } from '../../lib/router'
 import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { buildTree, pathName } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
+import { RestrictedNote } from '../../components/RestrictedNote'
 
 /** 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→薄い（1色相）、ダウンサイドは別の色相 */
 const levelRamp = ['#312e81', '#4338ca', '#6366f1', '#a5b4fc', '#e0e7ff', '#eef2ff']
@@ -83,6 +84,7 @@ export function RiskPage() {
   return (
     <>
       <PageHeader title="リスク" description="見込はどれくらい確かか、どこに振れ幅があるか、誰と話せばよいかを確認します。楽観・基準（加重見込）・悲観は、施策と内訳の確度の段階・見通しの種類から算出します。" />
+      <RestrictedNote hidden={report.data?.restricted_hidden} className="mb-4" />
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-5">
           <Control label="年度">

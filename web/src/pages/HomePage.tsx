@@ -14,6 +14,7 @@ import { useApi } from '../lib/useApi'
 import { ChangeSummaryCard } from './ChangeSummaryCard'
 import { MilestonesCard, type MilestoneTarget } from './MilestonesCard'
 import { ServiceStatusCard } from './ServiceStatusCard'
+import { RestrictedNote } from '../components/RestrictedNote'
 
 type Scope = ActivityProgressReport['scope']
 
@@ -87,6 +88,7 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
           </span>
         }
       />
+      <RestrictedNote hidden={r.restricted_hidden} className="mb-4" />
 
       {r.new_actual_months.length > 0 && (
         <Card className="mb-4">
