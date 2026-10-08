@@ -24,7 +24,6 @@ import { OrgChangesPage } from './pages/scenarios/OrgChangesPage'
 import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
-import { ValuesPage } from './pages/scenarios/ValuesPage'
 
 type Route = { path: string; render: (params: Record<string, string>) => ReactNode }
 
@@ -34,7 +33,8 @@ const routes: Route[] = [
   { path: '/activities/:id', render: (p) => <ActivityDetailPage key={p.id} id={p.id} /> },
   { path: '/scenarios', render: () => <ScenarioListPage /> },
   { path: '/scenarios/:id', render: (p) => <ScenarioDetailPage key={p.id} id={p.id} /> },
-  { path: '/scenarios/:sid/activities/:aid', render: (p) => <ValuesPage key={`${p.sid}/${p.aid}`} scenarioId={p.sid} activityId={p.aid} /> },
+  // 旧 URL（数値入力の画面）は、施策の画面の「今回の更新」へ（docs/plan.md「2.19」）
+  { path: '/scenarios/:sid/activities/:aid', render: (p) => <Redirect to={`/activities/${p.aid}?tab=update&scenario=${p.sid}`} /> },
   { path: '/admin/scenarios', render: () => <ScenarioAdminPage /> },
   { path: '/admin/actuals', render: () => <ActualsPage /> },
   { path: '/admin/notifications', render: () => <NotificationSettingsPage /> },

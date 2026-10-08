@@ -568,7 +568,7 @@ function DetailPanel({
           {series
             .filter((s) => s.scenario_id)
             .map((s) => (
-              <Link key={s.key} to={`/scenarios/${s.scenario_id}/activities/${node.id}`} className="mr-3 text-indigo-700 hover:underline">
+              <Link key={s.key} to={`/activities/${node.id}?tab=update&scenario=${s.scenario_id}`} className="mr-3 text-indigo-700 hover:underline">
                 {s.label} →
               </Link>
             ))}

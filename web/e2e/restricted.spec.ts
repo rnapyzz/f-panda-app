@@ -47,7 +47,7 @@ test('閲覧制限のある科目は、現場には金額を出さず、変更�
   await expect(mp.getByText('閲覧制限のある科目を除いた金額です')).toBeVisible()
   await expect(mp.getByText(f.revenueName).first()).toBeVisible()
   await expect(mp.getByText(personnelName)).toHaveCount(0)
-  await mp.getByRole('link', { name: 'このシナリオでの変更履歴 →' }).click()
+  await mp.getByRole('main').getByRole('link', { name: '変更履歴' }).click()
   await expect(mp.getByRole('heading', { name: '変更履歴' })).toBeVisible()
   await expect(mp.getByText('E2E').first()).toBeVisible()
   await context.close()

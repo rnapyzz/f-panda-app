@@ -59,8 +59,9 @@ test('会計の明細を取り込み、未割当の一覧で施策を選ぶと�
   await expect(page.getByRole('row', { name: new RegExp(`S${f.run}`) })).toContainText(pool.name)
 
   // 施策の明細: 箱の ID の行は「未割当の一覧から選択」、外部コードも登録されている
-  await page.goto(`/activities/${activity.id}`)
-  await expect(page.getByText(box, { exact: true }).first()).toBeVisible()
+  await page.goto(`/activities/${activity.id}?tab=settings`)
+  await expect(page.getByText(box, { exact: true }).first()).toBeVisible() // 外部コード
+  await page.getByRole('tab', { name: '概要' }).click()
   const entries = page.getByRole('table').filter({ hasText: '割当の根拠' })
   await page.getByLabel('実績の月').selectOption('2026-07')
   await expect(entries.getByRole('row', { name: /新規案件/ })).toContainText('未割当の一覧から選択')

@@ -35,7 +35,7 @@ test('施策詳細の P/L で、基準と最新の差異を期間を切り替え
     ],
   })
 
-  await page.goto(`/activities/${activity.id}`)
+  await page.goto(`/activities/${activity.id}?tab=overview`)
   await page.getByRole('combobox', { name: '年度' }).selectOption('2026')
   await page.getByRole('combobox', { name: '目標のシナリオ' }).selectOption(String(budget.id))
   await page.getByRole('combobox', { name: '最新のシナリオ' }).selectOption(String(forecast.id))

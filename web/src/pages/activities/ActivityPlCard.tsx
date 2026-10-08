@@ -128,7 +128,7 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
                 </button>
               )}
               {latestId && (
-                <Link to={`/scenarios/${latestId}/activities/${activityId}`} className="text-indigo-700 hover:underline">
+                <Link to={`/activities/${activityId}?tab=update&scenario=${latestId}`} className="text-indigo-700 hover:underline">
                   数値を入力する →
                 </Link>
               )}

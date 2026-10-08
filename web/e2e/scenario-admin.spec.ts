@@ -31,10 +31,10 @@ test('シナリオ管理で、シナリオを作成して作成中にし、決�
   await expect(bar).toContainText(`${name}（最新見込）`)
   await expect(row).toContainText('作成中') // シナリオ管理は正式な用語
 
-  // 施策の「数値を見る・入力する」は、作成中のシナリオを開く
+  // 施策の画面は、編集できる人には今回の見込（作成中のシナリオ）の「今回の更新」を開く
   await page.goto(`/activities/${activity.id}`)
-  await page.getByRole('link', { name: '数値を見る・入力する' }).click()
-  await expect(page).toHaveURL(new RegExp(`/activities/${activity.id}$`))
+  await expect(page.getByRole('tab', { name: '今回の更新', selected: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'シナリオ' }).locator('option:checked')).toContainText(name)
   await expect(page.getByRole('heading', { name: activity.name })).toBeVisible()
   await expect(page.getByText(name).first()).toBeVisible()
 

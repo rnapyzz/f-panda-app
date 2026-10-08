@@ -6,7 +6,7 @@ test('内訳に見通しの種類と確度の段階を設定でき、変更に�
   const f = await seedMasters(page)
   const activity = await createActivity(page, f) // 運用型なので施策の段階は A
 
-  await page.goto(`/activities/${activity.id}`)
+  await page.goto(`/activities/${activity.id}?tab=settings`)
   const lines = page.locator('section', { has: page.getByRole('heading', { name: '金額の内訳' }) })
   await lines.getByRole('button', { name: '＋ 追加' }).click()
   const add = page.getByRole('dialog', { name: '内訳の追加' })
