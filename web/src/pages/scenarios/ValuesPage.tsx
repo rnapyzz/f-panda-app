@@ -12,6 +12,7 @@ import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 import { canOpenHistory, inputSubjects } from '../../lib/visibility'
 import { RestrictedNote } from '../../components/RestrictedNote'
+import { Help } from '../../components/Help'
 import { ComparisonCard } from './ComparisonCard'
 import { NoteCard } from './NoteCard'
 import { ScenarioBadges } from './ScenarioListPage'
@@ -436,9 +437,9 @@ function ValuesEditor({
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
       {active && active.id !== v.scenario.id && (
         <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
-          このシナリオは作成中ではありません。
+          このシナリオは今回の見込ではありません。
           <Link to={`/scenarios/${active.id}/activities/${v.activity.id}`} className="ml-1 font-medium underline">
-            作成中のシナリオ「{active.name}」で開く →
+            今回の見込「{active.name}」で開く →
           </Link>
         </p>
       )}
@@ -537,7 +538,15 @@ function ValuesEditor({
 
       <RestrictedNote hidden={v.restricted_hidden} className="mb-2" />
       <Card
-        title="金額（円）"
+        title={
+          <>
+            金額（円）
+            <Help>
+              科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は施策の詳細で追加できます。
+              {hasFormulaLines && <> fx の内訳は計算式で算出します。ドライバー値を変えると、保存前に試算した金額を表示します。</>}
+            </Help>
+          </>
+        }
         className="mb-4"
         actions={
           editable &&
@@ -553,19 +562,6 @@ function ValuesEditor({
           )
         }
       >
-        <p className="mb-3 text-xs text-slate-500">
-          科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は
-          <Link to={`/activities/${v.activity.id}`} className="text-indigo-700 underline">
-            施策の詳細
-          </Link>
-          で追加できます。
-          {hasFormulaLines && (
-            <>
-              {' '}
-              <span className="rounded bg-indigo-50 px-1 font-mono text-indigo-700">fx</span> の内訳は計算式で算出します。ドライバー値を変えると、保存前に試算した金額を表示します。
-            </>
-          )}
-        </p>
         {hasFormulaLines && driverItems.length > 0 && (
           <p className="mb-3 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800" role="status" aria-label="試算の状態">
             {previewing
@@ -628,12 +624,12 @@ function ValuesEditor({
         current={currentRows}
         compares={[
           {
-            label: '基準',
+            label: '目標',
             rows: baseScenario ? baseView.data?.amounts : undefined,
             note: baseScenario ? `${scenarioLabel(baseScenario)}${baseScenario.id === v.scenario.id ? '（このシナリオ）' : ''}` : '未設定（期初計画・修正計画のエイリアスがありません）',
           },
           {
-            label: '前回見込',
+            label: '前回の見込',
             rows: previousScenario ? previousView.data?.amounts : undefined,
             note: previousScenario ? scenarioLabel(previousScenario) : '未設定（シナリオ管理で指定します）',
           },
@@ -657,23 +653,27 @@ function ValuesEditor({
           <div className="flex flex-wrap items-start gap-6 text-sm">
             {selected.startsWith('a:') && server.get(selected)?.source && <div>登録方法: {sourceLabels[server.get(selected)!.source!]}</div>}
             {selectedInfo.editable && editable && !actualMonths.has(selectedInfo.month) ? (
-              <>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="size-4 rounded border-slate-300" checked={cell(selected).is_provisional} onChange={(e) => update(selected, { is_provisional: e.target.checked })} />
-                  仮の値（確定していない値）
-                </label>
-                {cell(selected).is_provisional && (
-                  <div className="min-w-72 flex-1">
-                    <Textarea
-                      aria-label="仮の値の理由"
-                      value={cell(selected).provisional_reason}
-                      onChange={(e) => update(selected, { provisional_reason: e.target.value })}
-                      placeholder="仮の値の理由（例: 見積待ちのため前年実績で仮置き）"
-                      className="min-h-12"
-                    />
-                  </div>
-                )}
-              </>
+              // 仮の値は「詳細設定」（docs/plan.md「2.18」）。仮の値のセルでは開いておく
+              <details key={selected} open={cell(selected).is_provisional} className="flex-1">
+                <summary className="cursor-pointer text-xs text-slate-500 select-none">詳細設定（仮の値）</summary>
+                <div className="mt-2 flex flex-wrap items-start gap-6">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" className="size-4 rounded border-slate-300" checked={cell(selected).is_provisional} onChange={(e) => update(selected, { is_provisional: e.target.checked })} />
+                    仮の値（確定していない値）
+                  </label>
+                  {cell(selected).is_provisional && (
+                    <div className="min-w-72 flex-1">
+                      <Textarea
+                        aria-label="仮の値の理由"
+                        value={cell(selected).provisional_reason}
+                        onChange={(e) => update(selected, { provisional_reason: e.target.value })}
+                        placeholder="仮の値の理由（例: 見積待ちのため前年実績で仮置き）"
+                        className="min-h-12"
+                      />
+                    </div>
+                  )}
+                </div>
+              </details>
             ) : cell(selected).is_provisional ? (
               <div>
                 <Badge tone="amber">仮の値</Badge> <span className="ml-1 text-slate-700">{cell(selected).provisional_reason}</span>
@@ -686,8 +686,6 @@ function ValuesEditor({
         </Card>
       )}
 
-      <ConditionCard path={path} condition={v.condition} editable={editable} onSaved={setData} />
-
       {editable && (dirty || saveError || savedMessage) ? (
         <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-wrap items-start gap-3">
@@ -698,14 +696,14 @@ function ValuesEditor({
                   aria-label="変更理由"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="変更理由（必須）例: 10月の受注確定を反映"
+                  placeholder={v.scenario.is_active ? `変更理由（任意。空欄なら「${v.scenario.name}の見込更新」と記録します）` : '変更理由（必須）例: 10月の受注確定を反映'}
                   className={cx('min-h-10 flex-1', saveError instanceof ApiError && saveError.details.reason ? 'border-red-400' : '')}
                   rows={1}
                 />
                 <Button onClick={discard} disabled={saving}>
                   取り消し
                 </Button>
-                <Button variant="primary" onClick={save} disabled={saving || reason.trim() === ''}>
+                <Button variant="primary" onClick={save} disabled={saving || (reason.trim() === '' && !v.scenario.is_active)}>
                   {saving ? '保存中…' : '保存'}
                 </Button>
               </>
@@ -727,7 +725,7 @@ function ValuesEditor({
 
 function readonlyReason(v: ValuesView): string {
   if (v.scenario.is_locked) return 'このシナリオはロックされているため、参照のみです。'
-  if (!v.scenario.is_active) return 'このシナリオは作成中ではないため、参照のみです（入力できるのは FP&A のみ）。'
+  if (!v.scenario.is_active) return 'このシナリオは今回の見込ではないため、参照のみです（入力できるのは FP&A のみ）。'
   return 'この施策の編集権限がないため、参照のみです。'
 }
 
@@ -861,53 +859,4 @@ function formulaCells(view: ValuesView): Map<CellKey, ServerCell> {
     }
   }
   return m
-}
-
-function ConditionCard({ path, condition, editable, onSaved }: { path: string; condition: string | null; editable: boolean; onSaved: (v: ValuesView) => void }) {
-  const [text, setText] = useState(condition ?? '')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  const [saved, setSaved] = useState(false)
-  const changed = text.trim() !== (condition ?? '')
-
-  const save = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      onSaved(await api.put<ValuesView>(`${path}/condition`, { description: text }))
-      setSaved(true)
-    } catch (err) {
-      setError(err)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card title="このシナリオでの想定条件" className="mb-4">
-      <p className="mb-2 text-xs text-slate-500">このシナリオで想定している内容（楽観・悲観の見通しなど）や、その発生条件を記録します。</p>
-      {editable ? (
-        <div className="space-y-2">
-          <Textarea
-            aria-label="想定条件"
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value)
-              setSaved(false)
-            }}
-            placeholder="例: B社の追加発注（2件）が11月に確定した場合"
-          />
-          <div className="flex items-center gap-3">
-            <Button size="sm" variant="primary" disabled={!changed || busy} onClick={save}>
-              {busy ? '保存中…' : '想定条件を保存'}
-            </Button>
-            {saved && !changed && <span className="text-xs text-emerald-700">保存しました</span>}
-          </div>
-          <ErrorMessage error={error} />
-        </div>
-      ) : (
-        <p className="text-sm whitespace-pre-wrap text-slate-700">{condition || <span className="text-slate-400">記録なし</span>}</p>
-      )}
-    </Card>
-  )
 }

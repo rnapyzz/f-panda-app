@@ -336,7 +336,6 @@ export type ValuesView = {
   editable: boolean
   drivers: DriverRow[]
   amounts: AmountRow[]
-  condition: string | null
   note: ActivityNote
   /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
   restricted_hidden: boolean
@@ -528,7 +527,7 @@ export const tableLabels: Record<string, string> = {
   organizations: '組織',
   subjects: '科目',
   confidence_levels: '確度の段階',
-  activity_scenario_notes: '差異の説明・更新の完了',
+  activity_scenario_notes: '今回の見込の説明・更新の完了',
   users: 'ユーザー',
 }
 

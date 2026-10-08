@@ -4,6 +4,7 @@ import { Card, Empty, ErrorMessage, Loading, Select, Table } from '../../compone
 import { formatYen, yearMonthLabel } from '../../lib/format'
 import { useApi } from '../../lib/useApi'
 import { RestrictedNote } from '../../components/RestrictedNote'
+import { Help } from '../../components/Help'
 
 /**
  * 施策の実績の明細（docs/plan.md「2.12」の実績の明細）。月を選ぶと、施策に割り当てた会計の明細を表示する。
@@ -90,7 +91,7 @@ export function ActualEntriesCard({ activityId }: { activityId: number }) {
           <p className="text-xs text-slate-500">
             明細の合計 {formatYen(data.entries_total)} 円
             {data.entries_total !== data.fact_total && <span className="ml-1 text-amber-700">（実績データの合計 {formatYen(data.fact_total)} 円と一致しません。明細のない実績が含まれています）</span>}
-            。明細は最新の取込を表示します。ロック済みのシナリオの実績とは異なる場合があります。
+            <Help>明細は最新の取込を表示します。ロック済みのシナリオの実績とは異なる場合があります。</Help>
           </p>
         </div>
       )}

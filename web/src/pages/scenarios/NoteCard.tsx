@@ -3,14 +3,15 @@ import { api } from '../../api/client'
 import { noteCauseLabels, noteStatusLabels, type AmountRow, type NoteCause, type ValuesView } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Badge, Button, Card, ErrorMessage, Textarea, cx } from '../../components/ui'
+import { Help } from '../../components/Help'
 import { formatDateTime, formatYen } from '../../lib/format'
 import { isLargeVariance, summarizeVariance, type VarianceSummary } from '../../lib/variance'
 
 const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'green' } as const
 
 /**
- * 差異の説明と更新の完了（docs/plan.md「2.10」の ⑤⑥）。
- * 左に自動の差異サマリー（基準・前回見込との年間の差、差の大きい科目・月）、右に説明欄と完了のボタンを置く。
+ * 今回の見込の説明と更新の完了（docs/plan.md「2.10」の ⑤⑥、「2.18」）。
+ * 左に自動の差異サマリー（目標・前回の見込との年間の差、差の大きい科目・月）、右に説明欄と「説明して完了」を置く。
  */
 export function NoteCard({
   path,
@@ -71,14 +72,21 @@ export function NoteCard({
       return api.post<ValuesView>(`${path}/complete`, {})
     })
   const requestComplete = () => {
-    // 説明がないまま、基準との差が大きいときは確認する（完了は止めない）
+    // 説明がないまま、目標との差が大きいときは確認する（完了は止めない）
     if (!explanation.trim() && vsBase && isLargeVariance(vsBase.diff, vsBase.compare)) setConfirming(true)
     else complete()
   }
 
   return (
     <Card
-      title="差異の説明と更新の完了"
+      title={
+        <>
+          今回の見込の説明
+          <Help>
+            目標・前回の見込との差がなぜ生じたか、想定している条件（楽観・悲観の見通しなど）を書きます。「説明して完了」で、この施策の今回の更新が終わったことを記録します。完了の後に数値や説明を変えると「入力中」に戻ります。
+          </Help>
+        </>
+      }
       className="mb-4"
       actions={
         <span className="flex items-center gap-2 text-xs text-slate-500" role="status" aria-label="更新の状態">
@@ -93,8 +101,8 @@ export function NoteCard({
     >
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4 text-sm">
-          <Summary title="基準との差（年間の利益）" summary={vsBase} empty="基準のシナリオがありません" />
-          <Summary title="前回見込との差（年間の利益）" summary={vsPrevious} empty="前回見込が指定されていません" />
+          <Summary title="目標との差（年間の利益）" summary={vsBase} empty="目標のシナリオがありません" />
+          <Summary title="前回の見込との差（年間の利益）" summary={vsPrevious} empty="前回の見込が指定されていません" />
         </div>
 
         <div className="space-y-3">
@@ -125,26 +133,33 @@ export function NoteCard({
             </div>
           </fieldset>
           <Textarea
-            aria-label="差異の説明"
+            aria-label="今回の見込の説明"
             value={explanation}
             onChange={(e) => setExplanation(e.target.value)}
             disabled={!editable || busy}
-            placeholder="例: A社の受注が 10月から 12月にずれたため、Q3 の売上が基準を下回る。年間では前回見込どおり"
+            placeholder="例: A社の受注が 10月から 12月にずれたため、Q3 の売上が目標を下回る。年間では前回の見込どおり。B社の追加発注（2件）が決まれば上振れ"
             className="min-h-28"
           />
           {editable ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Button disabled={!noteChanged || busy} onClick={() => run(saveNote)}>
-                説明を保存
-              </Button>
               {completed ? (
-                <Button disabled={busy} onClick={() => run(() => api.del<ValuesView>(`${path}/complete`, {}))}>
-                  完了を取り消す
-                </Button>
+                <>
+                  <Button disabled={!noteChanged || busy} onClick={() => run(saveNote)}>
+                    説明を保存
+                  </Button>
+                  <Button disabled={busy} onClick={() => run(() => api.del<ValuesView>(`${path}/complete`, {}))}>
+                    完了を取り消す
+                  </Button>
+                </>
               ) : (
-                <Button variant="primary" disabled={dirty || busy} onClick={requestComplete}>
-                  更新を完了にする
-                </Button>
+                <>
+                  <Button variant="primary" disabled={dirty || busy} onClick={requestComplete}>
+                    説明して完了
+                  </Button>
+                  <Button disabled={!noteChanged || busy} onClick={() => run(saveNote)}>
+                    下書き保存
+                  </Button>
+                </>
               )}
               {dirty && !completed && <span className="text-xs text-amber-700">数値の変更を保存してから完了にしてください</span>}
             </div>
@@ -152,14 +167,13 @@ export function NoteCard({
             !note.explanation && <p className="text-xs text-slate-400">説明はまだありません</p>
           )}
           {error ? <ErrorMessage error={error} /> : null}
-          <p className="text-xs text-slate-400">完了は「この施策の更新が終わった」ことの記録です。完了の後に数値や説明を変えると、入力中に戻ります。</p>
         </div>
       </div>
 
       <ConfirmDialog
         open={confirming}
         title="説明なしで完了にする"
-        message={<>基準との差が大きい（年間の利益で {formatYen(String(vsBase?.diff ?? 0n))} 円）のに、差異の説明が書かれていません。このまま完了にしますか？</>}
+        message={<>目標との差が大きい（年間の利益で {formatYen(String(vsBase?.diff ?? 0n))} 円）のに、説明が書かれていません。このまま完了にしますか？</>}
         confirmLabel="完了にする"
         onClose={() => setConfirming(false)}
         onConfirm={async () => {

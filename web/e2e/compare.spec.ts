@@ -3,7 +3,7 @@ import { api, createActivity, gridCell, login, seedMasters } from './helpers'
 
 /** 比較の表の、項目（label）の行グループ。行は 今回・基準・基準との差・前回見込・前回見込との差 の順 */
 function group(page: Page, label: string): Locator {
-  return page.getByRole('table', { name: '基準・前回見込との比較' }).locator('tbody').filter({ has: page.getByText(label, { exact: true }) })
+  return page.getByRole('table', { name: '目標・前回の見込との比較' }).locator('tbody').filter({ has: page.getByText(label, { exact: true }) })
 }
 function firstAmount(g: Locator, row: number): Locator {
   return g.locator('tr').nth(row).locator('td').nth(1)

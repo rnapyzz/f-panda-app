@@ -83,7 +83,7 @@ export function RiskPage() {
 
   return (
     <>
-      <PageHeader title="リスク" description="見込はどれくらい確かか、どこに振れ幅があるか、誰と話せばよいかを確認します。楽観・基準（加重見込）・悲観は、施策と内訳の確度の段階・見通しの種類から算出します。" />
+      <PageHeader title="リスク" description="見込はどれくらい確かか、どこに振れ幅があるか、誰と話せばよいかを確認します。楽観・加重見込・悲観は、施策と内訳の確度の段階・見通しの種類から算出します。" />
       <RestrictedNote hidden={report.data?.restricted_hidden} className="mb-4" />
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-5">
@@ -96,13 +96,13 @@ export function RiskPage() {
               ))}
             </Select>
           </Control>
-          <Control label="基準">
-            <Select aria-label="基準" value={base ?? ''} onChange={(e) => navigate(`/risks${query({ fy, base: e.target.value, unit: unitType, period })}`, { replace: true })}>
+          <Control label="シナリオ">
+            <Select aria-label="シナリオ" value={base ?? ''} onChange={(e) => navigate(`/risks${query({ fy, base: e.target.value, unit: unitType, period })}`, { replace: true })}>
               <option value="">選択してください</option>
               {inYear.map((s) => (
                 <option key={s.id} value={s.id}>
                   {scenarioLabel(s)}
-                  {s.is_active ? '・作成中' : ''}
+                  {s.is_active ? '・今回の見込' : ''}
                 </option>
               ))}
             </Select>
@@ -140,7 +140,7 @@ export function RiskPage() {
 
       {!base ? (
         <Card>
-          <Empty>基準のシナリオを選んでください</Empty>
+          <Empty>シナリオを選んでください</Empty>
         </Card>
       ) : report.error ? (
         <ErrorMessage error={report.error} />
@@ -228,7 +228,7 @@ function ProfitBand({ pessimistic, weighted, optimistic, actual }: { pessimistic
     </div>
   )
   return (
-    <div role="img" aria-label={`利益: 悲観 ${yen(pessimistic)}、基準 ${yen(weighted)}、楽観 ${yen(optimistic)}${actual === null ? '' : `、うち実績 ${yen(actual)}`}`} className="px-10 pb-2">
+    <div role="img" aria-label={`利益: 悲観 ${yen(pessimistic)}、加重見込 ${yen(weighted)}、楽観 ${yen(optimistic)}${actual === null ? '' : `、うち実績 ${yen(actual)}`}`} className="px-10 pb-2">
       <div className="relative h-24">
         <div className="absolute top-2 right-0 left-0 h-3 rounded-full bg-slate-100" />
         <div
@@ -244,7 +244,7 @@ function ProfitBand({ pessimistic, weighted, optimistic, actual }: { pessimistic
           />
         )}
         {marker(pessimistic, '悲観')}
-        {marker(weighted, '基準（加重見込）', true)}
+        {marker(weighted, '加重見込', true)}
         {marker(optimistic, '楽観')}
       </div>
       {actual !== null && actual !== 0n && (
@@ -436,7 +436,7 @@ function ActivitiesCard({
                 <th>施策</th>
                 <th>段階</th>
                 <th className="text-right">悲観</th>
-                <th className="text-right">基準</th>
+                <th className="text-right">加重見込</th>
                 <th className="text-right">楽観</th>
                 <th className="text-right">振れ幅</th>
                 <th className="text-right">比較との差</th>
@@ -549,10 +549,10 @@ function ActivityDetail({ a, report, subjectName, userName }: { a: RiskActivity;
           )}
         </div>
         <div>
-          <h4 className="mb-1 text-xs font-semibold text-slate-500">前提条件・想定条件</h4>
+          <h4 className="mb-1 text-xs font-semibold text-slate-500">前提条件・今回の見込の説明</h4>
           <p className="text-xs whitespace-pre-wrap text-slate-700">{a.assumptions || <span className="text-slate-400">前提条件は未入力</span>}</p>
-          {a.conditions.scenario && <p className="mt-1 text-xs text-slate-700">基準の想定条件: {a.conditions.scenario}</p>}
-          {a.conditions.compare && <p className="mt-1 text-xs text-slate-700">比較の想定条件: {a.conditions.compare}</p>}
+          {a.conditions.scenario && <p className="mt-1 text-xs text-slate-700">今回の見込の説明: {a.conditions.scenario}</p>}
+          {a.conditions.compare && <p className="mt-1 text-xs text-slate-700">比較シナリオの説明: {a.conditions.compare}</p>}
         </div>
       </div>
     </div>

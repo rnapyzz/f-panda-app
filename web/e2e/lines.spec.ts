@@ -12,6 +12,7 @@ test('内訳に見通しの種類と確度の段階を設定でき、変更に�
   const add = page.getByRole('dialog', { name: '内訳の追加' })
   await add.getByLabel('科目').selectOption(String(f.revenueId))
   await add.getByLabel('内訳名').fill('解約リスク')
+  await add.getByText(/^詳細設定/).click() // 見通しの種類・確度の段階は「詳細設定」
   await add.getByRole('radio', { name: /ダウンサイド/ }).check()
   // 既定は施策と同じ段階
   await expect(add.getByLabel('確度の段階')).toHaveValue('')

@@ -4,7 +4,6 @@ import { useActiveScenario } from '../lib/activeScenario'
 import { useAuth, useCurrentUser } from '../lib/auth'
 import { actualThroughLabel, deadlineStatus, scenarioLabel, todayInTokyo } from '../lib/scenario'
 import { Link, useLocation } from '../lib/router'
-import { seesAll } from '../lib/visibility'
 import {
   IconActivities,
   IconAdmin,
@@ -32,33 +31,38 @@ import {
 import { NotificationBell } from './NotificationBell'
 import { cx } from './ui'
 
-type NavItem = { to: string; label: string; icon: (p: { className?: string }) => ReactNode }
-type NavGroup = { label: string; items: NavItem[]; adminOnly?: boolean; visibleTo?: (role: Role) => boolean }
+type NavItem = { to: string; label: string; icon: (p: { className?: string }) => ReactNode; roles?: Role[] }
+type NavGroup = { label: string; items: NavItem[]; roles?: Role[]; collapsible?: boolean }
 
+// ロール別のメニュー（docs/plan.md「2.18」）。roles を省略した項目・グループは全員に出す
 const navGroups: NavGroup[] = [
   {
-    label: '計画・入力',
+    label: '日々の作業',
     items: [
       { to: '/', label: 'ホーム', icon: IconHome },
       { to: '/activities', label: '施策', icon: IconActivities },
-      { to: '/scenarios', label: 'シナリオ', icon: IconScenarios },
-    ],
-  },
-  {
-    label: '分析',
-    items: [
+      { to: '/scenarios', label: 'シナリオ', icon: IconScenarios, roles: ['fpa_admin', 'viewer'] },
       { to: '/reports', label: '予実比較', icon: IconReports },
       { to: '/risks', label: 'リスク', icon: IconRisks },
+      // 変更履歴は FP&A と経営陣（現場は施策の画面から開く。docs/plan.md「2.17」）。FP&A は「管理」に出す
+      { to: '/history', label: '変更履歴', icon: IconHistory, roles: ['viewer'] },
     ],
   },
   {
-    label: '記録',
-    items: [{ to: '/history', label: '変更履歴', icon: IconHistory }],
-    // 変更履歴は FP&A と経営陣（現場は施策の画面から開く。docs/plan.md「2.17」）
-    visibleTo: seesAll,
+    label: '管理',
+    roles: ['fpa_admin'],
+    items: [
+      { to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin },
+      { to: '/admin/actuals', label: '実績の割当', icon: IconAllocate },
+      { to: '/admin/org-changes', label: '組織変更の予約', icon: IconOrgChange },
+      { to: '/admin/notifications', label: '通知の設定', icon: IconBell },
+      { to: '/history', label: '変更履歴', icon: IconHistory },
+    ],
   },
   {
-    label: 'マスタ',
+    label: '設定',
+    roles: ['fpa_admin'],
+    collapsible: true,
     items: [
       { to: '/masters/organizations', label: '組織', icon: IconOrganizations },
       { to: '/masters/segments', label: 'セグメント', icon: IconSegments },
@@ -70,17 +74,36 @@ const navGroups: NavGroup[] = [
       { to: '/masters/users', label: 'ユーザー', icon: IconUsers },
     ],
   },
-  {
-    label: '管理',
-    adminOnly: true,
-    items: [
-      { to: '/admin/scenarios', label: 'シナリオ管理', icon: IconAdmin },
-      { to: '/admin/actuals', label: '実績の割当', icon: IconAllocate },
-      { to: '/admin/notifications', label: '通知の設定', icon: IconBell },
-      { to: '/admin/org-changes', label: '組織変更の予約', icon: IconOrgChange },
-    ],
-  },
 ]
+
+const allowed = (role: Role, roles?: Role[]) => !roles || roles.includes(role)
+
+/** ロールに出すメニュー */
+function navFor(role: Role): NavGroup[] {
+  return navGroups.filter((g) => allowed(role, g.roles)).map((g) => ({ ...g, items: g.items.filter((it) => allowed(role, it.roles)) }))
+}
+
+const SETTINGS_OPEN_KEY = 'fpanda.nav.settings.open'
+
+/** 折りたためるグループ（設定）の開閉。ブラウザに保存する（保存できない環境では閉じた状態から） */
+function useSettingsOpen(): [boolean, (v: boolean) => void] {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SETTINGS_OPEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const update = (v: boolean) => {
+    setOpen(v)
+    try {
+      localStorage.setItem(SETTINGS_OPEN_KEY, v ? '1' : '0')
+    } catch {
+      // 保存できなくても表示は切り替える
+    }
+  }
+  return [open, update]
+}
 
 const COLLAPSED_KEY = 'fpanda.sidebar.collapsed'
 
@@ -168,9 +191,9 @@ function ActiveScenarioBar() {
   const user = useCurrentUser()
   if (active === undefined) return null
   return (
-    <div className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-1.5 text-xs text-emerald-900 md:px-6" role="status" aria-label="作成中のシナリオ">
+    <div className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-1.5 text-xs text-emerald-900 md:px-6" role="status" aria-label="今回の見込">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-semibold">✎ 作成中</span>
+        <span className="font-semibold">✎ 今回の見込</span>
         {active ? (
           <>
             <Link to={`/scenarios/${active.id}`} className="font-medium underline-offset-2 hover:underline">
@@ -230,6 +253,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
   const { logout } = useAuth()
   const { pathname } = useLocation()
   const isActive = (to: string) => pathname === to || pathname.startsWith(to + '/')
+  const [settingsOpen, setSettingsOpen] = useSettingsOpen()
 
   return (
     <>
@@ -250,13 +274,27 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3" aria-label="メインメニュー">
-        {navGroups.filter((g) => (!g.adminOnly || user.role === 'fpa_admin') && (!g.visibleTo || g.visibleTo(user.role))).map((g) => (
-          <div key={g.label} className="mb-3">
-            {collapsed ? (
-              <div className="mx-3 mb-2 border-t border-slate-100" aria-hidden="true" />
-            ) : (
-              <div className="px-4 pb-1 text-[11px] font-semibold tracking-wide text-slate-400">{g.label}</div>
-            )}
+        {navFor(user.role).map((g) => {
+          // 折りたためるグループは、閉じていても今いる画面を含むなら開いて見せる
+          const open = !g.collapsible || collapsed || settingsOpen || g.items.some((it) => isActive(it.to))
+          return (
+            <div key={g.label} className="mb-3">
+              {collapsed ? (
+                <div className="mx-3 mb-2 border-t border-slate-100" aria-hidden="true" />
+              ) : g.collapsible ? (
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(!settingsOpen)}
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-1 px-4 pb-1 text-[11px] font-semibold tracking-wide text-slate-400 hover:text-slate-600"
+                >
+                  <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+                  {g.label}
+                </button>
+              ) : (
+                <div className="px-4 pb-1 text-[11px] font-semibold tracking-wide text-slate-400">{g.label}</div>
+              )}
+              {open && (
             <ul className="space-y-0.5 px-2">
               {g.items.map((item) => {
                 const active = isActive(item.to)
@@ -281,8 +319,10 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
                 )
               })}
             </ul>
-          </div>
-        ))}
+              )}
+            </div>
+          )
+        })}
       </nav>
 
       <div className={cx('shrink-0 border-t border-slate-100 py-2', collapsed ? 'px-2' : 'px-3')}>

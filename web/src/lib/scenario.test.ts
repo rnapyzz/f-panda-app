@@ -11,7 +11,7 @@ test('scenarioLabel: エイリアスがあれば併記する', () => {
 })
 
 test('actualThroughLabel', () => {
-  assert.equal(actualThroughLabel('2026-09'), '実績〜9月')
+  assert.equal(actualThroughLabel('2026-09'), '9月まで実績')
   assert.equal(actualThroughLabel(null), '全月計画')
 })
 

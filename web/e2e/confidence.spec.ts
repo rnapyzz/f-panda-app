@@ -6,6 +6,8 @@ test('確度の段階をマスタで追加・編集できる', async ({ page }) 
   const code = `Z${uniq().slice(-4)}`.replace(/[^A-Z0-9]/g, '').slice(0, 10)
 
   await page.goto('/activities')
+  // マスタはメニューの「設定」（初期状態は閉じている）にある
+  await page.getByRole('button', { name: '設定' }).click()
   await page.getByRole('link', { name: '確度の段階' }).click()
   await expect(page.getByRole('heading', { name: '確度の段階' })).toBeVisible()
   // 初期値（A〜E）と判定基準

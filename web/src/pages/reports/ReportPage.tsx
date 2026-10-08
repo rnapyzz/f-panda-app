@@ -210,7 +210,7 @@ function ReportView({
     <>
       <PageHeader
         title="予実比較"
-        description="シナリオ（決算確定月以前は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。1つ目の系列が差異の基準です。「加重見込」にすると、計画値に確度の段階の標準の確率を掛けます（実績はそのまま）。"
+        description="シナリオ（実績の月は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。差異は1つ目の系列（比較元）との差です。「加重見込」にすると、計画値に確度の段階の標準の確率を掛けます（実績はそのまま）。"
       />
 
       <RestrictedNote hidden={data?.restricted_hidden} className="mb-4" />
@@ -225,7 +225,7 @@ function ReportView({
               ))}
             </Select>
           </Control>
-          <Control label="比較の基準">
+          <Control label="比較元">
             <Select value={settings.base ?? ''} onChange={(e) => update({ base: e.target.value ? Number(e.target.value) : null })}>
               <option value="">（なし）</option>
               {inYear.map((s) => (
@@ -375,7 +375,7 @@ function SeriesHeaders({ series, isBase }: { series: ReportSeries; isBase: boole
     <>
       <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold whitespace-nowrap">
         {series.label}
-        {isBase && <span className="ml-1 rounded bg-slate-100 px-1 text-[10px] text-slate-500">基準</span>}
+        {isBase && <span className="ml-1 rounded bg-slate-100 px-1 text-[10px] text-slate-500">比較元</span>}
       </th>
       {!isBase && <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold whitespace-nowrap">差異</th>}
     </>
@@ -666,7 +666,7 @@ function DetailPanel({
           </tbody>
         </Table>
       )}
-      {view === 'months' && series.some((s) => s.actual_through) && <p className="mt-2 text-xs text-slate-500">灰色の月は、シナリオの決算確定月以前の実績です。</p>}
+      {view === 'months' && series.some((s) => s.actual_through) && <p className="mt-2 text-xs text-slate-500">灰色の月は、シナリオの実績の月です。</p>}
     </Card>
   )
 }

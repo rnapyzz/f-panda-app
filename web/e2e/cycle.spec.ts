@@ -25,7 +25,7 @@ test('月次の見込を始めると、前の版をロックして複製し、�
   await expect(dialog).toHaveCount(0)
 
   // 新しい版が作成中・最新見込、前の版はロック済み
-  const bar = page.getByRole('status', { name: '作成中のシナリオ' })
+  const bar = page.getByRole('status', { name: '今回の見込' })
   await expect(bar).toContainText(`${name}（最新見込）`)
   await expect(page.getByRole('row', { name: new RegExp(`^${first}`) })).toContainText('ロック済み')
 

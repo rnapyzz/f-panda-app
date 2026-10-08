@@ -12,7 +12,7 @@ export function ScenarioBadges({ s }: { s: Scenario }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {s.plan_role && <Badge tone={roleTone[s.plan_role]}>{planRoleLabels[s.plan_role]}</Badge>}
-      {s.is_active && <Badge tone="green">✎ 作成中</Badge>}
+      {s.is_active && <Badge tone="green">✎ 今回の見込</Badge>}
       {s.is_locked && <Badge tone="amber">🔒 ロック済み</Badge>}
       <Badge tone="slate">{actualThroughLabel(s.actual_through)}</Badge>
     </span>
@@ -37,7 +37,7 @@ export function ScenarioListPage() {
     <>
       <PageHeader
         title="シナリオ"
-        description="計画・見込の版をシナリオとして管理します。決算確定月以前の月は実績、それより後の月は計画値です。見込は既存のシナリオを複製して作ります。"
+        description="計画・見込の版をシナリオとして管理します。実績の月は実績、それより後の月は計画値です。見込は既存のシナリオを複製して作ります。"
         actions={
           canWrite && (
             <Link

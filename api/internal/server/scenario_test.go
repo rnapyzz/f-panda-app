@@ -232,9 +232,6 @@ func TestDriverValueValidation(t *testing.T) {
 			t.Errorf("%s: status = %d, body = %v", tt.name, status, body)
 		}
 	}
-	if status, body := f.member.do("PUT", path, map[string]any{"values": []map[string]any{{"driver_id": f.priceID, "target_month": "2026-10", "value": 1}}}); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
-		t.Errorf("理由なし: status = %d, body = %v", status, body)
-	}
 	dup := []map[string]any{{"driver_id": f.priceID, "target_month": "2026-10", "value": 1}, {"driver_id": f.priceID, "target_month": "2026-10", "value": 2}}
 	if status, body := f.member.do("PUT", path, map[string]any{"reason": "r", "values": dup}); status != http.StatusUnprocessableEntity || detail(body, "values[1]") == "" {
 		t.Errorf("重複: status = %d, body = %v", status, body)
@@ -298,15 +295,11 @@ func TestScenarioCopy(t *testing.T) {
 	f.member.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/amounts", map[string]any{
 		"reason": "r", "amounts": []map[string]any{{"subject_id": f.cost, "target_month": "2026-10", "amount": -500000}},
 	})
-	f.member.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/condition", map[string]any{"description": "A社の継続受注が前提"})
 
 	copyID := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "複製", "fiscal_year": 2026, "base_scenario_id": f.budget})
 	body := f.viewer.mustGet(f.valuesPath(copyID, f.manualAct))
 	if got, _ := amountOf(body, f.cost, "2026-10"); got != "-500000" {
 		t.Errorf("複製された金額 = %q, want -500000", got)
-	}
-	if c, _ := body["condition"].(string); c != "A社の継続受注が前提" {
-		t.Errorf("複製された想定条件 = %v", body["condition"])
 	}
 	drivers := f.viewer.mustGet(f.valuesPath(copyID, f.formulaAct))["drivers"].([]any)
 	if v := drivers[0].(map[string]any)["values"].([]any); len(v) != 1 || numString(v[0].(map[string]any)["value"]) != "1000" {
@@ -400,17 +393,23 @@ func TestValueEditingRestrictions(t *testing.T) {
 	}
 }
 
-func TestScenarioCondition(t *testing.T) {
+// TestDefaultReason は、作成中のシナリオでは変更理由を省略できること（docs/plan.md「2.18」）と、想定条件の API の廃止を確かめる。
+func TestDefaultReason(t *testing.T) {
 	f := newScenarioFixture(t)
-	path := f.valuesPath(f.budget, f.manualAct) + "/condition"
-
-	status, body := f.member.do("PUT", path, map[string]any{"description": "楽観: 追加発注2件を見込む"})
-	if status != http.StatusOK || body["condition"] != "楽観: 追加発注2件を見込む" {
-		t.Errorf("登録: status = %d, body = %v", status, body)
+	amounts := []map[string]any{{"subject_id": f.cost, "target_month": "2026-10", "amount": 100}}
+	if status, body := f.member.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/amounts", map[string]any{"amounts": amounts}); status != http.StatusOK {
+		t.Fatalf("理由なし（作成中）: status = %d, body = %v", status, body)
 	}
-	status, body = f.member.do("PUT", path, map[string]any{"description": ""})
-	if status != http.StatusOK || body["condition"] != nil {
-		t.Errorf("削除: status = %d, condition = %v", status, body["condition"])
+	items := f.admin.mustGet(fmt.Sprintf("/api/change-sets?activity_id=%d", f.manualAct))["items"].([]any)
+	if got := items[0].(map[string]any)["reason"]; got != "2026年度 当初予算の見込更新" {
+		t.Errorf("記録した理由 = %v", got)
+	}
+	other := f.admin.mustCreate("/api/scenarios", map[string]any{"name": "比較用", "fiscal_year": 2026})
+	if status, body := f.admin.do("PUT", f.valuesPath(other, f.manualAct)+"/amounts", map[string]any{"amounts": amounts}); status != http.StatusUnprocessableEntity || detail(body, "reason") == "" {
+		t.Errorf("理由なし（作成中以外）: status = %d, body = %v", status, body)
+	}
+	if status, _ := f.member.do("PUT", f.valuesPath(f.budget, f.manualAct)+"/condition", map[string]any{"description": "x"}); status != http.StatusGone {
+		t.Errorf("想定条件の API: status = %d", status)
 	}
 }
 

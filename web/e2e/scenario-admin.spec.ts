@@ -27,9 +27,9 @@ test('シナリオ管理で、シナリオを作成して作成中にし、決�
 
   // 作成中にすると、すべての画面の上部に表示される
   await page.getByRole('button', { name: `${name}を作成中にする` }).click()
-  const bar = page.getByRole('status', { name: '作成中のシナリオ' })
+  const bar = page.getByRole('status', { name: '今回の見込' })
   await expect(bar).toContainText(`${name}（最新見込）`)
-  await expect(row).toContainText('作成中')
+  await expect(row).toContainText('作成中') // シナリオ管理は正式な用語
 
   // 施策の「数値を見る・入力する」は、作成中のシナリオを開く
   await page.goto(`/activities/${activity.id}`)
@@ -50,7 +50,7 @@ test('シナリオ管理で、シナリオを作成して作成中にし、決�
   await settings.getByRole('button', { name: '保存' }).click()
   await expect(settings).toHaveCount(0)
   await expect(row).toContainText('2026年6月')
-  await expect(bar).toContainText('実績〜6月')
+  await expect(bar).toContainText('6月まで実績')
 
   // ロックすると作成中は外れる
   await page.getByRole('button', { name: `${name}をロック` }).click()

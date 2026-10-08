@@ -283,7 +283,7 @@ const fieldLabels: Record<string, string> = {
   probability: '確度', // 確度の段階を導入する前の変更履歴用
   confidence_level: '確度の段階',
   outlook: '見通しの種類',
-  explanation: '差異の説明',
+  explanation: '今回の見込の説明',
   causes: '要因の分類',
   completed_at: '完了日時',
   completed_by: '完了した人',

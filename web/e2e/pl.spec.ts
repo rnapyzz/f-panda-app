@@ -8,7 +8,7 @@ function group(page: Page, label: string): Locator {
 
 /** 行（0: 基準、1: 最新、2: 差異）の金額のセル。先頭の「基準」などのラベルは除く */
 function amounts(g: Locator, row: number): Locator {
-  return g.locator('tr').nth(row).locator('td').filter({ hasNotText: /^(基準|最新|差異)$/ })
+  return g.locator('tr').nth(row).locator('td').filter({ hasNotText: /^(目標|最新|差異)$/ })
 }
 
 test('施策詳細の P/L で、基準と最新の差異を期間を切り替えて見られ、科目・内訳へドリルダウンできる', async ({ page }) => {
@@ -37,7 +37,7 @@ test('施策詳細の P/L で、基準と最新の差異を期間を切り替え
 
   await page.goto(`/activities/${activity.id}`)
   await page.getByRole('combobox', { name: '年度' }).selectOption('2026')
-  await page.getByRole('combobox', { name: '基準のシナリオ' }).selectOption(String(budget.id))
+  await page.getByRole('combobox', { name: '目標のシナリオ' }).selectOption(String(budget.id))
   await page.getByRole('combobox', { name: '最新のシナリオ' }).selectOption(String(forecast.id))
 
   // 既定は四半期（Q1〜Q4・通期）

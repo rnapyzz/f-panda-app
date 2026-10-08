@@ -131,7 +131,7 @@ type RiskActivity struct {
 	WarningCount int `json:"warning_count"`
 	// BadForLevel は「段階に対して状況が悪い」（確度の高い段階で、警告が1つ以上）
 	BadForLevel bool `json:"bad_for_level"`
-	// Conditions はシナリオごとの想定条件（scenario / compare）
+	// Conditions はシナリオごとの今回の見込の説明（scenario / compare）
 	Conditions map[string]string `json:"conditions"`
 
 	sums map[string]plSum // 指標ごとの期間の合計
@@ -776,14 +776,14 @@ func fillRiskMilestones(ctx context.Context, db *sql.DB, index map[int64]*RiskAc
 	return rows.Err()
 }
 
-// fillConditions は基準・比較シナリオの想定条件を加える。
+// fillConditions は基準・比較シナリオの、今回の見込の説明（docs/plan.md「2.18」で想定条件を統合）を加える。
 func fillConditions(ctx context.Context, db *sql.DB, scenarioID int64, compare *riskScenario, index map[int64]*RiskActivity) error {
 	targets := map[string]int64{"scenario": scenarioID}
 	if compare != nil {
 		targets["compare"] = compare.ID
 	}
 	for key, id := range targets {
-		rows, err := db.QueryContext(ctx, "SELECT activity_id, description FROM scenario_conditions WHERE scenario_id = ?", id)
+		rows, err := db.QueryContext(ctx, "SELECT activity_id, explanation FROM activity_scenario_notes WHERE scenario_id = ? AND COALESCE(explanation, '') <> ''", id)
 		if err != nil {
 			return err
 		}

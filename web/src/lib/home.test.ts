@@ -102,5 +102,5 @@ test('compactYen', () => {
 test('summaryText: 決まった型の文章', () => {
   const a = { ...item('A', 'completed', 1000, 0, 12_001_000), name: 'A 案件', causes: ['timing' as const], has_explanation: true }
   const b = { ...item('B', 'in_progress', 3_000_000, 0, 1_000_000), name: 'B 新規' }
-  assert.equal(summaryText(summarizeChanges([a, b])), '前回見込から利益 −1,000万円（売上 −1,000万円）。増加 1施策・減少 1施策。主な変動: A 案件 −1,200万円（時期のずれ）、B 新規 +200万円。説明のない施策 1件、未完了 1件。')
+  assert.equal(summaryText(summarizeChanges([a, b])), '前回の見込から利益 −1,000万円（売上 −1,000万円）。増加 1施策・減少 1施策。主な変動: A 案件 −1,200万円（時期のずれ）、B 新規 +200万円。説明のない施策 1件、未完了 1件。')
 })

@@ -21,7 +21,7 @@ test('作成中のシナリオに締切を入れると、担当者にお知ら�
   await expect(settings).toHaveCount(0)
 
   // 作成中のバーに締切、ベルに未読
-  const bar = page.getByRole('status', { name: '作成中のシナリオ' })
+  const bar = page.getByRole('status', { name: '今回の見込' })
   await page.reload()
   await expect(bar.getByLabel('更新の締切')).toContainText('締切 12/25')
   const bell = bar.getByRole('button', { name: /お知らせ（未読 \d+ 件）/ })

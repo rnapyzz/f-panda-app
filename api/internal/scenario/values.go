@@ -93,7 +93,6 @@ type valuesView struct {
 	Editable     bool        `json:"editable"`
 	Drivers      []driverRow `json:"drivers"`
 	Amounts      []amountRow `json:"amounts"`
-	Condition    *string     `json:"condition"`
 	// Note は差異の説明と更新の状態（docs/plan.md「2.10」）
 	Note note `json:"note"`
 	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
@@ -189,14 +188,6 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 		return valuesView{}, err
 	}
 
-	var cond string
-	err = q.QueryRowContext(ctx, "SELECT description FROM scenario_conditions WHERE scenario_id = ? AND activity_id = ?", scenarioID, activityID).Scan(&cond)
-	switch {
-	case err == nil:
-		v.Condition = &cond
-	case !errors.Is(err, sql.ErrNoRows):
-		return valuesView{}, err
-	}
 	if v.Note, _, err = loadNote(ctx, q, scenarioID, activityID, ""); err != nil {
 		return valuesView{}, err
 	}
@@ -432,6 +423,9 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 	if dryRun {
 		req.Reason = "試算"
 	}
+	if req.Reason, err = h.defaultReason(r.Context(), scenarioID, req.Reason); err != nil {
+		return err
+	}
 	if err := checkBatch(len(req.Values), req.Reason); err != nil {
 		return err
 	}
@@ -602,6 +596,9 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
+	if req.Reason, err = h.defaultReason(r.Context(), scenarioID, req.Reason); err != nil {
+		return err
+	}
 	if err := checkBatch(len(req.Amounts), req.Reason); err != nil {
 		return err
 	}
@@ -743,75 +740,25 @@ func checkRestrictedInput(ctx context.Context, q queryer, u auth.User, subjectID
 // --- 想定条件 ---
 
 // putCondition は PUT /api/scenarios/{id}/activities/{aid}/condition。
-// シナリオにおける施策の想定内容と発生条件（楽観/悲観の根拠など）を登録する。空文字で削除する。
+// 想定条件は今回の見込の説明に統合したため（docs/plan.md「2.18」）、廃止を示す 410 を返す。
 func (h *Handler) putCondition(w http.ResponseWriter, r *http.Request) error {
-	scenarioID, activityID, err := pathIDs(r)
-	if err != nil {
-		return err
-	}
-	var req struct {
-		Description string `json:"description"`
-		Reason      string `json:"reason"`
-	}
-	if err := httpx.DecodeJSON(w, r, &req); err != nil {
-		return err
-	}
-	v := httpx.Validator{}
-	desc := v.OptionalText("description", "想定条件", req.Description, 5000)
-	if err := v.Err(); err != nil {
-		return err
-	}
+	return &httpx.Error{Status: http.StatusGone, Code: "gone", Message: "想定条件は「今回の見込の説明」に統合しました。説明に書いてください"}
+}
 
-	type conditionRecord struct {
-		ID          int64  `json:"id"`
-		ScenarioID  int64  `json:"scenario_id"`
-		ActivityID  int64  `json:"activity_id"`
-		Description string `json:"description"`
+// defaultReason は、変更理由が空のときに記録する理由を返す（docs/plan.md「2.18」）。
+// 作成中のシナリオの数値入力だけ、理由を省略できる。それ以外は空のまま返し、checkBatch で必須のエラーになる。
+func (h *Handler) defaultReason(ctx context.Context, scenarioID int64, reason string) (string, error) {
+	if strings.TrimSpace(reason) != "" {
+		return reason, nil
 	}
-	err = h.editTx(r, scenarioID, activityID, req.Reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
-		before := conditionRecord{ScenarioID: scenarioID, ActivityID: activityID}
-		err := tx.QueryRowContext(ctx,
-			"SELECT id, description FROM scenario_conditions WHERE scenario_id = ? AND activity_id = ? FOR UPDATE",
-			scenarioID, activityID,
-		).Scan(&before.ID, &before.Description)
-		found := err == nil
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		after := before
-		after.Description = desc
-
-		switch {
-		case desc == "" && found:
-			if _, err := tx.ExecContext(ctx, "DELETE FROM scenario_conditions WHERE id = ?", before.ID); err != nil {
-				return err
-			}
-			return rec.Delete(ctx, "scenario_conditions", before.ID, before)
-		case desc == "":
-			return nil
-		case found:
-			if before.Description == desc {
-				return nil
-			}
-			if _, err := tx.ExecContext(ctx, "UPDATE scenario_conditions SET description = ? WHERE id = ?", desc, before.ID); err != nil {
-				return err
-			}
-			return rec.Update(ctx, "scenario_conditions", before.ID, before, after)
-		default:
-			res, err := tx.ExecContext(ctx,
-				"INSERT INTO scenario_conditions (scenario_id, activity_id, description) VALUES (?, ?, ?)",
-				scenarioID, activityID, desc)
-			if err != nil {
-				return err
-			}
-			after.ID, _ = res.LastInsertId()
-			return rec.Insert(ctx, "scenario_conditions", after.ID, after)
-		}
-	})
+	s, err := findScenario(ctx, h.db, scenarioID, "")
 	if err != nil {
-		return err
+		return "", err
 	}
-	return h.respondValues(w, r, scenarioID, activityID)
+	if !s.IsActive {
+		return reason, nil
+	}
+	return s.Name + "の見込更新", nil
 }
 
 // checkBatch は一括更新の件数と変更理由を確認する。

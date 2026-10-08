@@ -52,7 +52,7 @@ export function ComparisonCard({ months, current, compares }: { months: string[]
   )
 
   return (
-    <Card title="基準・前回見込との比較" className="mb-4" actions={controls}>
+    <Card title="目標・前回の見込との比較" className="mb-4" actions={controls}>
       <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
         <span>今回: 入力中の値（保存前の入力・試算を含む）</span>
         {compares.map((c) => (
@@ -62,7 +62,7 @@ export function ComparisonCard({ months, current, compares }: { months: string[]
         ))}
       </p>
       <div className="-mx-4 overflow-x-auto">
-        <table aria-label="基準・前回見込との比較" className="min-w-full border-separate border-spacing-0 text-sm">
+        <table aria-label="目標・前回の見込との比較" className="min-w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
               <th className="sticky left-0 z-10 min-w-40 border-b border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-500">項目</th>

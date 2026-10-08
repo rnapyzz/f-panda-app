@@ -9,6 +9,7 @@ test('実績 CSV を確認してから取り込める。取り込んだ実績は
   // 案件化したので、施策に外部コード（案件番号）を登録する
   const external = `EXT-${f.run}`
   await page.goto(`/activities/${activity.id}`)
+  await page.getByRole('button', { name: '登録する' }).click() // 未登録のうちは閉じている
   await page.getByLabel('外部コード', { exact: true }).fill(external)
   await page.getByLabel('外部コードのメモ').fill('E2E 案件')
   await page.getByRole('button', { name: '追加', exact: true }).click()
