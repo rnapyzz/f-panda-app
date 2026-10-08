@@ -280,12 +280,15 @@
 | `GET/PUT /api/notification-settings` | 通知の設定（種類ごとの有効・無効 `enabled_kinds`、締切の前の日数 `reminder_days`、送信時刻 `send_time`）。Slack が設定されているか（`slack_configured`）も返す | 参照は全員、更新は FP&A |
 | `POST /api/notification-settings/test` | Slack にテスト送信する | FP&A |
 | `GET /api/notification-runs?limit=` | 送信の記録（日時・種類・シナリオ・宛先の数・Slack の結果） | FP&A |
+| `POST /api/scenarios/{id}/reminders` | 催促（`user_id`）。作成中のシナリオの、その人の未完了の施策の一覧を、お知らせと Slack で送る（docs/plan.md「2.20」）。今日すでに送っていれば 409、未完了の施策がなければ 422 | FP&A |
+| `GET /api/scenarios/{id}/reminders` | 今日（日本時間）催促した人（`user_ids`） | FP&A |
 
 - 通知の組み立てと送信は `internal/notify`。宛先の決定（未完了の施策・担当者・マネージャー）はホームの更新の状態（`activity-status`）と同じ判定を使う
 - 定期の送信: API の起動時にゴルーチンを1つ起動し、1分ごとに送信時刻を過ぎたかを確かめる。送信の記録（`notification_runs`）の一意制約で、同じ通知を同じ日に二重に送らない（複数台・再起動でも安全）
 - 即時の通知: 締切の設定（「更新の開始」）と決算確定月の変更（「実績の反映」）は、保存のトランザクションが終わった後に送る。送信の失敗は保存を失敗させない
 - Slack: 環境変数 `SLACK_WEBHOOK_URL`（Incoming Webhook）に `net/http` で JSON を POST する。本文のリンクには環境変数 `APP_BASE_URL`（アプリの URL。compose の既定は `http://localhost:8080`）を使う。未設定なら送らない。メンションは `<@メンバーID>`。タイムアウトは 10 秒。失敗は `notification_runs` に記録し、同じ日のうちに最大3回まで送り直す
 - 時刻は日本時間（`Asia/Tokyo`）で判定する
+- FP&A のホームの「今月の作業」（docs/plan.md「2.20」）は、既存の API（`activity-status`・`actuals/months`・`actuals/unallocated`・`scenarios`・`scenarios/actual-drift`）から画面で組み立てる。集計用の API は追加しない
 
 ## 予実比較 API
 
