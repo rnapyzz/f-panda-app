@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import type { ExternalCode } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { Help } from '../../components/Help'
 import { Button, Card, FormError, Input, fieldError } from '../../components/ui'
 
 /**
@@ -24,6 +25,8 @@ export function ExternalCodesCard({
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<ExternalCode | null>(null)
+  // 登録がなければ閉じておく（docs/plan.md「2.18」）
+  const [open, setOpen] = useState(codes.length > 0)
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
@@ -42,10 +45,23 @@ export function ExternalCodesCard({
   }
 
   return (
-    <Card title="外部コード（案件番号）">
-      <p className="mb-3 text-xs text-slate-500">
-        会計・基幹システムで発行された案件番号などを、案件化したときに登録します。実績 CSV の <code className="font-mono">activity_code</code> に使えます。枠の施策には複数登録できます。
-      </p>
+    <Card
+      title={
+        <>
+          外部コード（案件番号）
+          <Help>
+            会計・基幹システムで発行された案件番号などを、案件化したときに登録します。実績 CSV の箱の ID（box_code）に使えます。枠の施策には複数登録できます。
+          </Help>
+        </>
+      }
+      actions={
+        codes.length === 0 && canEdit ? (
+          <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? '閉じる' : '登録する'}
+          </Button>
+        ) : undefined
+      }
+    >
       {codes.length === 0 ? (
         <p className="text-sm text-slate-400">未登録（計画段階）</p>
       ) : (
@@ -63,7 +79,7 @@ export function ExternalCodesCard({
           ))}
         </ul>
       )}
-      {canEdit && (
+      {canEdit && (open || codes.length > 0) && (
         <form onSubmit={add} className="mt-3 space-y-2 border-t border-slate-100 pt-3">
           <div className="flex gap-2">
             <Input aria-label="外部コード" value={code} onChange={(e) => setCode(e.target.value)} placeholder="例: P-2026-0123" className="font-mono" aria-invalid={fieldError(error, 'code') ? true : undefined} />

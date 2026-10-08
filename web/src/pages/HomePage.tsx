@@ -15,6 +15,7 @@ import { ChangeSummaryCard } from './ChangeSummaryCard'
 import { MilestonesCard, type MilestoneTarget } from './MilestonesCard'
 import { ServiceStatusCard } from './ServiceStatusCard'
 import { RestrictedNote } from '../components/RestrictedNote'
+import { Help } from '../components/Help'
 
 type Scope = ActivityProgressReport['scope']
 
@@ -33,7 +34,7 @@ export function HomePage() {
       <>
         <PageHeader title="ホーム" />
         <Card>
-          <Empty>作成中のシナリオがありません。FP&A がシナリオ管理で作成中のシナリオを指定すると、更新する施策がここに表示されます。</Empty>
+          <Empty>今回の見込がまだありません。FP&A がシナリオ管理で今回の見込（作成中のシナリオ）を指定すると、更新する施策がここに表示されます。</Empty>
         </Card>
       </>
     )
@@ -80,10 +81,10 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
         description={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>
-              作成中: <Link to={`/scenarios/${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">{scenarioLabel(r.scenario)}</Link>（{actualThroughLabel(r.scenario.actual_through)}）
+              今回の見込: <Link to={`/scenarios/${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">{scenarioLabel(r.scenario)}</Link>（{actualThroughLabel(r.scenario.actual_through)}）
             </span>
-            <span>基準: {r.base ? scenarioLabel(r.base) : '未設定'}</span>
-            <span>前回見込: {r.previous ? scenarioLabel(r.previous) : '未設定'}</span>
+            <span>目標: {r.base ? scenarioLabel(r.base) : '未設定'}</span>
+            <span>前回の見込: {r.previous ? scenarioLabel(r.previous) : '未設定'}</span>
             <DeadlineBadge deadline={r.scenario.update_deadline} />
           </span>
         }
@@ -94,25 +95,25 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
         <Card className="mb-4">
           <div role="status" aria-label="実績のお知らせ">
             <p className="text-sm font-medium text-slate-800">
-              📥 {r.new_actual_months.map(monthLabel).join('・')}の実績が反映されました。前回見込との差を確認して、見込を更新してください。
+              📥 {r.new_actual_months.map(monthLabel).join('・')}の実績が反映されました。前回の見込との差を確認して、見込を更新してください。
             </p>
             {largeMisses.length > 0 ? (
               <ul className="mt-2 space-y-1 text-sm">
-                <li className="text-xs text-slate-500">前回見込との差が大きい施策（差が前回見込の 20% 以上）</li>
+                <li className="text-xs text-slate-500">前回の見込との差が大きい施策（差が前回の見込の 20% 以上）</li>
                 {largeMisses.map((it) => (
                   <li key={it.activity_id} className="flex flex-wrap items-baseline gap-x-2">
                     <Link to={`/scenarios/${r.scenario.id}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
                       {it.name}
                     </Link>
                     <span className="text-xs text-slate-500 tabular-nums">
-                      前回見込 {formatYen(String(profitOf(it.accuracy!.plan)))} → 実績 {formatYen(String(profitOf(it.accuracy!.actual)))}（利益）
+                      前回の見込 {formatYen(String(profitOf(it.accuracy!.plan)))} → 実績 {formatYen(String(profitOf(it.accuracy!.actual)))}（利益）
                       {it.accuracy!.rate !== null && `・差 ${it.accuracy!.rate}%`}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="mt-1 text-xs text-slate-500">前回見込との差が大きい施策はありません。</p>
+              <p className="mt-1 text-xs text-slate-500">前回の見込との差が大きい施策はありません。</p>
             )}
           </div>
         </Card>
@@ -129,7 +130,10 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
       <Card
         title={
           <span className="flex flex-wrap items-center gap-3">
-            更新する施策
+            <span>
+              更新する施策
+              <Help>ステータスが「完了」「中止」の施策は、計画値の月に金額が残っているときだけ表示します。施策名を選ぶと、数値の入力の画面を開きます。</Help>
+            </span>
             <span className="flex gap-2 text-xs font-normal text-slate-500" aria-label="状態ごとの件数">
               {(['not_started', 'in_progress', 'completed'] as const).map((s) => (
                 <span key={s}>
@@ -172,14 +176,13 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
             <div className="w-48">
             <Select aria-label="並べ替え" value={sort} onChange={(e) => setSort(e.target.value as SortMode)} className="py-1 text-xs">
               <option value="status">未完了を先に</option>
-              <option value="base">基準との差の大きい順</option>
-              <option value="previous">前回見込との差の大きい順</option>
+              <option value="base">目標との差の大きい順</option>
+              <option value="previous">前回の見込との差の大きい順</option>
             </Select>
             </div>
           </div>
         }
       >
-        <p className="mb-2 text-xs text-slate-500">ステータスが「完了」「中止」の施策は、計画値の月に金額が残っているときだけ表示します。</p>
         {items.length === 0 ? (
           <Empty>{scope === 'mine' ? '更新する施策はありません。' : '施策はありません。'}</Empty>
         ) : (
@@ -191,8 +194,8 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
                 <th>担当者</th>
                 <th>状態</th>
                 <th className="text-right">今回の利益（年間）</th>
-                <th className="text-right">基準との差</th>
-                <th className="text-right">前回見込との差</th>
+                <th className="text-right">目標との差</th>
+                <th className="text-right">前回の見込との差</th>
                 <th>最終更新</th>
               </tr>
             </thead>
@@ -231,7 +234,7 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
       <td className="whitespace-nowrap">
         <Badge tone={statusTone[it.status]}>{noteStatusLabels[it.status]}</Badge>
         {it.has_explanation && (
-          <span className="ml-1 text-xs text-slate-400" title="差異の説明あり">
+          <span className="ml-1 text-xs text-slate-400" title="今回の見込の説明あり">
             📝
           </span>
         )}

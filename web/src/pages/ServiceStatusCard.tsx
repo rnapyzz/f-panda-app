@@ -4,6 +4,7 @@ import { Card, cx } from '../components/ui'
 import { formatYen } from '../lib/format'
 import { sumTotals, totalsByUnit, type UnitTotals } from '../lib/home'
 import { scenarioLabel } from '../lib/scenario'
+import { Help } from '../components/Help'
 
 type Measure = 'profit' | 'revenue'
 
@@ -42,7 +43,7 @@ export function ServiceStatusCard({
   const columns: { key: 'initial' | 'revised' | 'previous'; label: string }[] = [
     { key: 'initial', label: '期初計画' },
     ...(has.revised ? [{ key: 'revised' as const, label: '修正計画' }] : []),
-    { key: 'previous', label: '前回見込' },
+    { key: 'previous', label: '前回の見込' },
   ]
 
   const toggle = (
@@ -102,11 +103,19 @@ export function ServiceStatusCard({
   }
 
   return (
-    <Card title="サービスの状況（年間）" className="mb-4" actions={toggle}>
-      <p className="mb-2 text-xs text-slate-500">
-        今回: {scenarioLabel(report.scenario)} ／ 期初計画: {report.initial ? report.initial.name : '未設定'}
-        {report.revised && <> ／ 修正計画: {report.revised.name}</>} ／ 前回見込: {report.previous ? report.previous.name : '未設定'}。差は今回 − 各シナリオ。ユニット名を選ぶと、下の一覧を絞り込みます。
-      </p>
+    <Card
+      title={
+        <>
+          サービスの状況（年間）
+          <Help>
+            今回: {scenarioLabel(report.scenario)} ／ 期初計画: {report.initial ? report.initial.name : '未設定'}
+            {report.revised && <> ／ 修正計画: {report.revised.name}</>} ／ 前回の見込: {report.previous ? report.previous.name : '未設定'}。差は今回 − 各シナリオ。ユニット名を選ぶと、下の一覧を絞り込みます。
+          </Help>
+        </>
+      }
+      className="mb-4"
+      actions={toggle}
+    >
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">{serviceOnly ? 'サービスのユニットの施策はありません。' : '施策はありません。'}</p>
       ) : (

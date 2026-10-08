@@ -42,9 +42,9 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await expect(page.getByRole('button', { name: `E2E課 ${f.run}`, pressed: true })).toBeVisible()
 
   // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（−40万円）。説明がないので「要因なし」
-  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回見込から利益 −40万円')
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回の見込から利益 −40万円')
   await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} −40万円`)
-  await expect(page.getByRole('list', { name: '変動の大きい施策' })).toContainText('差異の説明がありません')
+  await expect(page.getByRole('list', { name: '変動の大きい施策' })).toContainText('説明がありません')
   await expect(page.getByRole('table', { name: '要因別の変動' })).toContainText('要因なし')
 
   // マイルストーン: 変動上位の施策の、期日超過のマイルストーン

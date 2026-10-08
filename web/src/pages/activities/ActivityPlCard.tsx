@@ -107,8 +107,8 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
               </Select>
             </label>
             <label className="space-y-1">
-              <span className="block font-medium text-slate-500">基準</span>
-              <Select aria-label="基準のシナリオ" value={baseId ?? ''} onChange={(e) => setPicked((p) => ({ ...p, base: Number(e.target.value) }))} className="w-56 py-1 text-xs">
+              <span className="block font-medium text-slate-500">目標</span>
+              <Select aria-label="目標のシナリオ" value={baseId ?? ''} onChange={(e) => setPicked((p) => ({ ...p, base: Number(e.target.value) }))} className="w-56 py-1 text-xs">
                 {inYear.map(scenarioOption)}
               </Select>
             </label>
@@ -119,7 +119,7 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
               </Select>
             </label>
             <p className="pb-1.5 text-slate-500">
-              基準: {actualThroughLabel(inYear.find((s) => s.id === baseId)?.actual_through)} / 最新: {actualThroughLabel(inYear.find((s) => s.id === latestId)?.actual_through)}
+              目標: {actualThroughLabel(inYear.find((s) => s.id === baseId)?.actual_through)} / 最新: {actualThroughLabel(inYear.find((s) => s.id === latestId)?.actual_through)}
             </p>
             <div className="ml-auto flex gap-3 pb-1.5">
               {expandable.length > 0 && (
@@ -211,7 +211,7 @@ function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods:
                     </div>
                   </div>
                 </th>
-                <td className="px-2 py-1 text-xs font-normal whitespace-nowrap text-slate-500">基準</td>
+                <td className="px-2 py-1 text-xs font-normal whitespace-nowrap text-slate-500">目標</td>
                 {amounts.map((a) => (
                   <td key={a.key} className={cx(cellClass(a.key), a.base === 0n ? 'text-slate-300' : 'text-slate-600')}>
                     {formatYen(String(a.base))}

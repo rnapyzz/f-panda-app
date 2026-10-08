@@ -18,7 +18,7 @@ type PlanImportResult = {
 const kindLabels: Record<PlanImportResult['kind'], string> = { amounts: '金額', driver_values: 'ドライバー値' }
 
 const warningLabels: Record<PlanImportResult['warnings'][number]['kind'], string> = {
-  actual_month: '実績の月（決算確定月以前）の値は取り込みませんでした',
+  actual_month: '実績の月の値は取り込みませんでした',
   formula_line: '計算式で反映する内訳の値は取り込みませんでした（ドライバー値から計算します）',
 }
 

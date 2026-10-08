@@ -129,7 +129,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <>
             <Link
               to={active ? `/scenarios/${active.id}/activities/${a.id}` : `/scenarios?activity_id=${a.id}`}
-              title={active ? `作成中のシナリオ「${active.name}」で開きます` : undefined}
+              title={active ? `今回の見込「${active.name}」で開きます` : undefined}
               className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               数値を見る・入力する

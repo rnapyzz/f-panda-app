@@ -181,6 +181,12 @@ export function LineDialog({
             {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />}
           </Field>
         </div>
+        {/* 確度の段階・見通しの種類は「詳細設定」（docs/plan.md「2.18」）。標準と違う設定があれば開いておく */}
+        <details open={level !== '' || outlook !== 'base'} className="rounded-md border border-slate-200 px-3 py-2">
+          <summary className="cursor-pointer text-sm text-slate-600 select-none">
+            詳細設定（見通しの種類: {outlookLabels[outlook]} ／ 確度の段階: {level ? confidenceLabel(level, levels) : '施策と同じ'}）
+          </summary>
+          <div className="mt-3 space-y-4">
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700">見通しの種類</legend>
           <div className="grid gap-2 sm:grid-cols-3">
@@ -214,6 +220,8 @@ export function LineDialog({
             </Select>
           )}
         </Field>
+          </div>
+        </details>
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700">金額の入れ方</legend>
           <div className="grid gap-2 sm:grid-cols-2">

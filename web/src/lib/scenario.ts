@@ -11,7 +11,7 @@ export function scenarioLabel(s: ScenarioLike): string {
 
 /** "2026-09" → "9月"。決算確定月の表示用 */
 export function actualThroughLabel(ym: string | null | undefined): string {
-  return ym ? `実績〜${Number(ym.slice(5, 7))}月` : '全月計画'
+  return ym ? `${Number(ym.slice(5, 7))}月まで実績` : '全月計画'
 }
 
 /**

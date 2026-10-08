@@ -380,7 +380,6 @@ func insertScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, in sce
 		for _, c := range []struct{ table, columns string }{
 			{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
 			{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
-			{"scenario_conditions", "activity_id, description"},
 		} {
 			res, err := tx.ExecContext(ctx,
 				"INSERT INTO "+c.table+" (scenario_id, "+c.columns+") SELECT ?, "+c.columns+" FROM "+c.table+" WHERE scenario_id = ?",

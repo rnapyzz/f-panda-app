@@ -164,7 +164,7 @@ export function compactYen(v: bigint): string {
 
 /** 文章のサマリー（決まった型で組み立てる。docs/plan.md「2.11」の ②） */
 export function summaryText(s: ChangeSummary): string {
-  const parts = [`前回見込から利益 ${compactYen(s.profitDiff)}（売上 ${compactYen(s.revenueDiff)}）。`, `増加 ${s.increased}施策・減少 ${s.decreased}施策。`]
+  const parts = [`前回の見込から利益 ${compactYen(s.profitDiff)}（売上 ${compactYen(s.revenueDiff)}）。`, `増加 ${s.increased}施策・減少 ${s.decreased}施策。`]
   if (s.top.length > 0) {
     const main = s.top.slice(0, 3).map((c) => {
       const causes = c.item.causes.map((x) => noteCauseLabels[x]).join('・')
