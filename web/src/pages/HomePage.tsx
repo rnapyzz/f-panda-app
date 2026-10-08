@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { query } from '../api/client'
-import { noteStatusLabels, type ActivityProgress, type ActivityProgressReport, type List, type Unit, type User } from '../api/types'
+import { noteStatusLabels, type ActivityProgress, type ActivityProgressReport, type List, type Scenario, type Unit, type User } from '../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../components/ui'
 import { DeadlineBadge } from '../components/Layout'
 import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
@@ -8,7 +8,7 @@ import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
 import { formatDateTime, formatYen, monthLabel } from '../lib/format'
 import { countByStatus, profitDiff, profitOf, sortStatuses, summarizeChanges, type SortMode } from '../lib/home'
-import { Link } from '../lib/router'
+import { Link, navigate, useLocation } from '../lib/router'
 import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
 import { useApi } from '../lib/useApi'
 import { ChangeSummaryCard } from './ChangeSummaryCard'
@@ -16,6 +16,7 @@ import { MilestonesCard, type MilestoneTarget } from './MilestonesCard'
 import { ServiceStatusCard } from './ServiceStatusCard'
 import { RestrictedNote } from '../components/RestrictedNote'
 import { Help } from '../components/Help'
+import { FpaWorkTab } from './FpaWorkTab'
 
 type Scope = ActivityProgressReport['scope']
 
@@ -27,8 +28,10 @@ const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'gre
  * 実績が新しく反映されたときは、前回見込との差が大きい施策を知らせる。
  */
 export function HomePage() {
+  const me = useCurrentUser()
   const { active } = useActiveScenario()
   if (active === undefined) return <Loading />
+  if (me.role === 'fpa_admin') return <FpaHome active={active} />
   if (active === null) {
     return (
       <>
@@ -42,7 +45,46 @@ export function HomePage() {
   return <HomeView key={active.id} scenarioId={active.id} />
 }
 
-function HomeView({ scenarioId }: { scenarioId: number }) {
+type HomeTab = 'work' | 'numbers'
+const homeTabLabels: Record<HomeTab, string> = { work: '今月の作業', numbers: '数字の状況' }
+
+/** FP&A のホーム（docs/plan.md「2.20」）。「今月の作業」と「数字の状況」（これまでのホーム）のタブ。タブは URL（?tab=）に残す */
+function FpaHome({ active }: { active: Scenario | null }) {
+  const { search } = useLocation()
+  const tab: HomeTab = search.get('tab') === 'numbers' ? 'numbers' : 'work'
+  const tabs = (
+    <div role="tablist" aria-label="ホーム" className="mb-4 flex gap-1 border-b border-slate-200">
+      {(Object.keys(homeTabLabels) as HomeTab[]).map((t) => (
+        <button
+          key={t}
+          type="button"
+          role="tab"
+          aria-selected={tab === t}
+          onClick={() => navigate(t === 'work' ? '/' : '/?tab=numbers')}
+          className={cx('-mb-px border-b-2 px-4 py-2 text-sm font-medium', tab === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800')}
+        >
+          {homeTabLabels[t]}
+        </button>
+      ))}
+    </div>
+  )
+  if (tab === 'numbers' && active) return <HomeView key={active.id} scenarioId={active.id} tabs={tabs} />
+  return (
+    <>
+      <PageHeader title="ホーム" />
+      {tabs}
+      {tab === 'work' ? (
+        <FpaWorkTab active={active} />
+      ) : (
+        <Card>
+          <Empty>今回の見込がまだありません。シナリオ管理で月次の見込を始めると、数字の状況が表示されます。</Empty>
+        </Card>
+      )}
+    </>
+  )
+}
+
+function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }) {
   const me = useCurrentUser()
   const scopes: Scope[] = me.role === 'member' ? ['mine', 'all'] : me.role === 'manager' ? ['units', 'mine', 'all'] : ['all', 'mine']
   const [scope, setScope] = useState<Scope>(scopes[0])
@@ -89,6 +131,7 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
           </span>
         }
       />
+      {tabs}
       <RestrictedNote hidden={r.restricted_hidden} className="mb-4" />
 
       {r.new_actual_months.length > 0 && (

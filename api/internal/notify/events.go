@@ -78,7 +78,7 @@ func (s *Service) updateStarted(ctx context.Context, scenarioID int64) error {
 	title := fmt.Sprintf("見込の更新が始まりました（%s）", sc.name)
 	for _, id := range ids {
 		m.notes = append(m.notes, note{userID: id, title: title,
-			body: fmt.Sprintf("締切は %s です。担当の施策（%d件）を更新し、差異の説明を書いて「更新を完了にする」を押してください。\n%s", dateLabel(*sc.deadline), len(groups[id]), listActivities(groups[id])),
+			body: fmt.Sprintf("締切は %s です。担当の施策（%d件）を更新し、今回の見込の説明を書いて「説明して完了」を押してください。\n%s", dateLabel(*sc.deadline), len(groups[id]), listActivities(groups[id])),
 			link: "/"})
 	}
 	m.slackText = fmt.Sprintf("【%s】見込の更新が始まりました。締切は %s です。\n対象: %s%s", sc.name, dateLabel(*sc.deadline), mentionList(ids, groups, people), s.link("/", "ホームを開く"))
@@ -119,10 +119,10 @@ func (s *Service) actualsReflected(ctx context.Context, scenarioID int64, months
 	for _, id := range ids {
 		m.notes = append(m.notes, note{userID: id,
 			title: fmt.Sprintf("%sの実績が反映されました（%s）", label, sc.name),
-			body:  fmt.Sprintf("前回見込との差が大きい施策があります（差が前回見込の 20%% 以上）。見込を見直してください。\n%s", listActivities(groups[id])),
+			body:  fmt.Sprintf("前回の見込との差が大きい施策があります（差が前回の見込の 20%% 以上）。見込を見直してください。\n%s", listActivities(groups[id])),
 			link:  "/"})
 	}
-	m.slackText = fmt.Sprintf("【%s】%sの実績が反映されました。前回見込との差が大きい施策: %s%s", sc.name, label, mentionList(ids, groups, people), s.link("/", "ホームを開く"))
+	m.slackText = fmt.Sprintf("【%s】%sの実績が反映されました。前回の見込との差が大きい施策: %s%s", sc.name, label, mentionList(ids, groups, people), s.link("/", "ホームを開く"))
 	return s.deliver(ctx, m)
 }
 

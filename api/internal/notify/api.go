@@ -29,6 +29,8 @@ func (s *Service) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("PUT /api/notification-settings", write(s.putSettings))
 	mux.Handle("POST /api/notification-settings/test", write(s.testSlack))
 	mux.Handle("GET /api/notification-runs", write(s.listRuns))
+	mux.Handle("GET /api/scenarios/{id}/reminders", write(s.listReminders))
+	mux.Handle("POST /api/scenarios/{id}/reminders", write(s.sendReminder))
 }
 
 func currentUser(r *http.Request) (auth.User, error) {
