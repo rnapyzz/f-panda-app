@@ -50,6 +50,7 @@ type activityItem struct {
 	id, unitID int64
 	code, name string
 	assignee   int64 // 担当者（いなければユニットのマネージャー）。0 は宛先なし
+	owner      int64 // 施策の担当者（有効なユーザー）。0 はなし
 	manager    int64 // ユニットのマネージャー。0 はなし
 	completed  bool
 }
@@ -67,6 +68,7 @@ func (s *Service) loadActivities(ctx context.Context, scenarioID int64) ([]activ
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.unit_id, a.code, a.name,
 		       COALESCE(IF(ou.is_active, ou.id, NULL), IF(mu.is_active, mu.id, NULL), 0),
+		       COALESCE(IF(ou.is_active, ou.id, NULL), 0),
 		       COALESCE(IF(mu.is_active, mu.id, NULL), 0),
 		       n.completed_at IS NOT NULL
 		FROM activities a
@@ -83,7 +85,7 @@ func (s *Service) loadActivities(ctx context.Context, scenarioID int64) ([]activ
 	var items []activityItem
 	for rows.Next() {
 		var it activityItem
-		if err := rows.Scan(&it.id, &it.unitID, &it.code, &it.name, &it.assignee, &it.manager, &it.completed); err != nil {
+		if err := rows.Scan(&it.id, &it.unitID, &it.code, &it.name, &it.assignee, &it.owner, &it.manager, &it.completed); err != nil {
 			return nil, nil, err
 		}
 		items = append(items, it)

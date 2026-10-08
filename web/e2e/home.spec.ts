@@ -21,7 +21,10 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await a.post(`/scenarios/${current.id}/activate`, {})
   await a.post(`/activities/${activity.id}/milestones`, { name: `E2E要件定義 ${f.run}`, due_date: '2020-01-01' })
 
+  // FP&A のホームは「今月の作業」から開く。これまでのホームは「数字の状況」
   await page.goto('/')
+  await expect(page.getByRole('tab', { name: '今月の作業', selected: true })).toBeVisible()
+  await page.getByRole('tab', { name: '数字の状況' }).click()
   await expect(page.getByRole('heading', { name: 'ホーム' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'メインメニュー' }).getByRole('link', { name: 'ホーム', exact: true })).toHaveAttribute('aria-current', 'page')
 

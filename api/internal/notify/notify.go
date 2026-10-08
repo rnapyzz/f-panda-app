@@ -27,6 +27,8 @@ const (
 	KindDeadlineReminder = "deadline_reminder"
 	KindDeadlineOverdue  = "deadline_overdue"
 	KindActualsReflected = "actuals_reflected"
+	// KindManualReminder は FP&A がホームから送る催促（docs/plan.md「2.20」）。設定の有効・無効の対象ではない
+	KindManualReminder = "manual_reminder"
 )
 
 var kinds = []string{KindUpdateStarted, KindDeadlineReminder, KindDeadlineOverdue, KindActualsReflected}
