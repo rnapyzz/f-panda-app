@@ -191,7 +191,7 @@
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
-| `PUT .../activities/{aid}/condition`                          | 想定条件の登録（空文字で削除）               | 施策の編集権限 |
+| `PUT .../activities/{aid}/condition`                          | 廃止（想定条件は今回の見込の説明に統合。docs/plan.md「2.18」）。410 を返す | － |
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
 | `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
 | `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差 | 全員（範囲はロールで決まる） |
@@ -199,6 +199,7 @@
 
 - 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
 - ドライバー値は小数点以下6桁まで、金額は円単位の整数（マイナス可）
+- 変更理由（`reason`）: 作成中のシナリオでは省略でき、省略すると「<シナリオ名>の見込更新」を記録する。それ以外のシナリオは必須（docs/plan.md「2.18」）
 - 「仮の値」（`is_provisional: true`）には理由（`provisional_reason`）が必須
 - 更新 API のレスポンスは、更新後の `GET .../activities/{aid}` と同じ形
 - 金額は、決算確定月以前の月は実績（ロック済みなら `scenario_actuals`、それ以外は `actual_facts`）、それより後の月は計画値（`budget_facts`）。月ごとに実績かどうか（`actual_months`）を返す
@@ -342,7 +343,7 @@
   - 内訳ごとの段階・見通しの種類・金額
   - 比較シナリオの加重見込の収益・費用
   - 警告: マイルストーンの遅れ（`overdue` / `delayed`、注意として `upcoming`）、後ろ倒し（回数・日数）、下方修正（幅）、連続の下方修正、当たり具合（差の率）。しきい値は docs/plan.md「2.8」の固定値
-  - 想定条件（基準・比較）
+  - 今回の見込の説明（基準・比較）
 - マイルストーンの日付は日本時間
 - セグメント・組織での集計、並べ替えは画面側で行う
 
