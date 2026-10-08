@@ -368,6 +368,7 @@
   - `src/components/`: 共通 UI（ボタン・入力・表・ダイアログなど）、レイアウト、確認ダイアログ、変更理由ダイアログ
   - `src/pages/`: 画面
 - 画面遷移は `lib/router.tsx` の `Link` / `navigate` を使う。ルートは `App.tsx` に定義する
+- 施策の画面は `/activities/:id`（`?tab=update|overview|settings&scenario=:sid`。docs/plan.md「2.19」）。旧 URL `/scenarios/:sid/activities/:aid` は `App.tsx` で転送する。API は変えない（数値は `GET/PUT /api/scenarios/{id}/activities/{aid}...`、施策の情報は `/api/activities/{id}...`）
 - 変更理由: `useReason().withReason(op)` で操作を実行すると、API が「変更理由が必要」（422 `details.reason`）を返したときに理由の入力ダイアログを出して再実行する
 - 権限による表示の切り替え（編集ボタンを出すかなど）は画面で行うが、最終的な判定は API が行う
 - テスト: ロジックは `node:test`（`src/**/*.test.ts`、Node の型ストリップで .ts をそのまま実行）、主要な操作の流れは Playwright の E2E（`e2e/`）。E2E は `scripts/e2e.sh` が専用の compose スタックを起動して実行する
