@@ -166,11 +166,17 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <>
             {scenario && (
               <Select aria-label="シナリオ" value={scenario.id} onChange={(e) => go({ scenario: Number(e.target.value) })} className="w-64">
-                {scenarios.data.items.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.fiscal_year}年度 {scenarioLabel(s)}
-                    {s.is_active ? '（今回の見込）' : ''}
-                  </option>
+                {[...new Set(scenarios.data.items.map((s) => s.fiscal_year))].map((fy) => (
+                  <optgroup key={fy} label={`${fy}年度`}>
+                    {scenarios.data!.items
+                      .filter((s) => s.fiscal_year === fy)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {scenarioLabel(s)}
+                          {s.is_active ? '（今回の見込）' : ''}
+                        </option>
+                      ))}
+                  </optgroup>
                 ))}
               </Select>
             )}

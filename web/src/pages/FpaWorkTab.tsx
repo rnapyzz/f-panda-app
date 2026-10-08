@@ -8,6 +8,7 @@ import { countByStatus } from '../lib/home'
 import { Link } from '../lib/router'
 import { currentFiscalYear, deadlineStatus, todayInTokyo } from '../lib/scenario'
 import { useApi } from '../lib/useApi'
+import { Help } from '../components/Help'
 
 const stepLinks: Partial<Record<StepKey, { to: string; label: string }>> = {
   import: { to: '/admin/scenarios', label: '実績を取り込む' },
@@ -63,7 +64,14 @@ export function FpaWorkTab({ active }: { active: Scenario | null }) {
         </p>
       )}
 
-      <Card title={`今月の作業（${fy}年度）`}>
+      <Card
+        title={
+          <>
+            今月の作業（{fy}年度）
+            <Help manual="fpa#cycle">月次のサイクルの各ステップを、データから自動で「済み・今ここ・まだ」に判定します。「今ここ」のリンクから作業してください。</Help>
+          </>
+        }
+      >
         <ol className="space-y-2" aria-label="サイクルのチェックリスト">
           {steps.map((s, i) => {
             const link = stepLinks[s.key]

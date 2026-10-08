@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Layout } from './components/Layout'
 import { Loading, PageHeader } from './components/ui'
 import { ActiveScenarioProvider } from './lib/activeScenario'
@@ -25,9 +25,14 @@ import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
 import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
 import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
 
+// 使い方（手引き）は開いたときだけ読み込む（docs/plan.md「2.21」）
+const ManualPage = lazy(() => import('./pages/manual/ManualPage').then((m) => ({ default: m.ManualPage })))
+
 type Route = { path: string; render: (params: Record<string, string>) => ReactNode }
 
 const routes: Route[] = [
+  { path: '/manual', render: () => <Suspense fallback={<Loading />}><ManualPage /></Suspense> },
+  { path: '/manual/:page', render: (p) => <Suspense fallback={<Loading />}><ManualPage key={p.page} page={p.page} /></Suspense> },
   { path: '/', render: () => <HomePage /> },
   { path: '/activities', render: () => <ActivityListPage /> },
   { path: '/activities/:id', render: (p) => <ActivityDetailPage key={p.id} id={p.id} /> },

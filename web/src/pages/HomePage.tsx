@@ -175,7 +175,7 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
           <span className="flex flex-wrap items-center gap-3">
             <span>
               更新する施策
-              <Help>ステータスが「完了」「中止」の施策は、計画値の月に金額が残っているときだけ表示します。施策名を選ぶと、数値の入力の画面を開きます。</Help>
+              <Help manual="member#home">ステータスが「完了」「中止」の施策は、計画値の月に金額が残っているときだけ表示します。施策名を選ぶと、数値の入力の画面を開きます。</Help>
             </span>
             <span className="flex gap-2 text-xs font-normal text-slate-500" aria-label="状態ごとの件数">
               {(['not_started', 'in_progress', 'completed'] as const).map((s) => (
