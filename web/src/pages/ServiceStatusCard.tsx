@@ -107,7 +107,7 @@ export function ServiceStatusCard({
       title={
         <>
           サービスの状況（年間）
-          <Help>
+          <Help manual="manager#service">
             今回: {scenarioLabel(report.scenario)} ／ 期初計画: {report.initial ? report.initial.name : '未設定'}
             {report.revised && <> ／ 修正計画: {report.revised.name}</>} ／ 前回の見込: {report.previous ? report.previous.name : '未設定'}。差は今回 − 各シナリオ。ユニット名を選ぶと、下の一覧を絞り込みます。
           </Help>

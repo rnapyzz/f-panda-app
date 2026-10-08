@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e reset-db
+.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots reset-db
 
 up: ## 開発環境を起動する
 	docker compose up --build -d
@@ -29,6 +29,9 @@ test-web: ## フロントの lint・ビルド・単体テストを実行する
 
 e2e: ## E2E テストを専用のスタック（http://localhost:18080）で実行する
 	scripts/e2e.sh
+
+manual-screenshots: ## 手引きの画像（web/public/manual/）を、専用のスタックにデモのデータを入れて撮り直す
+	scripts/e2e.sh --config=playwright.screenshots.config.ts
 
 test-api: ## Go のテストを実行する（DB を使うテストは compose の db に接続する）
 	cd api && TEST_DB_HOST=127.0.0.1 TEST_DB_PORT=$${DB_PORT_HOST:-3307} TEST_DB_USER=root TEST_DB_PASSWORD=$${MYSQL_ROOT_PASSWORD:-root} go test ./...

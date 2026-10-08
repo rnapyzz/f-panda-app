@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api, ApiError, download, query } from '../../api/client'
 import type { Scenario, Unit } from '../../api/types'
 import { Button, Card, Dialog, ErrorMessage, Field, Input, Select, Table, Textarea } from '../../components/ui'
+import { Help } from '../../components/Help'
 
 type PlanImportResult = {
   dry_run: boolean
@@ -42,7 +43,15 @@ export function PlanValuesCsvCard({ scenario, units, canImport, onImported }: { 
   }
 
   return (
-    <Card title="計画値の CSV" className="mb-4">
+    <Card
+      title={
+        <>
+          計画値の CSV
+          <Help manual="member#csv">空欄は「変えない」、「-」は「消す」、数値は「その値にする」。実績の月と、計算式で反映する内訳の値は取り込みません。</Help>
+        </>
+      }
+      className="mb-4"
+    >
       <div className="space-y-3">
         <p className="text-sm text-slate-600">
           金額（直接入力）とドライバー値を、月を横に並べた CSV で出力・取込できます。Excel で編集して、そのまま取り込めます。

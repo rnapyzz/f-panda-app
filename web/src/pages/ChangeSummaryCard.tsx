@@ -19,7 +19,7 @@ export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary:
       title={
         <>
           変動のサマリー（前回の見込 → 今回、利益・年間）
-          <Help>要因が複数の施策は「複数の要因」、ない施策は「要因なし」に計上します。</Help>
+          <Help manual="manager#changes">要因が複数の施策は「複数の要因」、ない施策は「要因なし」に計上します。</Help>
         </>
       }
       className="mb-4"

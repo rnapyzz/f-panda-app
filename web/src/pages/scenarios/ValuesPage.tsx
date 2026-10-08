@@ -532,7 +532,7 @@ function ValuesEditor({
         title={
           <>
             金額（円）
-            <Help>
+            <Help manual="member#amounts">
               科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は「＋ 内訳を追加」で追加できます（計算式などの詳しい設定は「設定」タブ）。
               {hasFormulaLines && <> fx の内訳は計算式で算出します。ドライバー値を変えると、保存前に試算した金額を表示します。</>}
             </Help>

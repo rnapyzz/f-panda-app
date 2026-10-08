@@ -27,6 +27,7 @@ import {
   IconSubjects,
   IconUnits,
   IconUsers,
+  IconManual,
 } from './icons'
 import { NotificationBell } from './NotificationBell'
 import { cx } from './ui'
@@ -73,6 +74,10 @@ const navGroups: NavGroup[] = [
       { to: '/masters/confidence-levels', label: '確度の段階', icon: IconConfidence },
       { to: '/masters/users', label: 'ユーザー', icon: IconUsers },
     ],
+  },
+  {
+    label: 'ヘルプ',
+    items: [{ to: '/manual', label: '使い方', icon: IconManual }],
   },
 ]
 

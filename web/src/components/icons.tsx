@@ -191,3 +191,11 @@ export const IconOrgChange = (p: P) => (
     <path d="M14.5 15h6M18 12.5l2.5 2.5-2.5 2.5" />
   </Icon>
 )
+
+/** 使い方: 開いた本 */
+export const IconManual = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2z" />
+    <path d="M12 6v14" />
+  </Icon>
+)
