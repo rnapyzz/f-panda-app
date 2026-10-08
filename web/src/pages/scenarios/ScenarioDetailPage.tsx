@@ -90,7 +90,7 @@ export function ScenarioDetailPage({ id }: { id: string }) {
                   <td className="text-slate-600">{activityTypeLabels[a.activity_type]}</td>
                   <td className="text-slate-600">{unitName.get(a.unit_id)}</td>
                   <td className="text-right">
-                    <Link to={`/scenarios/${s.id}/activities/${a.id}`} className="text-sm font-medium text-indigo-700 hover:underline">
+                    <Link to={`/activities/${a.id}?tab=update&scenario=${s.id}`} className="text-sm font-medium text-indigo-700 hover:underline">
                       {a.can_edit && !s.is_locked && (s.is_active || isAdmin) ? '数値を入力' : '数値を見る'} →
                     </Link>
                   </td>

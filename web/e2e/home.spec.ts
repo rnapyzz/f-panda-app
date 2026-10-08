@@ -63,5 +63,5 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
 
   // 施策を開くと、作成中のシナリオの数値入力画面
   await row.getByRole('link', { name: activity.name }).click()
-  await expect(page).toHaveURL(new RegExp(`/scenarios/${current.id}/activities/${activity.id}$`))
+  await expect(page).toHaveURL(new RegExp(`/activities/${activity.id}\\?tab=update&scenario=${current.id}$`))
 })

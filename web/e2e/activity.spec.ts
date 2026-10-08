@@ -17,9 +17,10 @@ test('施策を作成し、確度の段階を変更すると変更理由を求�
   await expect(page.getByRole('heading', { name })).toBeVisible()
   await expect(page.getByText(/^ACT-\d{4,}$/)).toBeVisible()
   // 段階を選ばなければ施策タイプの既定（運用型は A）
-  await expect(page.getByText('A 確定（100%）')).toBeVisible()
+  await expect(page.getByText('確度: A 確定（100%）')).toBeVisible()
 
-  // 確度の変更 → 変更理由のダイアログ
+  // 確度の変更 → 変更理由のダイアログ（基本情報の編集は「設定」タブ）
+  await page.getByRole('tab', { name: '設定' }).click()
   await page.getByRole('button', { name: '編集', exact: true }).click()
   const edit = page.getByRole('dialog', { name: '施策の編集' })
   const level = edit.getByLabel('確度の段階')
@@ -35,7 +36,7 @@ test('施策を作成し、確度の段階を変更すると変更理由を求�
 
   await expect(reason).toBeHidden()
   await expect(edit).toBeHidden()
-  await expect(page.getByText('B 高（80%）')).toBeVisible()
+  await expect(page.getByText('確度: B 高（80%）')).toBeVisible()
 
   // 変更履歴
   // ヘッダーのメニューではなく、施策の画面にある「変更履歴」（この施策で絞り込み済み）

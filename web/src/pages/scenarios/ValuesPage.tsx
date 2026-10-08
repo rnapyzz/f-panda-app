@@ -1,21 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../../api/client'
-import { categoryLabels, outlookLabels, type AmountRow, type ConfidenceLevel, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
+import { categoryLabels, outlookLabels, type AmountRow, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
-import { Badge, Button, Card, ErrorMessage, Loading, PageHeader, Select, Textarea, cx } from '../../components/ui'
+import { Badge, Button, Card, ErrorMessage, Loading, Select, Textarea, cx } from '../../components/ui'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
-import { confidenceLabel } from '../../lib/confidence'
-import { Link, navigate } from '../../lib/router'
+import { Link } from '../../lib/router'
 import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
-import { canOpenHistory, inputSubjects } from '../../lib/visibility'
+import { inputSubjects } from '../../lib/visibility'
 import { RestrictedNote } from '../../components/RestrictedNote'
 import { Help } from '../../components/Help'
 import { ComparisonCard } from './ComparisonCard'
 import { NoteCard } from './NoteCard'
-import { ScenarioBadges } from './ScenarioListPage'
 
 /** 1セルの入力内容。value が '' なら削除 */
 type CellEdit = { value: string; is_provisional: boolean; provisional_reason: string }
@@ -31,12 +29,38 @@ function normalize(v: string): string {
   return v.replace(/,/g, '').trim()
 }
 
-/** シナリオ×施策の月別の数値を表示・入力する画面 */
-export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; activityId: string }) {
+/** 施策の画面の内訳・ドライバーの追加（「今回の更新」の表から開く。docs/plan.md「2.19」） */
+export type PanelActions = { addLine: () => void; addDriver: () => void }
+
+/**
+ * シナリオ×施策の月別の数値を表示・入力するパネル（施策の画面の「今回の更新」タブ。docs/plan.md「2.19」）。
+ * refreshKey が変わると数値を読み直す（内訳・ドライバーを追加・変更したとき）。未保存の入力の有無は onDirtyChange で知らせる。
+ */
+export function ValuesPanel({
+  scenarioId,
+  activityId,
+  refreshKey,
+  onDirtyChange,
+  actions,
+}: {
+  scenarioId: number
+  activityId: number
+  refreshKey: number
+  onDirtyChange: (dirty: boolean) => void
+  /** 施策を編集できるときだけ渡す */
+  actions?: PanelActions
+}) {
   const path = `/scenarios/${scenarioId}/activities/${activityId}`
   const view = useApi<ValuesView>(path)
   const subjects = useApi<List<Subject>>('/subjects')
   const scenarios = useApi<List<Scenario>>('/scenarios')
+  const { reload } = view
+  const loadedKey = useRef(refreshKey)
+  useEffect(() => {
+    if (refreshKey === loadedKey.current) return
+    loadedKey.current = refreshKey
+    reload()
+  }, [refreshKey, reload])
 
   const error = view.error ?? subjects.error ?? scenarios.error
   if (error) return <ErrorMessage error={error} />
@@ -50,6 +74,8 @@ export function ValuesPage({ scenarioId, activityId }: { scenarioId: string; act
       scenarios={scenarios.data.items}
       setData={view.setData}
       reload={view.reload}
+      onDirtyChange={onDirtyChange}
+      actions={actions}
     />
   )
 }
@@ -64,6 +90,8 @@ function ValuesEditor({
   scenarios,
   setData,
   reload,
+  onDirtyChange,
+  actions,
 }: {
   path: string
   v: ValuesView
@@ -71,10 +99,11 @@ function ValuesEditor({
   scenarios: Scenario[]
   setData: (v: ValuesView) => void
   reload: () => Promise<void>
+  onDirtyChange: (dirty: boolean) => void
+  actions?: PanelActions
 }) {
   const { active } = useActiveScenario()
   const me = useCurrentUser()
-  const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
 
   // 比較するシナリオ: 基準（修正計画、なければ期初計画）と前回見込（シナリオに FP&A が指定）
   const baseScenario = defaultScenarios(scenarios.filter((s) => s.fiscal_year === v.scenario.fiscal_year)).base
@@ -163,6 +192,8 @@ function ValuesEditor({
   const activePreview = driverItems.length > 0 && preview?.payload === driverPayload ? preview : null
   const previewing = driverItems.length > 0 && v.editable && !activePreview
   const formulaKeys = new Set<CellKey>(v.amounts.flatMap((a) => a.lines.filter((l) => l.formula_enabled).flatMap((l) => v.months.map((m) => `a:${a.subject_id}:${l.id}:${m}` as CellKey))))
+
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
 
   // 未保存の変更があるときは、ページを離れる前に確認する
   useEffect(() => {
@@ -387,58 +418,14 @@ function ValuesEditor({
   }
 
   const selectedInfo = selected ? describeCell(selected, v, amountRows) : null
-  const otherScenarios = scenarios.filter((s) => s.id !== v.scenario.id)
 
   return (
     <>
-      <div className="mb-2 flex flex-wrap gap-4 text-sm">
-        <Link to={`/scenarios/${v.scenario.id}`} className="text-slate-500 hover:text-slate-700">
-          ← {v.scenario.name}
-        </Link>
-        <Link to={`/activities/${v.activity.id}`} className="text-slate-500 hover:text-slate-700">
-          施策の詳細 →
-        </Link>
-        {canOpenHistory(me.role, v.activity.can_edit) && (
-          <Link to={`/history?activity_id=${v.activity.id}&scenario_id=${v.scenario.id}`} className="text-slate-500 hover:text-slate-700">
-            このシナリオでの変更履歴 →
-          </Link>
-        )}
-      </div>
-      <PageHeader
-        title={
-          <span className="flex flex-wrap items-center gap-2">
-            {v.activity.name}
-            <span className="font-mono text-sm font-normal text-slate-500">{v.activity.code}</span>
-          </span>
-        }
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            {v.scenario.name}
-            <ScenarioBadges s={v.scenario} />
-            <span>確度: {confidenceLabel(v.activity.confidence_level, levels.data?.items)}</span>
-          </span>
-        }
-        actions={
-          <Select
-            aria-label="シナリオを切り替える"
-            value=""
-            onChange={(e) => e.target.value && navigate(`/scenarios/${e.target.value}/activities/${v.activity.id}`)}
-            className="w-56"
-          >
-            <option value="">別のシナリオで見る…</option>
-            {otherScenarios.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        }
-      />
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
       {active && active.id !== v.scenario.id && (
         <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
           このシナリオは今回の見込ではありません。
-          <Link to={`/scenarios/${active.id}/activities/${v.activity.id}`} className="ml-1 font-medium underline">
+          <Link to={`/activities/${v.activity.id}?tab=update&scenario=${active.id}`} className="ml-1 font-medium underline">
             今回の見込「{active.name}」で開く →
           </Link>
         </p>
@@ -457,15 +444,19 @@ function ValuesEditor({
         </details>
       )}
 
-      <Card title="ドライバー・KPI" className="mb-4">
+      <Card
+        title="ドライバー・KPI"
+        className="mb-4"
+        actions={
+          actions && (
+            <Button size="sm" variant="ghost" onClick={actions.addDriver}>
+              ＋ ドライバーを追加
+            </Button>
+          )
+        }
+      >
         {v.drivers.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            ドライバーがありません。
-            <Link to={`/activities/${v.activity.id}`} className="text-indigo-700 underline">
-              施策の詳細
-            </Link>
-            で追加できます。
-          </p>
+          <p className="text-sm text-slate-500">ドライバーがありません。単価・件数・顧客数など、金額の根拠となる値を追加できます。</p>
         ) : (
           <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months} actualMonths={actualMonths}>
             {drivers.map((d, r) => (
@@ -542,24 +533,30 @@ function ValuesEditor({
           <>
             金額（円）
             <Help>
-              科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は施策の詳細で追加できます。
+              科目の金額は、内訳と「その他」（科目への直接入力）の合計です。内訳は「＋ 内訳を追加」で追加できます（計算式などの詳しい設定は「設定」タブ）。
               {hasFormulaLines && <> fx の内訳は計算式で算出します。ドライバー値を変えると、保存前に試算した金額を表示します。</>}
             </Help>
           </>
         }
         className="mb-4"
         actions={
-          editable &&
-          addableSubjects.length > 0 && (
-            <Select aria-label="科目を追加" value="" onChange={(e) => e.target.value && setExtraSubjects((p) => [...p, Number(e.target.value)])} className="w-48 py-1 text-xs">
-              <option value="">＋ 科目を追加…</option>
-              {addableSubjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.code} {s.name}
-                </option>
-              ))}
-            </Select>
-          )
+          <span className="flex items-center gap-2">
+            {actions && (
+              <Button size="sm" variant="ghost" onClick={actions.addLine}>
+                ＋ 内訳を追加
+              </Button>
+            )}
+            {editable && addableSubjects.length > 0 && (
+              <Select aria-label="科目を追加" value="" onChange={(e) => e.target.value && setExtraSubjects((p) => [...p, Number(e.target.value)])} className="w-48 py-1 text-xs">
+                <option value="">＋ 科目を追加…</option>
+                {addableSubjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} {s.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </span>
         }
       >
         {hasFormulaLines && driverItems.length > 0 && (

@@ -42,7 +42,7 @@ export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary:
                   {summary.top.map(({ item: it, diff }) => (
                     <li key={it.activity_id} className="py-2 text-sm">
                       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <Link to={`/scenarios/${scenarioId}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
+                        <Link to={`/activities/${it.activity_id}?tab=update&scenario=${scenarioId}`} className="font-medium text-indigo-700 hover:underline">
                           {it.name}
                         </Link>
                         {signed(diff)}

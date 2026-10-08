@@ -102,7 +102,7 @@ function HomeView({ scenarioId }: { scenarioId: number }) {
                 <li className="text-xs text-slate-500">前回の見込との差が大きい施策（差が前回の見込の 20% 以上）</li>
                 {largeMisses.map((it) => (
                   <li key={it.activity_id} className="flex flex-wrap items-baseline gap-x-2">
-                    <Link to={`/scenarios/${r.scenario.id}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
+                    <Link to={`/activities/${it.activity_id}?tab=update&scenario=${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">
                       {it.name}
                     </Link>
                     <span className="text-xs text-slate-500 tabular-nums">
@@ -222,7 +222,7 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
       <td>
         <span className="inline-flex items-center gap-1.5">
           <WatchButton activityId={it.activity_id} name={it.name} watched={it.is_watched} />
-          <Link to={`/scenarios/${scenarioId}/activities/${it.activity_id}`} className="font-medium text-indigo-700 hover:underline">
+          <Link to={`/activities/${it.activity_id}?tab=update&scenario=${scenarioId}`} className="font-medium text-indigo-700 hover:underline">
             {it.name}
           </Link>
           {it.is_priority && <PriorityBadge />}

@@ -10,8 +10,8 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   await a.post(`/activities/${activity.id}/drivers`, { code: 'customers', name: '契約社数', driver_kind: 'kpi' })
   const scenario = await a.post('/scenarios', { name: `E2E予算 ${f.run}`, fiscal_year: 2026 })
 
-  // 施策の詳細で内訳を追加する（計算式で反映する内訳と、直接入力の内訳）
-  await page.goto(`/activities/${activity.id}`)
+  // 施策の画面の「設定」で内訳を追加する（計算式で反映する内訳と、直接入力の内訳）
+  await page.goto(`/activities/${activity.id}?tab=settings`)
   const lines = page.locator('section', { has: page.getByRole('heading', { name: '金額の内訳' }) })
   const addLine = async (name: string, expression?: string) => {
     await lines.getByRole('button', { name: '＋ 追加' }).click()
@@ -31,7 +31,9 @@ test('内訳を登録し、計算式の内訳・直接入力の内訳・科目�
   await addLine('初期費用')
   await expect(lines.getByText('計算式で反映')).toBeVisible()
 
+  // 旧 URL（数値入力の画面）は、施策の画面の「今回の更新」に転送する
   await page.goto(`/scenarios/${scenario.id}/activities/${activity.id}`)
+  await expect(page).toHaveURL(new RegExp(`/activities/${activity.id}\\?tab=update&scenario=${scenario.id}$`))
   // 計算式で反映する内訳は入力できない
   const fx = gridCell(page, `${f.revenueName} 月額利用料 4月`)
   await expect(fx).toHaveAttribute('aria-readonly', 'true')

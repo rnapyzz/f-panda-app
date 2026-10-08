@@ -565,7 +565,7 @@ function WarningsCard({ report, activities }: { report: RiskReport; activities: 
   const bad = activities.filter((a) => a.bad_for_level)
   const groups = (Object.keys(warningLabels) as WarningKind[]).map((k) => ({ kind: k, items: activities.filter((a) => warningKinds(a).includes(k)) }))
   const link = (a: RiskActivity) => (
-    <Link key={a.id} to={`/scenarios/${report.scenario.id}/activities/${a.id}`} className="text-indigo-700 hover:underline">
+    <Link key={a.id} to={`/activities/${a.id}?tab=update&scenario=${report.scenario.id}`} className="text-indigo-700 hover:underline">
       {a.name}
     </Link>
   )
