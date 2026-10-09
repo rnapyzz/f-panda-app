@@ -303,6 +303,16 @@
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
 
+## 報告資料 API（docs/plan.md「2.23」）
+
+`GET /api/reports/pack.xlsx`（ログインユーザー全員）
+
+- 条件は予実比較と同じ（`scenario_ids`・`include_actual`・`measure`）に、`grain`（`month` / `quarter` / `half` / `year`）、範囲（`segment_id` / `organization_id` / `unit_id`）、シート（`sheets=pl,units,notes`）、ユニット別 P/L に施策を含めるか（`activities=true`）を加える
+- 金額は予実比較と同じ集計（`internal/report` の読み込み）を使い、科目体系・組織の階層の合計、利益、差をサーバー側で計算する（`internal/reportpack`。BigInt）。画面の集計（`web/src/lib/aggregate.ts`）と同じ結果になることをテストで確かめる
+- Excel は `archive/zip` と `encoding/xml` で書く（Office Open XML の最小限: ワークブック・シート・共有文字列・スタイル）。外部ライブラリは使わない
+- 閲覧制限のある科目は、予実比較と同じく見られる人にだけ含める
+- 図の画像（PNG）は画面で作る（SVG を canvas に描いて保存する）。API は使わない
+
 ## 閲覧制限のある科目（docs/plan.md「2.17」）
 
 - FP&A と経営陣・レビュアー以外（`manager`・`member`）には、`subjects.is_restricted` の科目の金額を返さない。合計・差異・利益なども、その科目を除いて計算する
