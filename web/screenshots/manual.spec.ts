@@ -105,6 +105,13 @@ test('手引きの画像', async ({ page, browser }) => {
   await expect(page.getByRole('list', { name: 'サイクルのチェックリスト' })).toBeVisible()
   await shot(page, 'fpa-work')
 
+  // 施策の一覧（ポートフォリオ・マップ）
+  await page.goto('/activities?view=portfolio')
+  await expect(page.getByRole('group', { name: /ポートフォリオ・マップ/ })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  // 図のカード（凡例と図）だけを撮る
+  await page.locator('div:has(> [data-chart])').screenshot({ path: out('activity-portfolio') })
+
   // リスク画面
   await page.goto('/risks')
   await expect(page.getByRole('img', { name: /悲観/ }).first()).toBeVisible()
