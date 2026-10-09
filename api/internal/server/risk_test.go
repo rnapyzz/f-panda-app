@@ -56,6 +56,9 @@ func TestRiskMeasures(t *testing.T) {
 	if got := fmt.Sprint(st["revenue_by_level"]); got != "map[A:500 C:100 downside:-50]" {
 		t.Errorf("段階別の売上 = %s", got)
 	}
+	if got := fmt.Sprint(st["revenue_by_month"]); got != "map[2026-10:map[A:500 C:100 downside:-50]]" {
+		t.Errorf("月別・段階別の売上 = %s", got)
+	}
 	if lines := st["lines"].([]any); len(lines) != 3 || lines[2].(map[string]any)["outlook"] != "downside" || lines[2].(map[string]any)["amount"] != "-50" {
 		t.Errorf("内訳 = %v", lines)
 	}

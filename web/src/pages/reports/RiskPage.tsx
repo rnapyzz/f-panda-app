@@ -37,11 +37,9 @@ import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { buildTree, pathName } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
 import { RestrictedNote } from '../../components/RestrictedNote'
+import { actualColor, downsideColor, levelRamp } from '../../lib/chartTheme'
 
-/** 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→薄い（1色相）、ダウンサイドは別の色相 */
-const levelRamp = ['#312e81', '#4338ca', '#6366f1', '#a5b4fc', '#e0e7ff', '#eef2ff']
-const actualColor = '#64748b'
-const downsideColor = '#e11d48'
+// 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→淡い紫、ダウンサイドは赤（lib/chartTheme.ts。施策の一覧の図と同じ）
 
 const signed = (v: bigint) => `${v > 0n ? '+' : ''}${formatYen(String(v))}`
 const yen = (v: bigint) => formatYen(String(v))
@@ -350,7 +348,7 @@ function CompositionCard({
               <div
                 key={k}
                 className="h-full border-r-2 border-white last:border-r-0"
-                style={{ width: `${Number((v * 1000n) / sum) / 10}%`, background: colorOf(k), outline: k === keys[keys.length - 2] ? '1px solid #c7d2fe' : undefined }}
+                style={{ width: `${Number((v * 1000n) / sum) / 10}%`, background: colorOf(k), }}
                 title={`${labelOf(k)}: ${yen(v)}（${Number((v * 1000n) / sum) / 10}%）`}
               />
             )

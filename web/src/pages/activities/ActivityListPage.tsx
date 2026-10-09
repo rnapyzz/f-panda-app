@@ -9,10 +9,11 @@ import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
 import { useApi } from '../../lib/useApi'
 import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
-import { ActivityCharts, type ChartView } from './ActivityCharts'
+import { chartViewLabels, type ChartView } from '../../lib/activityCharts'
+import { ActivityCharts } from './ActivityCharts'
 
 type View = 'table' | ChartView
-const viewLabels: Record<View, string> = { table: '表', portfolio: 'ポートフォリオ・マップ', treemap: 'ツリーマップ' }
+const viewLabels: Record<View, string> = { table: '表', ...chartViewLabels }
 
 export const statusTone: Record<ActivityStatus, 'slate' | 'indigo' | 'green' | 'amber' | 'red'> = {
   planned: 'slate',
@@ -42,7 +43,7 @@ export function ActivityListPage() {
     q: search.get('q') ?? '',
   }
   // 表示の切り替え（表・図）。絞り込みと同じく URL に持たせる。docs/plan.md「2.22」
-  const view: View = (['portfolio', 'treemap'] as const).find((v) => v === search.get('view')) ?? 'table'
+  const view: View = (Object.keys(chartViewLabels) as ChartView[]).find((v) => v === search.get('view')) ?? 'table'
   const [q, setQ] = useState(filters.q)
 
   const activities = useApi<List<Activity>>(`/activities${query(filters)}`)
@@ -146,14 +147,14 @@ export function ActivityListPage() {
         </div>
       </Card>
 
-      <div role="group" aria-label="表示" className="mb-3 inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+      <div role="group" aria-label="表示" className="mb-3 inline-flex flex-wrap gap-0.5 rounded-full bg-slate-100 p-1">
         {(Object.keys(viewLabels) as View[]).map((v) => (
           <button
             key={v}
             type="button"
             aria-pressed={view === v}
             onClick={() => setView(v)}
-            className={cx('rounded px-3 py-1 text-sm font-medium', view === v ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100')}
+            className={cx('rounded-full px-3.5 py-1 text-sm font-medium transition-colors', view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}
           >
             {viewLabels[v]}
           </button>
@@ -166,7 +167,7 @@ export function ActivityListPage() {
         ) : !activities.data ? (
           <Loading />
         ) : (
-          <ActivityCharts view={view} activityIds={new Set(activities.data.items.map((a) => a.id))} />
+          <ActivityCharts view={view} activities={activities.data.items} />
         )
       ) : (
       <Card>

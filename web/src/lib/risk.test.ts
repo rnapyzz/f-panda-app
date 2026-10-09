@@ -20,6 +20,7 @@ const act = (code: string, o: Partial<RiskActivity> = {}): RiskActivity => ({
   pessimistic: pl(0),
   actual: pl(0),
   revenue_by_level: {},
+  revenue_by_month: {},
   compare: null,
   lines: [],
   warnings: { milestones: [], postponed: { count: 0, days: 0 }, downward: null, consecutive: false, accuracy: null },

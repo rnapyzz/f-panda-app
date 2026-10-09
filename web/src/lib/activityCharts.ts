@@ -2,6 +2,18 @@
 
 import type { RiskActivity } from '../api/types.ts'
 
+/** 施策の一覧の図の種類（docs/plan.md「2.22」） */
+export type ChartView = 'portfolio' | 'treemap' | 'range' | 'waterfall' | 'timeline' | 'pipeline'
+
+export const chartViewLabels: Record<ChartView, string> = {
+  portfolio: 'ポートフォリオ',
+  treemap: 'ツリーマップ',
+  range: '振れ幅',
+  waterfall: '増減の内訳',
+  timeline: 'スケジュール',
+  pipeline: '確度の推移',
+}
+
 export type Rect = { x: number; y: number; w: number; h: number }
 
 /**
@@ -108,4 +120,69 @@ export function diffBucket(current: number, target: number | null): DiffBucket |
   if (rate >= 0.2) return 2
   if (rate <= -0.2) return -2
   return rate > 0 ? 1 : -1
+}
+
+export type RangeRow = { activity: RiskActivity; pessimistic: number; weighted: number; optimistic: number; spread: number }
+
+/** 振れ幅（楽観 − 悲観、利益）の大きい順。limit 件までと、残りの件数 */
+export function rangeRows(items: RiskActivity[], limit = 15): { rows: RangeRow[]; rest: number } {
+  const rows = items
+    .map((a) => {
+      const pessimistic = profit(a.pessimistic)
+      const optimistic = profit(a.optimistic)
+      return { activity: a, pessimistic, weighted: profit(a.weighted), optimistic, spread: optimistic - pessimistic }
+    })
+    .filter((r) => r.spread !== 0 || r.weighted !== 0)
+    .sort((p, q) => q.spread - p.spread || p.activity.code.localeCompare(q.activity.code))
+  return { rows: rows.slice(0, limit), rest: Math.max(0, rows.length - limit) }
+}
+
+export type WaterfallStep = { key: string; label: string; activityId: number | null; kind: 'total' | 'delta'; from: number; to: number }
+
+/**
+ * 比較（目標・前回の見込）から今回への、加重見込の利益の増減。増減の大きい limit 件を施策ごとに、残りは「その他」にまとめる。
+ * 比較のない施策は、比較を 0 として数える（新しい施策）。
+ */
+export function waterfallSteps(items: RiskActivity[], startLabel: string, limit = 8): WaterfallStep[] {
+  const deltas = items
+    .map((a) => ({ a, delta: profit(a.weighted) - (a.compare ? profit(a.compare) : 0) }))
+    .filter((d) => d.delta !== 0)
+    .sort((p, q) => Math.abs(q.delta) - Math.abs(p.delta) || p.a.code.localeCompare(q.a.code))
+  const start = items.reduce((s, a) => s + (a.compare ? profit(a.compare) : 0), 0)
+  const end = items.reduce((s, a) => s + profit(a.weighted), 0)
+  const steps: WaterfallStep[] = [{ key: 'start', label: startLabel, activityId: null, kind: 'total', from: 0, to: start }]
+  let at = start
+  for (const d of deltas.slice(0, limit)) {
+    steps.push({ key: `a${d.a.id}`, label: d.a.name, activityId: d.a.id, kind: 'delta', from: at, to: at + d.delta })
+    at += d.delta
+  }
+  const others = deltas.slice(limit)
+  if (others.length > 0) {
+    const sum = others.reduce((s, d) => s + d.delta, 0)
+    steps.push({ key: 'others', label: `その他（${others.length}件）`, activityId: null, kind: 'delta', from: at, to: at + sum })
+    at += sum
+  }
+  steps.push({ key: 'end', label: '今回の見込', activityId: null, kind: 'total', from: 0, to: end })
+  return steps
+}
+
+/** 月ごとに、売上（満額）を段階（実績・段階のコード・downside）で合計する */
+export function pipelineByMonth(items: RiskActivity[], months: string[]): Map<string, Map<string, number>> {
+  const out = new Map(months.map((m) => [m, new Map<string, number>()]))
+  for (const a of items) {
+    for (const [m, parts] of Object.entries(a.revenue_by_month ?? {})) {
+      const month = out.get(m)
+      if (!month) continue
+      for (const [k, v] of Object.entries(parts)) month.set(k, (month.get(k) ?? 0) + num(v))
+    }
+  }
+  return out
+}
+
+/** 日付（YYYY-MM-DD）を、年度（4月〜翌3月）の中の位置 0〜1 にする（範囲の外は 0 未満・1 超） */
+export function yearPosition(date: string, fiscalYear: number): number {
+  const start = Date.UTC(fiscalYear, 3, 1)
+  const end = Date.UTC(fiscalYear + 1, 3, 1)
+  const [y, m, d] = date.split('-').map(Number)
+  return (Date.UTC(y, m - 1, d) - start) / (end - start)
 }
