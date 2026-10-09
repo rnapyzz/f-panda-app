@@ -199,3 +199,12 @@ export const IconManual = (p: P) => (
     <path d="M12 6v14" />
   </Icon>
 )
+
+/** 報告資料: 書類と棒グラフ */
+export const IconReportPack = (p: P) => (
+  <Icon {...p}>
+    <path d="M7 3h7l5 5v13H7z" />
+    <path d="M14 3v5h5" />
+    <path d="M10 17v-3M13 17v-5M16 17v-2" />
+  </Icon>
+)

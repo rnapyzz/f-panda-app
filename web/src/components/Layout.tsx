@@ -19,6 +19,7 @@ import {
   IconMenu,
   IconOrgChange,
   IconOrganizations,
+  IconReportPack,
   IconReports,
   IconRules,
   IconRisks,
@@ -45,6 +46,7 @@ const navGroups: NavGroup[] = [
       { to: '/scenarios', label: 'シナリオ', icon: IconScenarios, roles: ['fpa_admin', 'viewer'] },
       { to: '/reports', label: '予実比較', icon: IconReports },
       { to: '/risks', label: 'リスク', icon: IconRisks },
+      { to: '/reports/pack', label: '報告資料', icon: IconReportPack },
       // 変更履歴は FP&A と経営陣（現場は施策の画面から開く。docs/plan.md「2.17」）。FP&A は「管理」に出す
       { to: '/history', label: '変更履歴', icon: IconHistory, roles: ['viewer'] },
     ],
@@ -257,7 +259,9 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle?: () =>
   const user = useCurrentUser()
   const { logout } = useAuth()
   const { pathname } = useLocation()
-  const isActive = (to: string) => pathname === to || pathname.startsWith(to + '/')
+  const matches = (to: string) => pathname === to || pathname.startsWith(to + '/')
+  // 下の階層のメニュー（/reports と /reports/pack など）があるときは、より長く一致するほうだけを選択中にする
+  const isActive = (to: string) => matches(to) && !navGroups.some((g) => g.items.some((it) => it.to.length > to.length && it.to.startsWith(to + '/') && matches(it.to)))
   const [settingsOpen, setSettingsOpen] = useSettingsOpen()
 
   return (

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useRef, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
 import {
   milestoneStatusLabels,
@@ -14,6 +14,7 @@ import {
   type UnitType,
   type User,
 } from '../../api/types'
+import { SaveImageButton } from '../../components/SaveImageButton'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
 import { formatYen } from '../../lib/format'
 import {
@@ -196,16 +197,19 @@ function SummaryCard({ report, activities, keys }: { report: RiskReport; activit
   const warned = activities.filter((a) => a.warning_count > 0)
   const bad = warned.filter((a) => a.bad_for_level)
   const cmp = compareProfit(activities)
+  const ref = useRef<HTMLDivElement>(null)
   return (
-    <Card title={`サマリー（利益）・${report.period === 'year' ? '通期' : '残り期間'}`}>
-      <ProfitBand pessimistic={pes} weighted={wgt} optimistic={opt} actual={report.period === 'year' ? act : null} />
-      <dl className="mt-4 grid gap-3 sm:grid-cols-4">
-        <Stat label="振れ幅（楽観 − 悲観）" value={yen(opt - pes)} />
-        <Stat label="確度の高い見込の割合（売上）" value={rate === null ? '—' : `${rate}%`} hint="実績と確度の高い段階の売上 ÷ 満額の売上" />
-        <Stat label="警告のある施策" value={`${warned.length} 件`} hint={bad.length > 0 ? `うち段階に対して状況が悪い ${bad.length} 件` : undefined} tone={bad.length > 0 ? 'red' : undefined} />
-        <Stat label="比較との差（加重見込）" value={cmp === null ? '—' : signed(wgt - cmp)} hint={report.compare ? `比較: ${report.compare.name}` : '比較シナリオなし'} />
-      </dl>
-    </Card>
+    <div ref={ref}>
+      <Card title={`サマリー（利益）・${report.period === 'year' ? '通期' : '残り期間'}`} actions={<SaveImageButton target={ref} fileName={`リスク_サマリー_${report.scenario.name}`} />}>
+        <ProfitBand pessimistic={pes} weighted={wgt} optimistic={opt} actual={report.period === 'year' ? act : null} />
+        <dl className="mt-4 grid gap-3 sm:grid-cols-4">
+          <Stat label="振れ幅（楽観 − 悲観）" value={yen(opt - pes)} />
+          <Stat label="確度の高い見込の割合（売上）" value={rate === null ? '—' : `${rate}%`} hint="実績と確度の高い段階の売上 ÷ 満額の売上" />
+          <Stat label="警告のある施策" value={`${warned.length} 件`} hint={bad.length > 0 ? `うち段階に対して状況が悪い ${bad.length} 件` : undefined} tone={bad.length > 0 ? 'red' : undefined} />
+          <Stat label="比較との差（加重見込）" value={cmp === null ? '—' : signed(wgt - cmp)} hint={report.compare ? `比較: ${report.compare.name}` : '比較シナリオなし'} />
+        </dl>
+      </Card>
+    </div>
   )
 }
 
@@ -323,6 +327,7 @@ function CompositionCard({
   segmentPath: (segmentId: number) => string
 }) {
   const [asTable, setAsTable] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   const colorOf = (k: string) => (k === 'actual' ? actualColor : k === 'downside' ? downsideColor : levelRamp[Math.min(keys.indexOf(k) - 1, levelRamp.length - 1)])
   const labelOf = (k: string) => (k === 'actual' ? '実績' : k === 'downside' ? 'ダウンサイド' : `${k} ${report.levels.find((l) => l.code === k)?.name ?? ''}`)
   const rows = useMemo(() => {
@@ -358,70 +363,75 @@ function CompositionCard({
   }
 
   return (
-    <Card
-      title="見込の構成（売上・満額）"
-      actions={
-        <label className="flex items-center gap-1.5 text-xs text-slate-600">
-          <input type="checkbox" className="size-4 rounded border-slate-300" checked={asTable} onChange={(e) => setAsTable(e.target.checked)} />
-          表で見る
-        </label>
-      }
-    >
-      <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600" aria-label="凡例">
-        {keys.map((k) => (
-          <li key={k} className="flex items-center gap-1.5">
-            <span className="inline-block size-3 rounded-sm border border-slate-200" style={{ background: colorOf(k) }} />
-            {labelOf(k)}
-          </li>
-        ))}
-      </ul>
-      {asTable ? (
-        <div className="-mx-4 overflow-x-auto px-4">
-          <Table>
-            <thead>
-              <tr>
-                <th>ユニット</th>
-                {keys.map((k) => (
-                  <th key={k} className="text-right">
-                    {labelOf(k)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[{ id: 0, label: '全体', comp: total }, ...rows].map((r) => (
-                <tr key={r.id} className={r.id === 0 ? 'bg-slate-50 font-semibold' : undefined}>
-                  <td>{r.label}</td>
+    <div ref={ref}>
+      <Card
+        title="見込の構成（売上・満額）"
+        actions={
+          <>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+              <input type="checkbox" className="size-4 rounded border-slate-300" checked={asTable} onChange={(e) => setAsTable(e.target.checked)} />
+              表で見る
+            </label>
+            {!asTable && <SaveImageButton target={ref} fileName={`リスク_見込の構成_${report.scenario.name}`} />}
+          </>
+        }
+      >
+        <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600" aria-label="凡例">
+          {keys.map((k) => (
+            <li key={k} className="flex items-center gap-1.5">
+              <span className="inline-block size-3 rounded-sm border border-slate-200" style={{ background: colorOf(k) }} />
+              {labelOf(k)}
+            </li>
+          ))}
+        </ul>
+        {asTable ? (
+          <div className="-mx-4 overflow-x-auto px-4">
+            <Table>
+              <thead>
+                <tr>
+                  <th>ユニット</th>
                   {keys.map((k) => (
-                    <td key={k} className="text-right tabular-nums">
-                      {(r.comp.get(k) ?? 0n) === 0n ? <span className="text-slate-300">—</span> : yen(r.comp.get(k)!)}
-                    </td>
+                    <th key={k} className="text-right">
+                      {labelOf(k)}
+                    </th>
                   ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[{ id: 0, label: '全体', comp: total }, ...rows].map((r) => (
+                  <tr key={r.id} className={r.id === 0 ? 'bg-slate-50 font-semibold' : undefined}>
+                    <td>{r.label}</td>
+                    {keys.map((k) => (
+                      <td key={k} className="text-right tabular-nums">
+                        {(r.comp.get(k) ?? 0n) === 0n ? <span className="text-slate-300">—</span> : yen(r.comp.get(k)!)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        ) : (
+          <table className="w-full text-sm" aria-label="見込の構成">
+            <tbody>
+              {[{ id: 0, label: '全体', path: '', comp: total }, ...rows].map((r) => (
+                <tr key={r.id} className={r.id === 0 ? 'font-semibold' : undefined}>
+                  <th scope="row" className="w-48 py-1 pr-3 text-left font-normal">
+                    <div className={cx(r.id === 0 && 'font-semibold')}>{r.label}</div>
+                    {r.path && <div className="text-[11px] text-slate-400">{r.path}</div>}
+                  </th>
+                  <td className="py-1">{bar(r.comp, maxTotal)}</td>
+                  <td className="w-32 py-1 pl-3 text-right text-xs whitespace-nowrap text-slate-600 tabular-nums">
+                    {yen(positive(r.comp))}
+                    {(r.comp.get('downside') ?? 0n) !== 0n && <div className="text-rose-700">ダウンサイド {yen(r.comp.get('downside')!)}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
-          </Table>
-        </div>
-      ) : (
-        <table className="w-full text-sm" aria-label="見込の構成">
-          <tbody>
-            {[{ id: 0, label: '全体', path: '', comp: total }, ...rows].map((r) => (
-              <tr key={r.id} className={r.id === 0 ? 'font-semibold' : undefined}>
-                <th scope="row" className="w-48 py-1 pr-3 text-left font-normal">
-                  <div className={cx(r.id === 0 && 'font-semibold')}>{r.label}</div>
-                  {r.path && <div className="text-[11px] text-slate-400">{r.path}</div>}
-                </th>
-                <td className="py-1">{bar(r.comp, maxTotal)}</td>
-                <td className="w-32 py-1 pl-3 text-right text-xs whitespace-nowrap text-slate-600 tabular-nums">
-                  {yen(positive(r.comp))}
-                  {(r.comp.get('downside') ?? 0n) !== 0n && <div className="text-rose-700">ダウンサイド {yen(r.comp.get('downside')!)}</div>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </Card>
+          </table>
+        )}
+      </Card>
+    </div>
   )
 }
 

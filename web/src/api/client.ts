@@ -55,11 +55,14 @@ export async function download(path: string): Promise<void> {
   const res = await fetch(`/api${path}`, { credentials: 'same-origin' })
   if (!res.ok) throw await toApiError(res, path)
   const blob = await res.blob()
-  const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')
+  // 日本語のファイル名は filename*（UTF-8）で受け取る。なければ filename
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
+  const plain = /filename="([^"]+)"/.exec(disposition)
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = match?.[1] ?? 'download'
+  a.download = utf8 ? decodeURIComponent(utf8[1]) : (plain?.[1] ?? 'download')
   document.body.appendChild(a)
   a.click()
   a.remove()
