@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
@@ -192,42 +193,45 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	// 年間の収益・費用（決算確定月以前は実績）
-	fill := func(scenarioID int64, set func(*activityStatus, plTotals)) error {
-		totals, err := annualTotals(ctx, h.db, u, scenarioID, nil)
-		if err != nil {
-			return err
-		}
-		for i := range resp.Items {
-			t, ok := totals[resp.Items[i].ActivityID]
-			if !ok {
-				t = plTotals{Revenue: "0", Expense: "0"}
-			}
-			set(&resp.Items[i], t)
-		}
-		return nil
+	// 年間の収益・費用（決算確定月以前は実績）。シナリオごとの集計は互いに関係しないので、並行して読む（I-15）
+	type fillTarget struct {
+		id  int64
+		set func(*activityStatus, plTotals)
 	}
-	if err := fill(s.ID, func(it *activityStatus, t plTotals) { it.Current = t }); err != nil {
-		return err
-	}
+	targets := []fillTarget{{s.ID, func(it *activityStatus, t plTotals) { it.Current = t }}}
 	if resp.Base != nil {
-		if err := fill(resp.Base.ID, func(it *activityStatus, t plTotals) { it.Base = &t }); err != nil {
-			return err
-		}
+		targets = append(targets, fillTarget{resp.Base.ID, func(it *activityStatus, t plTotals) { it.Base = &t }})
 	}
 	if resp.Initial != nil {
-		if err := fill(resp.Initial.ID, func(it *activityStatus, t plTotals) { it.Initial = &t }); err != nil {
-			return err
-		}
+		targets = append(targets, fillTarget{resp.Initial.ID, func(it *activityStatus, t plTotals) { it.Initial = &t }})
 	}
 	if resp.Revised != nil {
-		if err := fill(resp.Revised.ID, func(it *activityStatus, t plTotals) { it.Revised = &t }); err != nil {
-			return err
-		}
+		targets = append(targets, fillTarget{resp.Revised.ID, func(it *activityStatus, t plTotals) { it.Revised = &t }})
 	}
 	if resp.Previous != nil {
-		if err := fill(resp.Previous.ID, func(it *activityStatus, t plTotals) { it.Previous = &t }); err != nil {
-			return err
+		targets = append(targets, fillTarget{resp.Previous.ID, func(it *activityStatus, t plTotals) { it.Previous = &t }})
+	}
+	results := make([]map[int64]plTotals, len(targets))
+	errs := make([]error, len(targets))
+	var wg sync.WaitGroup
+	for i, t := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = annualTotals(ctx, h.db, u, t.id, nil)
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	for i, t := range targets {
+		for j := range resp.Items {
+			v, ok := results[i][resp.Items[j].ActivityID]
+			if !ok {
+				v = plTotals{Revenue: "0", Expense: "0"}
+			}
+			t.set(&resp.Items[j], v)
 		}
 	}
 

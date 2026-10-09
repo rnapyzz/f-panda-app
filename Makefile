@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots reset-db
+.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots perf reset-db
 
 up: ## 開発環境を起動する
 	docker compose up --build -d
@@ -29,6 +29,9 @@ test-web: ## フロントの lint・ビルド・単体テストを実行する
 
 e2e: ## E2E テストを専用のスタック（http://localhost:18080）で実行する
 	scripts/e2e.sh
+
+perf: ## 本番に近い量のデータで、主な API の速さを測る（docs/performance.md）
+	scripts/perf.sh
 
 manual-screenshots: ## 手引きの画像（web/public/manual/）を、専用のスタックにデモのデータを入れて撮り直す
 	scripts/e2e.sh --config=playwright.screenshots.config.ts

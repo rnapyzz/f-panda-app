@@ -55,6 +55,46 @@ func (r *Recorder) Delete(ctx context.Context, table string, id int64, before an
 	return r.record(ctx, table, id, "delete", before, nil)
 }
 
+// Change は監査ログの1件（Many でまとめて記録する）。Action は insert / update / delete。
+type Change struct {
+	Table         string
+	ID            int64
+	Action        string
+	Before, After any
+}
+
+// manyBatch は Many で1回の INSERT にまとめる件数。
+const manyBatch = 500
+
+// Many は監査ログをまとめて記録する（件数の多い取込で、1件ずつ INSERT しないため。I-15）。
+func (r *Recorder) Many(ctx context.Context, changes []Change) error {
+	for start := 0; start < len(changes); start += manyBatch {
+		end := min(start+manyBatch, len(changes))
+		var sb strings.Builder
+		sb.WriteString("INSERT INTO audit_logs (change_set_id, table_name, record_id, action, before_json, after_json) VALUES ")
+		args := make([]any, 0, (end-start)*6)
+		for i, c := range changes[start:end] {
+			b, err := toJSON(c.Before)
+			if err != nil {
+				return err
+			}
+			a, err := toJSON(c.After)
+			if err != nil {
+				return err
+			}
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?, ?, ?, ?, ?, ?)")
+			args = append(args, r.changeSetID, c.Table, c.ID, c.Action, b, a)
+		}
+		if _, err := r.tx.ExecContext(ctx, sb.String(), args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Recorder) record(ctx context.Context, table string, id int64, action string, before, after any) error {
 	b, err := toJSON(before)
 	if err != nil {
