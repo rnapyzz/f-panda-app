@@ -372,6 +372,7 @@
   - `src/components/`: 共通 UI（ボタン・入力・表・ダイアログなど）、レイアウト、確認ダイアログ、変更理由ダイアログ
   - `src/pages/`: 画面
 - 画面遷移は `lib/router.tsx` の `Link` / `navigate` を使う。ルートは `App.tsx` に定義する
+- 画面は開いたときに読み込む（`App.tsx` の `page()`、`React.lazy`）。最初に読み込むのはログイン・ホーム・レイアウトだけ（約 274KB、gzip 85KB）。施策の一覧・詳細はログインの後、手が空いたときに先読みする。施策の一覧の図（`ActivityCharts`）も図を開いたときに読み込む。新しい画面を足すときも `page()` で登録する
 - 施策の画面は `/activities/:id`（`?tab=update|overview|settings&scenario=:sid`。docs/plan.md「2.19」）。旧 URL `/scenarios/:sid/activities/:aid` は `App.tsx` で転送する。API は変えない（数値は `GET/PUT /api/scenarios/{id}/activities/{aid}...`、施策の情報は `/api/activities/{id}...`）
 - 使い方（docs/plan.md「2.21」）: 手引きの Markdown（`src/manual/*.md`）を Vite の `?raw` で読み込み、`lib/markdown.ts`（見出し・段落・箇条書き・表・強調・コード・リンク・画像だけの小さな変換。外部ライブラリは使わない）で表示する。「使い方」の画面は `React.lazy` で開いたときだけ読み込む。画像は `public/manual/`、撮り直しは `make manual-screenshots`（Playwright のスクリプト `e2e/screenshots/`）
 - 変更理由: `useReason().withReason(op)` で操作を実行すると、API が「変更理由が必要」（422 `details.reason`）を返したときに理由の入力ダイアログを出して再実行する
