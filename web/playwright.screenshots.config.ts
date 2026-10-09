@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test'
 // scripts/e2e.sh が起動した空の専用スタックにデモのデータを入れて、public/manual/ に画像を書き出す。
 export default defineConfig({
   testDir: './screenshots',
+  // 研修用のデータを入れるだけの demo.spec.ts は、playwright.demo.config.ts で実行する
+  testMatch: 'manual.spec.ts',
   workers: 1,
   timeout: 120_000,
   reporter: 'list',

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots perf reset-db
+.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots perf demo demo-down demo-reset reset-db
 
 up: ## 開発環境を起動する
 	docker compose up --build -d
@@ -29,6 +29,15 @@ test-web: ## フロントの lint・ビルド・単体テストを実行する
 
 e2e: ## E2E テストを専用のスタック（http://localhost:18080）で実行する
 	scripts/e2e.sh
+
+demo: ## 研修・試用の環境を起動する（http://localhost:18100、初回はデモのデータを入れる。docs/demo.md）
+	scripts/demo.sh
+
+demo-down: ## 研修・試用の環境を止めて、データを消す
+	scripts/demo.sh down
+
+demo-reset: ## 研修・試用の環境を、デモのデータの初期の状態に戻す
+	scripts/demo.sh reset
 
 perf: ## 本番に近い量のデータで、主な API の速さを測る（docs/performance.md）
 	scripts/perf.sh
