@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
@@ -280,48 +281,46 @@ func (h *Handler) risk(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := accumulate(ctx, h.db, filter, s.ID, index, inPeriod); err != nil {
-		return err
+	// 集計は互いに関係しない（施策の別々の項目に書く）ので、並行して読む（I-15）。比較との差と連続の下方修正は、そろってから判定する
+	var cmpIndex map[int64]*RiskActivity
+	var chain []map[int64]*big.Rat
+	tasks := []func() error{
+		func() error { return accumulate(ctx, h.db, filter, s.ID, index, inPeriod) },
+		func() error { return fillLines(ctx, h.db, filter, s.ID, resp.Months, index) },
+		func() error { return fillRiskMilestones(ctx, h.db, index, today) },
+		func() error { return fillConditions(ctx, h.db, s.ID, compare, index) },
+		func() (err error) { chain, err = consecutiveChain(ctx, h.db, filter, s, resp.Levels); return err },
 	}
-	if err := fillLines(ctx, h.db, filter, s.ID, resp.Months, index); err != nil {
-		return err
-	}
-
 	// 比較シナリオ: 期間の加重見込、下方修正、当たり具合、後ろ倒し
 	if compare != nil {
-		cmp, _, err := loadRiskActivities(ctx, h.db, resp.Levels)
-		if err != nil {
-			return err
-		}
-		cmpIndex := map[int64]*RiskActivity{}
-		for i := range cmp {
-			cmpIndex[cmp[i].ID] = &cmp[i]
-		}
-		if err := accumulate(ctx, h.db, filter, compare.ID, cmpIndex, inPeriod); err != nil {
-			return err
-		}
+		tasks = append(tasks,
+			func() error {
+				cmp, _, err := loadRiskActivities(ctx, h.db, resp.Levels)
+				if err != nil {
+					return err
+				}
+				cmpIndex = map[int64]*RiskActivity{}
+				for i := range cmp {
+					cmpIndex[cmp[i].ID] = &cmp[i]
+				}
+				return accumulate(ctx, h.db, filter, compare.ID, cmpIndex, inPeriod)
+			},
+			func() error { return fillAccuracy(ctx, h.db, filter, s, *compare, index) },
+			func() error { return fillPostponed(ctx, h.db, compare.createdAt, index) },
+		)
+	}
+	if err := runParallel(tasks); err != nil {
+		return err
+	}
+	if compare != nil {
 		for _, a := range index {
 			c := cmpIndex[a.ID]
 			v := c.sums["weighted"].pl()
 			a.Compare = &v
 			a.Warnings.Downward = downward(a.year["weighted"].profit(), c.year["weighted"].profit())
 		}
-		if err := fillAccuracy(ctx, h.db, filter, s, *compare, index); err != nil {
-			return err
-		}
-		if err := fillPostponed(ctx, h.db, compare.createdAt, index); err != nil {
-			return err
-		}
 	}
-	if err := fillConsecutive(ctx, h.db, filter, s, index, resp.Levels); err != nil {
-		return err
-	}
-	if err := fillRiskMilestones(ctx, h.db, index, today); err != nil {
-		return err
-	}
-	if err := fillConditions(ctx, h.db, s.ID, compare, index); err != nil {
-		return err
-	}
+	applyConsecutive(index, chain)
 
 	for i := range acts {
 		a := &acts[i]
@@ -720,38 +719,67 @@ func fillPostponed(ctx context.Context, db *sql.DB, since time.Time, index map[i
 	return rows.Err()
 }
 
-// fillConsecutive は連続の下方修正を加える: 基準から複製元を2回たどった3つの版で、年間の加重見込の利益が2回続けて下がった。
-func fillConsecutive(ctx context.Context, db *sql.DB, filter func(string) string, s riskScenario, index map[int64]*RiskActivity, levels []riskLevel) error {
-	chain := []map[int64]*big.Rat{profits(index)}
+// consecutiveChain は、複製元をたどった直近の版（今回を除く、同じ年度）の、施策ごとの年間の加重見込の利益を返す。
+// 版ごとの集計は並行して読む。
+func consecutiveChain(ctx context.Context, db *sql.DB, filter func(string) string, s riskScenario, levels []riskLevel) ([]map[int64]*big.Rat, error) {
+	var prevs []riskScenario
 	cur := s
-	for len(chain) < consecutiveDepth && cur.BaseID != nil {
+	for len(prevs) < consecutiveDepth-1 && cur.BaseID != nil {
 		prev, err := findRiskScenario(ctx, db, *cur.BaseID, "scenario_id")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if prev.fiscalYear != s.fiscalYear {
 			break
 		}
-		_, idx, err := loadRiskActivities(ctx, db, levels)
-		if err != nil {
-			return err
-		}
-		if err := accumulate(ctx, db, filter, prev.ID, idx, map[string]bool{}); err != nil {
-			return err
-		}
-		chain = append(chain, profits(idx))
+		prevs = append(prevs, prev)
 		cur = prev
 	}
-	if len(chain) < consecutiveDepth {
-		return nil
+	chain := make([]map[int64]*big.Rat, len(prevs))
+	tasks := make([]func() error, len(prevs))
+	for i, prev := range prevs {
+		tasks[i] = func() error {
+			_, idx, err := loadRiskActivities(ctx, db, levels)
+			if err != nil {
+				return err
+			}
+			if err := accumulate(ctx, db, filter, prev.ID, idx, map[string]bool{}); err != nil {
+				return err
+			}
+			chain[i] = profits(idx)
+			return nil
+		}
 	}
+	return chain, runParallel(tasks)
+}
+
+// applyConsecutive は、今回と直近の版で、加重見込の利益が続けて下がった施策に「連続の下方修正」を付ける。
+func applyConsecutive(index map[int64]*RiskActivity, prevs []map[int64]*big.Rat) {
+	if len(prevs) < consecutiveDepth-1 {
+		return
+	}
+	current := profits(index)
 	for id, a := range index {
-		p0, p1, p2 := chain[0][id], chain[1][id], chain[2][id]
+		p0, p1, p2 := current[id], prevs[0][id], prevs[1][id]
 		if p0 != nil && p1 != nil && p2 != nil && p0.Cmp(p1) < 0 && p1.Cmp(p2) < 0 {
 			a.Warnings.Consecutive = true
 		}
 	}
-	return nil
+}
+
+// runParallel は処理を並行して実行し、最初のエラーを返す（すべての完了を待つ）。
+func runParallel(tasks []func() error) error {
+	errs := make([]error, len(tasks))
+	var wg sync.WaitGroup
+	for i, t := range tasks {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = t()
+		}()
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 func profits(index map[int64]*RiskActivity) map[int64]*big.Rat {

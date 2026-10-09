@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
@@ -44,23 +45,22 @@ type scenarioDrift struct {
 // loadDrift はロック済みのシナリオごとの食い違いを返す。scenarioID を指定するとそのシナリオだけ、
 // months を指定するとその月だけを比べる。食い違いのないシナリオは返さない。
 func loadDrift(ctx context.Context, q queryer, scenarioID int64, months []string) ([]scenarioDrift, error) {
-	snapWhere, factWhere, args := "", "", []any{}
-	if scenarioID != 0 {
-		snapWhere += " AND s.id = ?"
-		args = append(args, scenarioID)
+	pairs, err := driftCandidates(ctx, q, scenarioID, months)
+	if err != nil || len(pairs) == 0 {
+		return []scenarioDrift{}, err
 	}
-	if len(months) > 0 {
-		snapWhere += " AND sa.target_month IN (" + placeholders(len(months)) + ")"
-		args = append(args, monthArgs(months)...)
+	// 食い違う候補（シナリオ × 月）だけを、施策 × 科目の単位で比べる
+	cond, args := "", []any{}
+	for i, p := range pairs {
+		if i > 0 {
+			cond += ","
+		}
+		cond += "(?, ?)"
+		args = append(args, p.scenarioID, p.month+"-01")
 	}
-	if scenarioID != 0 {
-		factWhere += " AND s.id = ?"
-		args = append(args, scenarioID)
-	}
-	if len(months) > 0 {
-		factWhere += " AND af.target_month IN (" + placeholders(len(months)) + ")"
-		args = append(args, monthArgs(months)...)
-	}
+	snapWhere := " AND (s.id, sa.target_month) IN (" + cond + ")"
+	factWhere := " AND (s.id, af.target_month) IN (" + cond + ")"
+	args = append(args, args...)
 	rows, err := q.QueryContext(ctx, `
 		SELECT x.sid, s.name, s.fiscal_year, DATE_FORMAT(s.actual_through, '%Y-%m'), x.m, sub.category, CAST(SUM(x.amt) AS CHAR)
 		FROM (
@@ -245,4 +245,125 @@ func DriftedScenarios(ctx context.Context, tx *sql.Tx, fiscalYear int) ([]string
 		}
 	}
 	return names, nil
+}
+
+// driftPair は、保存した実績と今の実績が食い違うかもしれない（シナリオ, 月）。
+type driftPair struct {
+	scenarioID int64
+	month      string // YYYY-MM
+}
+
+// driftCandidates は、ロック済みのシナリオの（シナリオ, 月）ごとに、保存した実績と今の実績の要約（行数・合計・行の内容のチェックサム）を比べ、
+// 違うものを返す（I-15）。今の実績はシナリオによらないので月ごとに1回だけ集計し、全シナリオ × 全行の突き合わせを避ける。
+// 要約が同じで中身が違うことは、チェックサム（CRC32 の合計）が偶然一致したときだけで、実用上は起きない。
+// 要約が違っても実際の差がないこと（並び順の違いなど）はなく、あっても詳しい比較（loadDrift）で落ちる。
+func driftCandidates(ctx context.Context, q queryer, scenarioID int64, months []string) ([]driftPair, error) {
+	type fp struct {
+		n             int64
+		sum, checksum string
+	}
+	where, args := "s.is_locked AND s.actual_through IS NOT NULL", []any{}
+	if scenarioID != 0 {
+		where += " AND s.id = ?"
+		args = append(args, scenarioID)
+	}
+	// 対象のシナリオと、その実績の月
+	rows, err := q.QueryContext(ctx, `
+		SELECT s.id, DATE_FORMAT(MAKEDATE(s.fiscal_year, 1) + INTERVAL 3 MONTH, '%Y-%m'), DATE_FORMAT(s.actual_through, '%Y-%m')
+		FROM scenarios s WHERE `+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	type span struct {
+		id       int64
+		from, to string
+	}
+	var spans []span
+	for rows.Next() {
+		var sp span
+		if err := rows.Scan(&sp.id, &sp.from, &sp.to); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		spans = append(spans, sp)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(spans) == 0 {
+		return nil, err
+	}
+	monthFilter := map[string]bool{}
+	for _, m := range months {
+		monthFilter[m] = true
+	}
+
+	// 保存した実績の要約（シナリオ × 月）
+	snap := map[driftPair]fp{}
+	rows, err = q.QueryContext(ctx, `
+		SELECT sa.scenario_id, DATE_FORMAT(sa.target_month, '%Y-%m'), COUNT(*), CAST(SUM(sa.amount) AS CHAR),
+		       CAST(SUM(CRC32(CONCAT_WS(',', sa.activity_key, sa.subject_id, sa.amount))) AS CHAR)
+		FROM scenario_actuals sa JOIN scenarios s ON s.id = sa.scenario_id
+		WHERE `+where+`
+		GROUP BY sa.scenario_id, sa.target_month`, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var p driftPair
+		var f fp
+		if err := rows.Scan(&p.scenarioID, &p.month, &f.n, &f.sum, &f.checksum); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		snap[p] = f
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 今の実績の要約（月）
+	cur := map[string]fp{}
+	rows, err = q.QueryContext(ctx, `
+		SELECT DATE_FORMAT(target_month, '%Y-%m'), COUNT(*), CAST(SUM(amount) AS CHAR),
+		       CAST(SUM(CRC32(CONCAT_WS(',', activity_key, subject_id, amount))) AS CHAR)
+		FROM actual_facts GROUP BY target_month`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var m string
+		var f fp
+		if err := rows.Scan(&m, &f.n, &f.sum, &f.checksum); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		cur[m] = f
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var out []driftPair
+	for _, sp := range spans {
+		for m := sp.from; m <= sp.to; m = nextMonth(m) {
+			if len(monthFilter) > 0 && !monthFilter[m] {
+				continue
+			}
+			p := driftPair{sp.id, m}
+			if snap[p] != cur[m] {
+				out = append(out, p)
+			}
+		}
+	}
+	return out, nil
+}
+
+// nextMonth は "2026-12" → "2027-01"。
+func nextMonth(ym string) string {
+	t, err := time.Parse("2006-01", ym)
+	if err != nil {
+		return "9999-12"
+	}
+	return t.AddDate(0, 1, 0).Format("2006-01")
 }

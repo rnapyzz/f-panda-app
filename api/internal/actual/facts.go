@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
@@ -16,6 +17,15 @@ import (
 // 明細を変えたら syncFacts で合計を合わせる。合計は差分だけを更新し、行ごとの監査ログを残す。
 
 // factKey は実績の行のキー。activityID の 0 は未割当。
+// factBatch は合計（actual_facts）をまとめて書く件数。
+const factBatch = 1000
+
+// rowsOf は「(?, ?), (?, ?)」の形の VALUES を作る。
+func rowsOf(n, cols int) string {
+	row := "(" + placeholders(cols) + ")"
+	return strings.TrimSuffix(strings.Repeat(row+",", n), ",")
+}
+
 type factKey struct {
 	activityID, subjectID int64
 	month                 string
@@ -114,52 +124,102 @@ func syncFacts(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, months []st
 		return a.subjectID < b.subjectID
 	})
 
+	// 変更をまとめて書く（件数の多い取込で、1件ずつ SQL を送らないため。I-15）
+	var deletes []actualFact
+	var inserts []actualFact
+	var updates [][2]actualFact
 	for _, k := range keys {
 		before, had := existing[k]
 		amount, has := want[k]
 		switch {
 		case had && !has:
-			if _, err := tx.ExecContext(ctx, "DELETE FROM actual_facts WHERE id = ?", before.ID); err != nil {
-				return err
-			}
-			if err := rec.Delete(ctx, "actual_facts", before.ID, before); err != nil {
-				return err
-			}
-			c.Deleted++
+			deletes = append(deletes, before)
 		case !had && has:
 			after := actualFact{SubjectID: k.subjectID, TargetMonth: k.month, Amount: amount}
 			if k.activityID != 0 {
 				id := k.activityID
 				after.ActivityID = &id
 			}
-			res, err := tx.ExecContext(ctx,
-				"INSERT INTO actual_facts (activity_id, subject_id, target_month, amount) VALUES (?, ?, ?, ?)",
-				dbx.NullInt64(after.ActivityID), after.SubjectID, after.TargetMonth+"-01", after.Amount)
-			if err != nil {
-				return err
-			}
-			after.ID, _ = res.LastInsertId()
-			if err := rec.Insert(ctx, "actual_facts", after.ID, after); err != nil {
-				return err
-			}
-			c.Inserted++
+			inserts = append(inserts, after)
+		case before.Amount == amount:
+			c.Unchanged++
 		default:
-			if before.Amount == amount {
-				c.Unchanged++
-				continue
-			}
 			after := before
 			after.Amount = amount
-			if _, err := tx.ExecContext(ctx, "UPDATE actual_facts SET amount = ? WHERE id = ?", after.Amount, after.ID); err != nil {
-				return err
-			}
-			if err := rec.Update(ctx, "actual_facts", before.ID, before, after); err != nil {
-				return err
-			}
-			c.Updated++
+			updates = append(updates, [2]actualFact{before, after})
 		}
 	}
-	return nil
+	var changes []audit.Change
+	for start := 0; start < len(deletes); start += factBatch {
+		batch := deletes[start:min(start+factBatch, len(deletes))]
+		args := make([]any, len(batch))
+		for i, f := range batch {
+			args[i] = f.ID
+			changes = append(changes, audit.Change{Table: "actual_facts", ID: f.ID, Action: "delete", Before: f})
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM actual_facts WHERE id IN ("+placeholders(len(batch))+")", args...); err != nil {
+			return err
+		}
+	}
+	for start := 0; start < len(updates); start += factBatch {
+		batch := updates[start:min(start+factBatch, len(updates))]
+		// 主キーが重なる行を入れ、金額だけを更新する（1件ずつの UPDATE の代わり）
+		args := make([]any, 0, len(batch)*5)
+		for _, u := range batch {
+			args = append(args, u[1].ID, dbx.NullInt64(u[1].ActivityID), u[1].SubjectID, u[1].TargetMonth+"-01", u[1].Amount)
+			changes = append(changes, audit.Change{Table: "actual_facts", ID: u[1].ID, Action: "update", Before: u[0], After: u[1]})
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO actual_facts (id, activity_id, subject_id, target_month, amount) VALUES "+rowsOf(len(batch), 5)+
+				" AS new ON DUPLICATE KEY UPDATE amount = new.amount", args...); err != nil {
+			return err
+		}
+	}
+	for start := 0; start < len(inserts); start += factBatch {
+		batch := inserts[start:min(start+factBatch, len(inserts))]
+		args := make([]any, 0, len(batch)*4)
+		for _, f := range batch {
+			args = append(args, dbx.NullInt64(f.ActivityID), f.SubjectID, f.TargetMonth+"-01", f.Amount)
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO actual_facts (activity_id, subject_id, target_month, amount) VALUES "+rowsOf(len(batch), 4), args...); err != nil {
+			return err
+		}
+	}
+	if len(inserts) > 0 {
+		// 追加した行の ID は、キー（施策・科目・月）で読み直す（監査ログに残すため）
+		ids := map[factKey]int64{}
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, activity_key, subject_id, DATE_FORMAT(target_month, '%Y-%m')
+			FROM actual_facts WHERE target_month IN (`+placeholders(len(months))+`)`, monthArgs(months)...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var k factKey
+			if err := rows.Scan(&id, &k.activityID, &k.subjectID, &k.month); err != nil {
+				rows.Close()
+				return err
+			}
+			ids[k] = id
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, f := range inserts {
+			k := factKey{0, f.SubjectID, f.TargetMonth}
+			if f.ActivityID != nil {
+				k.activityID = *f.ActivityID
+			}
+			f.ID = ids[k]
+			changes = append(changes, audit.Change{Table: "actual_facts", ID: f.ID, Action: "insert", After: f})
+		}
+	}
+	c.Deleted += len(deletes)
+	c.Inserted += len(inserts)
+	c.Updated += len(updates)
+	return rec.Many(ctx, changes)
 }
 
 // monthTotals は月ごとの実績の合計（会計システムとの突合用）。未割当を含む。

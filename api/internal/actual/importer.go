@@ -26,7 +26,7 @@ const (
 	maxImportBytes = 50 << 20 // 50MB（nginx の client_max_body_size と合わせる）
 	maxImportRows  = 200_000
 	maxRowErrors   = 100
-	insertBatch    = 500
+	insertBatch    = 2000 // 1回の INSERT の行数（11列 × 2,000 = 22,000 個のプレースホルダー。上限は 65,535）
 )
 
 var (
