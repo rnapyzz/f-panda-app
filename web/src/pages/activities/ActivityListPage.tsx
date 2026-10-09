@@ -1,5 +1,5 @@
 import { CsvActions } from '../../components/CsvTransfer'
-import { useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
 import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityStatus, type ConfidenceLevel, type Unit, type List, type User } from '../../api/types'
 import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
@@ -10,7 +10,8 @@ import { useApi } from '../../lib/useApi'
 import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
 import { chartViewLabels, type ChartView } from '../../lib/activityCharts'
-import { ActivityCharts } from './ActivityCharts'
+// 図は開いたときに読み込む（I-22）
+const ActivityCharts = lazy(() => import('./ActivityCharts').then((m) => ({ default: m.ActivityCharts })))
 
 type View = 'table' | ChartView
 const viewLabels: Record<View, string> = { table: '表', ...chartViewLabels }
@@ -167,7 +168,9 @@ export function ActivityListPage() {
         ) : !activities.data ? (
           <Loading />
         ) : (
-          <ActivityCharts view={view} activities={activities.data.items} />
+          <Suspense fallback={<Loading />}>
+            <ActivityCharts view={view} activities={activities.data.items} />
+          </Suspense>
         )
       ) : (
       <Card>

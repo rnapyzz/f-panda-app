@@ -1,38 +1,48 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, type ComponentType, type ReactNode } from 'react'
 import { Layout } from './components/Layout'
 import { Loading, PageHeader } from './components/ui'
 import { ActiveScenarioProvider } from './lib/activeScenario'
 import { AuthProvider, useAuth } from './lib/auth'
 import { matchPath, Redirect, useLocation } from './lib/router'
-import { ActivityDetailPage } from './pages/activities/ActivityDetailPage'
 import { HomePage } from './pages/HomePage'
-import { ActivityListPage } from './pages/activities/ActivityListPage'
 import { LoginPage } from './pages/LoginPage'
-import { AllocationRulesPage } from './pages/masters/AllocationRulesPage'
-import { ConfidenceLevelsPage } from './pages/masters/ConfidenceLevelsPage'
-import { GLAccountsPage } from './pages/masters/GLAccountsPage'
-import { UnitsPage } from './pages/masters/UnitsPage'
-import { SubjectsPage } from './pages/masters/SubjectsPage'
-import { TreeMasterPage } from './pages/masters/TreeMasterPage'
-import { UsersPage } from './pages/masters/UsersPage'
-import { HistoryPage } from './pages/history/HistoryPage'
-import { ReportPage } from './pages/reports/ReportPage'
-import { RiskPage } from './pages/reports/RiskPage'
-import { ActualsPage } from './pages/scenarios/ActualsPage'
-import { NotificationSettingsPage } from './pages/scenarios/NotificationSettingsPage'
-import { OrgChangesPage } from './pages/scenarios/OrgChangesPage'
-import { ScenarioAdminPage } from './pages/scenarios/ScenarioAdminPage'
-import { ScenarioDetailPage } from './pages/scenarios/ScenarioDetailPage'
-import { ScenarioListPage } from './pages/scenarios/ScenarioListPage'
 
-// 使い方（手引き）は開いたときだけ読み込む（docs/plan.md「2.21」）
-const ManualPage = lazy(() => import('./pages/manual/ManualPage').then((m) => ({ default: m.ManualPage })))
+/**
+ * 画面は開いたときに読み込む（I-22）。最初に読み込むのは、ログインとホーム（ログイン後の最初の画面）とレイアウトだけ。
+ * load は画面のモジュールを読み込む関数、name はモジュールの中の画面の名前。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 画面ごとに props が違うため
+function page<M extends Record<K, ComponentType<any>>, K extends keyof M>(load: () => Promise<M>, name: K) {
+  return lazy(() => load().then((m) => ({ default: m[name] })))
+}
+
+const loadActivityList = () => import('./pages/activities/ActivityListPage')
+const loadActivityDetail = () => import('./pages/activities/ActivityDetailPage')
+const ActivityListPage = page(loadActivityList, 'ActivityListPage')
+const ActivityDetailPage = page(loadActivityDetail, 'ActivityDetailPage')
+const ScenarioListPage = page(() => import('./pages/scenarios/ScenarioListPage'), 'ScenarioListPage')
+const ScenarioDetailPage = page(() => import('./pages/scenarios/ScenarioDetailPage'), 'ScenarioDetailPage')
+const ScenarioAdminPage = page(() => import('./pages/scenarios/ScenarioAdminPage'), 'ScenarioAdminPage')
+const ActualsPage = page(() => import('./pages/scenarios/ActualsPage'), 'ActualsPage')
+const NotificationSettingsPage = page(() => import('./pages/scenarios/NotificationSettingsPage'), 'NotificationSettingsPage')
+const OrgChangesPage = page(() => import('./pages/scenarios/OrgChangesPage'), 'OrgChangesPage')
+const ReportPage = page(() => import('./pages/reports/ReportPage'), 'ReportPage')
+const RiskPage = page(() => import('./pages/reports/RiskPage'), 'RiskPage')
+const HistoryPage = page(() => import('./pages/history/HistoryPage'), 'HistoryPage')
+const TreeMasterPage = page(() => import('./pages/masters/TreeMasterPage'), 'TreeMasterPage')
+const UnitsPage = page(() => import('./pages/masters/UnitsPage'), 'UnitsPage')
+const SubjectsPage = page(() => import('./pages/masters/SubjectsPage'), 'SubjectsPage')
+const GLAccountsPage = page(() => import('./pages/masters/GLAccountsPage'), 'GLAccountsPage')
+const AllocationRulesPage = page(() => import('./pages/masters/AllocationRulesPage'), 'AllocationRulesPage')
+const ConfidenceLevelsPage = page(() => import('./pages/masters/ConfidenceLevelsPage'), 'ConfidenceLevelsPage')
+const UsersPage = page(() => import('./pages/masters/UsersPage'), 'UsersPage')
+const ManualPage = page(() => import('./pages/manual/ManualPage'), 'ManualPage')
 
 type Route = { path: string; render: (params: Record<string, string>) => ReactNode }
 
 const routes: Route[] = [
-  { path: '/manual', render: () => <Suspense fallback={<Loading />}><ManualPage /></Suspense> },
-  { path: '/manual/:page', render: (p) => <Suspense fallback={<Loading />}><ManualPage key={p.page} page={p.page} /></Suspense> },
+  { path: '/manual', render: () => <ManualPage /> },
+  { path: '/manual/:page', render: (p) => <ManualPage key={p.page} page={p.page} /> },
   { path: '/', render: () => <HomePage /> },
   { path: '/activities', render: () => <ActivityListPage /> },
   { path: '/activities/:id', render: (p) => <ActivityDetailPage key={p.id} id={p.id} /> },
@@ -71,20 +81,32 @@ function Screen() {
   const { user } = useAuth()
   const { pathname } = useLocation()
 
+  // ログインしたら、よく使う施策の画面を手が空いたときに読み込んでおき、開いたときに待たせない
+  useEffect(() => {
+    if (!user) return
+    const t = window.setTimeout(() => {
+      loadActivityList().catch(() => undefined)
+      loadActivityDetail().catch(() => undefined)
+    }, 1500)
+    return () => window.clearTimeout(t)
+  }, [user])
+
   if (user === undefined) return <Loading />
   if (user === null) return <LoginPage />
 
-  let page: ReactNode = <PageHeader title="ページが見つかりません" description="URL を確認してください。" />
+  let current: ReactNode = <PageHeader title="ページが見つかりません" description="URL を確認してください。" />
   for (const r of routes) {
     const params = matchPath(r.path, pathname)
     if (params) {
-      page = r.render(params)
+      current = r.render(params)
       break
     }
   }
   return (
     <ActiveScenarioProvider>
-      <Layout>{page}</Layout>
+      <Layout>
+        <Suspense fallback={<Loading />}>{current}</Suspense>
+      </Layout>
     </ActiveScenarioProvider>
   )
 }
