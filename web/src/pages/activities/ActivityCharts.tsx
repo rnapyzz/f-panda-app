@@ -1,10 +1,12 @@
-import { useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { query } from '../../api/client'
 import { activityTypeLabels, type Activity, type ActivityType, type List, type RiskActivity, type RiskReport, type Scenario, type TreeNode, type Unit } from '../../api/types'
 import { RestrictedNote } from '../../components/RestrictedNote'
+import { SaveImageButton } from '../../components/SaveImageButton'
 import { Card, Empty, ErrorMessage, Loading, cx } from '../../components/ui'
 import {
   bubblePoints,
+  chartViewLabels,
   diffBucket,
   niceTicks,
   pipelineByMonth,
@@ -43,6 +45,7 @@ export function ActivityCharts({ view, activities }: { view: ChartView; activiti
   const units = useApi<List<Unit>>('/units')
   const segments = useApi<List<TreeNode>>('/segments')
   const [compareTo, setCompareTo] = useState<'target' | 'previous'>('target')
+  const captureRef = useRef<HTMLDivElement>(null)
   const list = scenarios.data?.items ?? []
   const scenario = list.find((s) => s.is_active) ?? defaultScenarios(list.filter((s) => s.fiscal_year === currentFiscalYear())).latest ?? list[0]
   const target = scenario ? defaultScenarios(list.filter((s) => s.fiscal_year === scenario.fiscal_year)).base : undefined
@@ -84,16 +87,19 @@ export function ActivityCharts({ view, activities }: { view: ChartView; activiti
   else chart = <PipelineChart items={items} months={fiscalMonths(scenario.fiscal_year)} levels={report.data.levels} actualThrough={scenario.actual_through} />
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-500">
-        {scenarioLabel(scenario)}（{scenario.fiscal_year}年度・年間、実績の月は実績）
-        {(view === 'treemap' || view === 'waterfall') && (
-          <>
-            {' '}
-            ／ 比較: {compareId && compare ? scenarioLabel(compare) : 'なし'}
-          </>
-        )}
-      </p>
+    <div ref={captureRef} data-capture={chartViewLabels[view]} data-capture-file={`${chartViewLabels[view]}_${scenario.name}`} className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          {scenarioLabel(scenario)}（{scenario.fiscal_year}年度・年間、実績の月は実績）
+          {(view === 'treemap' || view === 'waterfall') && (
+            <>
+              {' '}
+              ／ 比較: {compareId && compare ? scenarioLabel(compare) : 'なし'}
+            </>
+          )}
+        </p>
+        {(items.length > 0 || view === 'timeline') && <SaveImageButton target={captureRef} fileName={`${chartViewLabels[view]}_${scenario.name}`} title={chartViewLabels[view]} />}
+      </div>
       <RestrictedNote hidden={report.data.restricted_hidden} />
       {chart}
     </div>
@@ -110,7 +116,7 @@ function ChartCard({ legend, actions, footer, children }: { legend?: ReactNode; 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600" aria-label="凡例">
             {legend}
           </div>
-          {actions}
+          {actions && <div data-no-capture>{actions}</div>}
         </div>
       )}
       {children}
@@ -157,6 +163,7 @@ function Tooltip({ tip }: { tip: Tip | null }) {
   return (
     <div
       role="tooltip"
+      data-no-capture
       className="pointer-events-none absolute z-20 w-64 rounded-lg bg-slate-900/95 px-3 py-2.5 text-xs text-slate-100 shadow-xl ring-1 ring-black/5"
       // 右端に近いときは、カーソルの左に出して枠からはみ出さないようにする（幅は w-64 = 256px）
       style={{ left: tip.flip ? Math.max(4, tip.x - 14 - 256) : tip.x + 14, top: tip.y + 14 }}

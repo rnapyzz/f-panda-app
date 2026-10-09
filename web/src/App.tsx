@@ -27,6 +27,7 @@ const ActualsPage = page(() => import('./pages/scenarios/ActualsPage'), 'Actuals
 const NotificationSettingsPage = page(() => import('./pages/scenarios/NotificationSettingsPage'), 'NotificationSettingsPage')
 const OrgChangesPage = page(() => import('./pages/scenarios/OrgChangesPage'), 'OrgChangesPage')
 const ReportPage = page(() => import('./pages/reports/ReportPage'), 'ReportPage')
+const ReportPackPage = page(() => import('./pages/reports/ReportPackPage'), 'ReportPackPage')
 const RiskPage = page(() => import('./pages/reports/RiskPage'), 'RiskPage')
 const HistoryPage = page(() => import('./pages/history/HistoryPage'), 'HistoryPage')
 const TreeMasterPage = page(() => import('./pages/masters/TreeMasterPage'), 'TreeMasterPage')
@@ -55,6 +56,7 @@ const routes: Route[] = [
   { path: '/admin/notifications', render: () => <NotificationSettingsPage /> },
   { path: '/admin/org-changes', render: () => <OrgChangesPage /> },
   { path: '/reports', render: () => <ReportPage /> },
+  { path: '/reports/pack', render: () => <ReportPackPage /> },
   { path: '/history', render: () => <HistoryPage /> },
   { path: '/risks', render: () => <RiskPage /> },
   { path: '/masters/organizations', render: () => <TreeMasterPage key="organizations" resource="organizations" /> },

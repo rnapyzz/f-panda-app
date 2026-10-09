@@ -39,6 +39,7 @@ func NewHandler(db *sql.DB) *Handler {
 func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/reports/comparison", requireAuth(httpx.Handle(h.comparison)))
 	mux.Handle("GET /api/reports/risk", requireAuth(httpx.Handle(h.risk)))
+	mux.Handle("GET /api/reports/pack.xlsx", requireAuth(httpx.Handle(h.pack)))
 }
 
 // Series は比較する系列（シナリオ、または実績）。
@@ -147,7 +148,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		resp.Series = append(resp.Series, Series{Key: "actual", Label: "実績", Kind: "actual"})
 	}
 
-	amounts, err := loadAmounts(ctx, h.db, u, scenarioIDs, unitID, measure)
+	amounts, err := loadAmounts(ctx, h.db, u, scenarioIDs, unitID, unitID != nil, measure)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func (h *Handler) comparison(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if includeActual {
-		actuals, err := loadActuals(ctx, h.db, u, months, unitID)
+		actuals, err := loadActuals(ctx, h.db, u, months, unitID, unitID != nil)
 		if err != nil {
 			return err
 		}
@@ -267,10 +268,10 @@ type rowKey struct {
 	month                         string
 }
 
-// loadAmounts はシナリオごとに、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
+// loadAmounts はシナリオごとに、ユニット（byActivity のときは施策）×科目×月の合計を返す。unitID を指定するとそのユニットだけ。
 // 金額は scenario_amounts ビュー（決算確定月以前は実績、それより後は計画値）から読む。
 // measure は指標（full 満額 / weighted 加重見込 / optimistic 楽観 / pessimistic 悲観）。
-func loadAmounts(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int64, unitID *int64, measure string) (map[int64]map[rowKey]*big.Int, error) {
+func loadAmounts(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int64, unitID *int64, byActivity bool, measure string) (map[int64]map[rowKey]*big.Int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scenarioIDs)), ",")
 	args := make([]any, 0, len(scenarioIDs)+1)
 	for _, id := range scenarioIDs {
@@ -278,8 +279,10 @@ func loadAmounts(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int
 	}
 	// ユニット単位では施策 ID を 0 とし、グループ化にも含めない
 	activityCol, groupActivity, where := "0", "", ""
-	if unitID != nil {
+	if byActivity {
 		activityCol, groupActivity = "a.id", "a.id, "
+	}
+	if unitID != nil {
 		where = " AND a.unit_id = ?"
 		args = append(args, *unitID)
 	}
@@ -312,12 +315,14 @@ func loadAmounts(ctx context.Context, db *sql.DB, u auth.User, scenarioIDs []int
 	return out, rows.Err()
 }
 
-// loadActuals は実績データの、ユニット（unitID 指定時は施策）×科目×月の合計を返す。
-func loadActuals(ctx context.Context, db *sql.DB, u auth.User, months []string, unitID *int64) (map[rowKey]*big.Int, error) {
+// loadActuals は実績データの、ユニット（byActivity のときは施策）×科目×月の合計を返す。unitID を指定するとそのユニットだけ。
+func loadActuals(ctx context.Context, db *sql.DB, u auth.User, months []string, unitID *int64, byActivity bool) (map[rowKey]*big.Int, error) {
 	args := []any{months[0] + "-01", months[len(months)-1] + "-01"}
 	activityCol, groupActivity, where := "0", "", ""
-	if unitID != nil {
+	if byActivity {
 		activityCol, groupActivity = "a.id", "a.id, "
+	}
+	if unitID != nil {
 		where = " AND a.unit_id = ?"
 		args = append(args, *unitID)
 	}

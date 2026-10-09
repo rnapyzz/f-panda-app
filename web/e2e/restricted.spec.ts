@@ -42,7 +42,7 @@ test('閲覧制限のある科目は、現場には金額を出さず、変更�
   const mp = await context.newPage()
   await login(mp, email, 'e2e-member-password')
   // 現場のメニューは「ホーム・施策・予実比較・リスク」と使い方（docs/plan.md「2.18」「2.21」）
-  await expect(mp.getByRole('navigation', { name: 'メインメニュー' }).getByRole('link')).toHaveText(['ホーム', '施策', '予実比較', 'リスク', '使い方'])
+  await expect(mp.getByRole('navigation', { name: 'メインメニュー' }).getByRole('link')).toHaveText(['ホーム', '施策', '予実比較', 'リスク', '報告資料', '使い方'])
   await mp.goto(valuesPath)
   await expect(mp.getByText('閲覧制限のある科目を除いた金額です')).toBeVisible()
   await expect(mp.getByText(f.revenueName).first()).toBeVisible()

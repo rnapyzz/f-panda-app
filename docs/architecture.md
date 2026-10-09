@@ -308,10 +308,11 @@
 `GET /api/reports/pack.xlsx`（ログインユーザー全員）
 
 - 条件は予実比較と同じ（`scenario_ids`・`include_actual`・`measure`）に、`grain`（`month` / `quarter` / `half` / `year`）、範囲（`segment_id` / `organization_id` / `unit_id`）、シート（`sheets=pl,units,notes`）、ユニット別 P/L に施策を含めるか（`activities=true`）を加える
-- 金額は予実比較と同じ集計（`internal/report` の読み込み）を使い、科目体系・組織の階層の合計、利益、差をサーバー側で計算する（`internal/reportpack`。BigInt）。画面の集計（`web/src/lib/aggregate.ts`）と同じ結果になることをテストで確かめる
-- Excel は `archive/zip` と `encoding/xml` で書く（Office Open XML の最小限: ワークブック・シート・共有文字列・スタイル）。外部ライブラリは使わない
+- 金額は予実比較と同じ集計（`internal/report` の読み込み）を使い、科目体系・組織の階層の合計、利益、差をサーバー側で計算する（`internal/report` の `pack.go`・`pack_sheets.go`。BigInt）。画面の集計（`web/src/lib/aggregate.ts`）と同じ結果になることをテストで確かめる
+- Excel は `internal/xlsx` が `archive/zip` で書く（Office Open XML の最小限: ワークブック・シート・スタイル。文字列はセルに直接入れる）。外部ライブラリは使わない。シート名に `/` は使えないため、「全社 P／L」のように全角にする
+- レスポンスのファイル名は `filename*`（UTF-8）で `報告資料_<年度>_<日付>.xlsx`、`filename` は ASCII の `report_<年度>_<日付>.xlsx`
 - 閲覧制限のある科目は、予実比較と同じく見られる人にだけ含める
-- 図の画像（PNG）は画面で作る（SVG を canvas に描いて保存する）。API は使わない
+- 図の画像（PNG）は画面で作る（`web/src/lib/domImage.ts`: 要素を複製して計算済みのスタイルを書き込み、SVG の foreignObject に入れて canvas に描く。`data-no-capture` の要素は除く）。API は使わない
 
 ## 閲覧制限のある科目（docs/plan.md「2.17」）
 

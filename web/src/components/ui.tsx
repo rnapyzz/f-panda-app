@@ -118,7 +118,11 @@ export function Card({ title, actions, children, className }: { title?: ReactNod
       {(title || actions) && (
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
-          {actions && <div className="flex gap-2">{actions}</div>}
+          {actions && (
+            <div data-no-capture className="flex gap-2">
+              {actions}
+            </div>
+          )}
         </div>
       )}
       <div className="p-4">{children}</div>
