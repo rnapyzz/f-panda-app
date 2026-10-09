@@ -31,12 +31,23 @@ test('手引きの画像', async ({ page, browser }) => {
   const ads = await subject('5210', '広告宣伝費', 'expense')
 
   // 施策
-  const activity = (code: string, name: string, unit: number, owner: number, type: string, level: string) =>
-    post('/activities', { code, name, unit_id: unit, owner_user_id: owner, activity_type: type, status: 'in_progress', confidence_level: level, start_date: '2026-04-01', end_date: '2027-03-31' })
+  const activity = (code: string, name: string, unit: number, owner: number, type: string, level: string, start = '2026-04-01', end = '2027-03-31') =>
+    post('/activities', { code, name, unit_id: unit, owner_user_id: owner, activity_type: type, status: 'in_progress', confidence_level: level, start_date: start, end_date: end })
   const plan = await activity('SAAS-001', 'SaaS 月額プラン', saas.id, suzuki.id, 'recurring', 'A')
   const ad = await activity('SAAS-002', '新規獲得キャンペーン', saas.id, tanaka.id, 'project', 'B')
   const bigA = await activity('DEV-001', 'A社 基幹刷新プロジェクト', dev.id, suzuki.id, 'project', 'B')
   const addB = await activity('DEV-002', 'B社 追加開発', dev.id, tanaka.id, 'project', 'C')
+  // 図（施策の一覧の「図で見る」）用に、タイプ・確度・期間の違う施策を足す
+  const cProposal = await activity('DEV-003', 'C社 新規提案', dev.id, tanaka.id, 'project', 'D', '2026-10-01', '2027-03-31')
+  const dMaint = await activity('DEV-004', 'D社 保守契約', dev.id, suzuki.id, 'recurring', 'A')
+  const enterprise = await activity('SAAS-003', 'エンタープライズプラン', saas.id, suzuki.id, 'project', 'C', '2026-07-01', '2027-03-31')
+  const partner = await activity('SAAS-004', 'パートナー販売', saas.id, tanaka.id, 'project', 'E', '2026-11-01', '2027-03-31')
+  const ePoc = await activity('DEV-005', 'E社 PoC', dev.id, tanaka.id, 'project', 'B', '2026-05-01', '2026-09-30')
+  const pool = await activity('POOL-001', '開発基盤（共通費）', dev.id, manager.id, 'cost_pool', 'A')
+  const churn = await post(`/activities/${enterprise.id}/lines`, { subject_id: subscription, name: '解約リスク', outlook: 'downside', confidence_level: 'D', reason: '解約の見込' })
+  await post(`/activities/${cProposal.id}/milestones`, { name: '提案書の提出', due_date: '2026-11-15' })
+  await post(`/activities/${enterprise.id}/milestones`, { name: 'β版リリース', due_date: '2026-09-20' })
+  await post(`/activities/${enterprise.id}/milestones`, { name: '正式リリース', due_date: '2027-01-15' })
   const customers = await post(`/activities/${plan.id}/drivers`, { code: 'customers', name: '契約社数', driver_kind: 'kpi', unit: '社' })
   const price = await post(`/activities/${plan.id}/drivers`, { code: 'unit_price', name: '月額単価', driver_kind: 'value', unit: '円' })
   await post(`/activities/${plan.id}/lines`, { subject_id: subscription, name: '月額利用料', expression: 'unit_price * customers', formula_enabled: true, reason: '算出式の設定' })
@@ -70,6 +81,14 @@ test('手引きの画像', async ({ page, browser }) => {
     { aid: bigA.id, subject: outsourcing, amount: i < 6 ? 2_000_000 : 3_000_000 },
     { aid: addB.id, subject: contract, amount: 1_200_000 },
     { aid: addB.id, subject: contract, line: addon.id, amount: i >= 6 ? 800_000 : 0 },
+    { aid: cProposal.id, subject: contract, amount: i >= 6 ? 2_500_000 : 0 },
+    { aid: cProposal.id, subject: outsourcing, amount: i >= 6 ? 1_200_000 : 0 },
+    { aid: dMaint.id, subject: contract, amount: 900_000 },
+    { aid: enterprise.id, subject: subscription, amount: i >= 3 ? 1_800_000 : 0 },
+    { aid: enterprise.id, subject: subscription, line: churn.id, amount: i >= 6 ? -300_000 : 0 },
+    { aid: partner.id, subject: subscription, amount: i >= 7 ? 1_000_000 : 0 },
+    { aid: ePoc.id, subject: contract, amount: i >= 1 && i <= 5 ? 600_000 : 0 },
+    { aid: pool.id, subject: outsourcing, amount: 500_000 },
   ])
   const sep = await post('/scenarios', { name: '2026年度 9月見込', fiscal_year: 2026, base_scenario_id: initial.id, actual_through: '2026-08' })
   const oct = await post('/scenarios', { name: '2026年度 10月見込', fiscal_year: 2026, base_scenario_id: sep.id, plan_role: 'latest', actual_through: '2026-09' })
@@ -81,6 +100,10 @@ test('手引きの画像', async ({ page, browser }) => {
     `${m},DEV-001,4120,${i < 5 ? 4_000_000 : 3_200_000}`,
     `${m},DEV-001,5110,2000000`,
     `${m},DEV-002,4120,1200000`,
+    `${m},DEV-004,4120,900000`,
+    `${m},POOL-001,5110,520000`,
+    ...(i >= 3 ? [`${m},SAAS-003,4110,1500000`] : []),
+    ...(i >= 1 ? [`${m},DEV-005,4120,600000`] : []),
   ])
   const res = await page.request.post('/api/actuals/import', {
     multipart: { file: { name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(`target_month,box_code,account_code,amount\n${rows.join('\n')}\n`) }, reason: '2026-09 実績取込' },
@@ -91,7 +114,15 @@ test('手引きの画像', async ({ page, browser }) => {
 
   // 10月見込の更新: A社は後ろ倒し（入力中）、SaaS は完了
   await drivers(oct.id, 120, 6, 6)
-  await fill(oct.id, (_m, i) => (i >= 6 ? [{ aid: bigA.id, subject: contract, amount: i < 9 ? 3_000_000 : 8_000_000 }] : []))
+  await fill(oct.id, (_m, i) =>
+    i >= 6
+      ? [
+          { aid: bigA.id, subject: contract, amount: i < 9 ? 3_000_000 : 8_000_000 },
+          { aid: cProposal.id, subject: contract, amount: 1_800_000 },
+          { aid: enterprise.id, subject: subscription, amount: 2_100_000 },
+        ]
+      : [],
+  )
   await a.put(`/scenarios/${oct.id}/activities/${plan.id}/note`, { explanation: '9月の新規契約が想定より多く、契約社数を上方修正した。単価は据え置き。', causes: ['volume'] })
   await a.post(`/scenarios/${oct.id}/activities/${plan.id}/complete`, {})
 
@@ -111,6 +142,10 @@ test('手引きの画像', async ({ page, browser }) => {
   await page.waitForLoadState('networkidle')
   // 図のカード（凡例と図）だけを撮る
   await page.locator('div:has(> [data-chart])').screenshot({ path: out('activity-portfolio') })
+  await page.goto('/activities?view=pipeline')
+  await expect(page.getByRole('group', { name: /確度の推移/ })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await page.locator('div:has(> [data-chart])').screenshot({ path: out('activity-pipeline') })
 
   // リスク画面
   await page.goto('/risks')

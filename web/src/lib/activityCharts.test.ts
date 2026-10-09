@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RiskActivity } from '../api/types.ts'
-import { bubblePoints, diffBucket, niceTicks, squarify } from './activityCharts.ts'
+import { bubblePoints, diffBucket, niceTicks, pipelineByMonth, rangeRows, squarify, waterfallSteps, yearPosition } from './activityCharts.ts'
 
 test('squarify: 面積は値に比例し、矩形は領域を埋める', () => {
   const items = [6, 6, 4, 3, 2, 2, 1].map((value, i) => ({ id: i, value }))
@@ -39,4 +39,31 @@ test('niceTicks と diffBucket', () => {
   assert.equal(diffBucket(110, 100), 1)
   assert.equal(diffBucket(70, 100), -2)
   assert.equal(diffBucket(-50, 0), -1)
+})
+
+test('rangeRows・waterfallSteps・pipelineByMonth・yearPosition', () => {
+  const r = (id: number, pess: number, wt: number, opt: number, compare: number | null) =>
+    ({ id, code: `A${id}`, name: `施策${id}`, pessimistic: pl(pess), weighted: pl(wt), optimistic: pl(opt), compare: compare === null ? null : pl(compare), revenue_by_month: { '2026-04': { actual: '10' }, '2026-05': { A: '5', downside: '-2' } } }) as unknown as RiskActivity
+  const items = [r(1, 0, 500, 1200, 400), r(2, 450, 540, 600, null), r(3, 100, 100, 100, 300)]
+  const { rows, rest } = rangeRows(items, 2)
+  assert.deepEqual(rows.map((x) => [x.activity.id, x.spread]), [[1, 1200], [2, 150]])
+  assert.equal(rest, 1)
+
+  const steps = waterfallSteps(items, '目標', 2)
+  assert.deepEqual(
+    steps.map((s) => [s.key, s.from, s.to]),
+    [
+      ['start', 0, 700],
+      ['a2', 700, 1240],
+      ['a3', 1240, 1040],
+      ['others', 1040, 1140],
+      ['end', 0, 1140],
+    ],
+  )
+
+  const p = pipelineByMonth(items, ['2026-04', '2026-05'])
+  assert.equal(p.get('2026-04')?.get('actual'), 30)
+  assert.equal(p.get('2026-05')?.get('downside'), -6)
+  assert.equal(yearPosition('2026-04-01', 2026), 0)
+  assert.ok(Math.abs(yearPosition('2026-10-01', 2026) - 183 / 365) < 1e-9)
 })

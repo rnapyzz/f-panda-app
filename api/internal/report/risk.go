@@ -122,6 +122,8 @@ type RiskActivity struct {
 	Actual pl `json:"actual"`
 	// RevenueByLevel は期間の売上（満額）を「実績・段階のコード・ダウンサイド」に分けたもの
 	RevenueByLevel map[string]string `json:"revenue_by_level"`
+	// RevenueByMonth は月ごとの売上（満額）を、RevenueByLevel と同じキーに分けたもの（施策の一覧の「確度の推移」。docs/plan.md「2.22」）
+	RevenueByMonth map[string]map[string]string `json:"revenue_by_month"`
 	// Compare は比較シナリオの、期間の加重見込
 	Compare *pl        `json:"compare"`
 	Lines   []riskLine `json:"lines"`
@@ -403,6 +405,7 @@ func loadRiskActivities(ctx context.Context, db *sql.DB, levels []riskLevel) ([]
 			a.sums[k], a.year[k] = newPLSum(), newPLSum()
 		}
 		a.RevenueByLevel = map[string]string{}
+		a.RevenueByMonth = map[string]map[string]string{}
 		a.Lines = []riskLine{}
 		a.Warnings.Milestones = []riskMilestone{}
 		a.Conditions = map[string]string{}
@@ -431,6 +434,11 @@ func accumulate(ctx context.Context, db *sql.DB, filter func(string) string, sce
 	}
 	defer rows.Close()
 	byLevel := map[int64]map[string]*big.Int{}
+	type monthKey struct {
+		aid        int64
+		month, key string
+	}
+	byMonth := map[monthKey]*big.Int{}
 	for rows.Next() {
 		var aid int64
 		var category, kind, level, rateStr, outlook, month, amount string
@@ -480,6 +488,11 @@ func accumulate(ctx context.Context, db *sql.DB, filter func(string) string, sce
 			}
 			n, _ := new(big.Int).SetString(amount, 10)
 			byLevel[aid][key].Add(byLevel[aid][key], n)
+			mk := monthKey{aid, month, key}
+			if byMonth[mk] == nil {
+				byMonth[mk] = new(big.Int)
+			}
+			byMonth[mk].Add(byMonth[mk], n)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -489,6 +502,13 @@ func accumulate(ctx context.Context, db *sql.DB, filter func(string) string, sce
 		for k, v := range m {
 			index[aid].RevenueByLevel[k] = v.String()
 		}
+	}
+	for k, v := range byMonth {
+		a := index[k.aid]
+		if a.RevenueByMonth[k.month] == nil {
+			a.RevenueByMonth[k.month] = map[string]string{}
+		}
+		a.RevenueByMonth[k.month][k.key] = v.String()
 	}
 	return nil
 }

@@ -574,6 +574,8 @@ export type RiskActivity = {
   actual: PL
   /** 期間の売上（満額）を「actual・段階のコード・downside」に分けたもの */
   revenue_by_level: Record<string, string>
+  /** 月ごとの売上（満額）を revenue_by_level と同じキーに分けたもの */
+  revenue_by_month: Record<string, Record<string, string>>
   /** 比較シナリオの期間の加重見込 */
   compare: PL | null
   lines: RiskLine[]
