@@ -2,13 +2,17 @@ import { CsvActions } from '../../components/CsvTransfer'
 import { useMemo, useState, type ReactNode } from 'react'
 import { query } from '../../api/client'
 import { activityStatusLabels, activityTypeLabels, type Activity, type ActivityStatus, type ConfidenceLevel, type Unit, type List, type User } from '../../api/types'
-import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table } from '../../components/ui'
+import { Badge, Button, Card, Empty, ErrorMessage, Input, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
 import { Link, navigate, useLocation } from '../../lib/router'
 import { PriorityBadge, WatchButton } from '../../components/PriorityWatch'
 import { useApi } from '../../lib/useApi'
 import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
+import { ActivityCharts, type ChartView } from './ActivityCharts'
+
+type View = 'table' | ChartView
+const viewLabels: Record<View, string> = { table: '表', portfolio: 'ポートフォリオ・マップ', treemap: 'ツリーマップ' }
 
 export const statusTone: Record<ActivityStatus, 'slate' | 'indigo' | 'green' | 'amber' | 'red'> = {
   planned: 'slate',
@@ -37,6 +41,8 @@ export function ActivityListPage() {
     watched: search.get('watched') ?? '',
     q: search.get('q') ?? '',
   }
+  // 表示の切り替え（表・図）。絞り込みと同じく URL に持たせる。docs/plan.md「2.22」
+  const view: View = (['portfolio', 'treemap'] as const).find((v) => v === search.get('view')) ?? 'table'
   const [q, setQ] = useState(filters.q)
 
   const activities = useApi<List<Activity>>(`/activities${query(filters)}`)
@@ -51,8 +57,9 @@ export function ActivityListPage() {
   // 絞り込み条件は URL に持たせる（戻る・共有で同じ一覧を表示できるように）
   const setFilter = (key: string, value: string) => {
     const next = { ...filters, [key]: value }
-    navigate(`/activities${query(next)}`, { replace: true })
+    navigate(`/activities${query({ ...next, view: view === 'table' ? '' : view })}`, { replace: true })
   }
+  const setView = (v: View) => navigate(`/activities${query({ ...filters, view: v === 'table' ? '' : v })}`, { replace: true })
 
   const error = activities.error ?? units.error ?? users.error
   return (
@@ -139,6 +146,29 @@ export function ActivityListPage() {
         </div>
       </Card>
 
+      <div role="group" aria-label="表示" className="mb-3 inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+        {(Object.keys(viewLabels) as View[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={view === v}
+            onClick={() => setView(v)}
+            className={cx('rounded px-3 py-1 text-sm font-medium', view === v ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100')}
+          >
+            {viewLabels[v]}
+          </button>
+        ))}
+      </div>
+
+      {view !== 'table' ? (
+        error ? (
+          <ErrorMessage error={error} />
+        ) : !activities.data ? (
+          <Loading />
+        ) : (
+          <ActivityCharts view={view} activityIds={new Set(activities.data.items.map((a) => a.id))} />
+        )
+      ) : (
       <Card>
         {error ? (
           <ErrorMessage error={error} />
@@ -188,6 +218,7 @@ export function ActivityListPage() {
           </Table>
         )}
       </Card>
+      )}
 
       {creating && units.data && users.data && (
         <ActivityFormDialog
