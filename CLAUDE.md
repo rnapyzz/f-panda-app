@@ -33,7 +33,7 @@ nginx + React.js + TailwindCSS + Go + MySQL 8。すべて Docker コンテナで
 
 - 起動: `make up`（http://localhost:8080）／停止: `make down`
 - マイグレーション: `make migrate`、`make migrate-status`、DB 作り直し: `make reset-db`
-- テスト: `make test`（Go のテスト、フロントの lint・ビルド・単体テスト）、E2E: `make e2e`（専用スタックで Playwright）、速さの計測: `make perf`、研修・試用の環境: `make demo`（本番に近い量のデータ。集計の仕組みを変えたら測り直す）
+- テスト: `make test`（Go のテスト、フロントの lint・ビルド・単体テスト）、E2E: `make e2e`（専用スタックで Playwright）、速さの計測: `make perf`、研修・試用の環境: `make demo`（本番に近い量のデータ。集計の仕組みを変えたら測り直す）、開発環境をデモのデータで作り直す: `make dev-demo`（開発環境のデータはすべて消える）
 - 画面の変更では、利用者向けの手引き（`web/src/manual/`。docs/plan.md「2.21」）も同じ PR で更新する。手引きの画像に写る画面を変えたら `make manual-screenshots` で撮り直す
 - 画面の変更では、関係する E2E（`web/e2e/`）も更新する。E2E のデータは実行ごとに一意な名前で作る（`uniq()`）
 - マイグレーションは `api/migrations/` に `<4桁の連番>_<説明>.sql` で追加し、適用済みファイルは変更しない
