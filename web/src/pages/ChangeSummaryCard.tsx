@@ -1,10 +1,10 @@
 import { noteCauseLabels, noteStatusLabels, type ActivityProgress, type NoteCause } from '../api/types'
 import { Badge, Card, cx } from '../components/ui'
 import { CommentCount } from '../components/CommentCount'
-import { formatSignedYen } from '../lib/format'
-import { compactYen, summaryText, type ChangeSummary } from '../lib/home'
+import { compactAmount, summaryText, type ChangeSummary } from '../lib/home'
 import { Link } from '../lib/router'
 import { Help } from '../components/Help'
+import { useAmountUnit } from '../lib/amountUnit'
 
 const causeLabel = (key: NoteCause | 'multiple' | 'none') => (key === 'multiple' ? '複数の要因' : key === 'none' ? '要因なし' : noteCauseLabels[key])
 const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'green' } as const
@@ -12,8 +12,9 @@ const excerpt = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s
 
 /** 変動のサマリー（前回見込 → 今回）。文章・施策別（上位）・要因別 */
 export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary: ChangeSummary; scenarioId: number; ownerName: (it: ActivityProgress) => string }) {
+  const { signed: signedText, unit } = useAmountUnit()
   const signed = (v: bigint) => (
-    <span className={cx('tabular-nums', v > 0n && 'text-emerald-700', v < 0n && 'text-red-600', v === 0n && 'text-slate-400')}>{formatSignedYen(v)}</span>
+    <span className={cx('tabular-nums', v > 0n && 'text-emerald-700', v < 0n && 'text-red-600', v === 0n && 'text-slate-400')}>{signedText(v)}</span>
   )
   return (
     <Card
@@ -30,8 +31,8 @@ export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary:
       ) : (
         <div className="space-y-4">
           <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800" aria-label="変動の文章のサマリー">
-            {summaryText(summary)}
-            {summary.initialDiff !== null && <span className="ml-1 text-slate-500">期初計画との差は {compactYen(summary.initialDiff)}。</span>}
+            {summaryText(summary, unit)}
+            {summary.initialDiff !== null && <span className="ml-1 text-slate-500">期初計画との差は {compactAmount(summary.initialDiff, unit)}。</span>}
           </p>
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">

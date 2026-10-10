@@ -16,7 +16,9 @@ import {
 } from '../../api/types'
 import { SaveImageButton } from '../../components/SaveImageButton'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
-import { formatSignedYen, formatYen } from '../../lib/format'
+import { minusSign, type AmountUnit } from '../../lib/format'
+import { AmountUnitProvider, useAmountUnit } from '../../lib/amountUnit'
+import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
 import {
   compareDiffOf,
   compareProfit,
@@ -42,8 +44,6 @@ import { actualColor, downsideColor, levelRamp } from '../../lib/chartTheme'
 
 // 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→淡い紫、ダウンサイドは赤（lib/chartTheme.ts。施策の一覧の図と同じ）
 
-const signed = (v: bigint) => formatSignedYen(v)
-const yen = (v: bigint) => formatYen(String(v))
 const profitOfPL = (p: { revenue: string; expense: string }) => BigInt(p.revenue) - BigInt(p.expense)
 
 /**
@@ -74,6 +74,7 @@ export function RiskPage() {
     navigate(`/risks${query({ fy, base, cmp: cmp ?? 0, unit: unitType, period, ...patch })}`, { replace: true })
   }
   const report = useApi<RiskReport>(base ? `/reports/risk${query({ scenario_id: base, compare_id: cmp, period })}` : null)
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
 
   const error = scenarios.error ?? units.error ?? segments.error ?? subjects.error ?? users.error
   if (error) return <ErrorMessage error={error} />
@@ -81,8 +82,8 @@ export function RiskPage() {
   const unitById = new Map(units.data.items.map((u) => [u.id, u]))
 
   return (
-    <>
-      <PageHeader title="リスク" description="見込はどれくらい確かか、どこに振れ幅があるか、誰と話せばよいかを確認します。楽観・加重見込・悲観は、施策と内訳の確度の段階・見通しの種類から算出します。" />
+    <AmountUnitProvider unit={amountUnit}>
+      <PageHeader title="リスク" actions={<AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />} description="見込はどれくらい確かか、どこに振れ幅があるか、誰と話せばよいかを確認します。楽観・加重見込・悲観は、施策と内訳の確度の段階・見通しの種類から算出します。" />
       <RestrictedNote hidden={report.data?.restricted_hidden} className="mb-4" />
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-5">
@@ -155,7 +156,7 @@ export function RiskPage() {
           userName={(id) => users.data!.items.find((u) => u.id === id)?.name ?? '未設定'}
         />
       )}
-    </>
+    </AmountUnitProvider>
   )
 }
 
@@ -188,6 +189,7 @@ function RiskView({
 // --- 1. サマリー ---
 
 function SummaryCard({ report, activities, keys }: { report: RiskReport; activities: RiskActivity[]; keys: string[] }) {
+  const { fmt: yen, signed } = useAmountUnit()
   const t = sumMeasures(activities)
   const pes = profitOf(t.pessimistic)
   const wgt = profitOf(t.weighted)
@@ -215,6 +217,7 @@ function SummaryCard({ report, activities, keys }: { report: RiskReport; activit
 
 /** 悲観 ― 加重見込 ― 楽観 を1本の帯で表す。実績で確定した分は濃いグレーで示す */
 function ProfitBand({ pessimistic, weighted, optimistic, actual }: { pessimistic: bigint; weighted: bigint; optimistic: bigint; actual: bigint | null }) {
+  const { fmt: yen } = useAmountUnit()
   const values = [pessimistic, weighted, optimistic, 0n, ...(actual === null ? [] : [actual])]
   const min = values.reduce((a, b) => (b < a ? b : a))
   const max = values.reduce((a, b) => (b > a ? b : a))
@@ -326,6 +329,7 @@ function CompositionCard({
   unitById: Map<number, Unit>
   segmentPath: (segmentId: number) => string
 }) {
+  const { fmt: yen } = useAmountUnit()
   const [asTable, setAsTable] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const colorOf = (k: string) => (k === 'actual' ? actualColor : k === 'downside' ? downsideColor : levelRamp[Math.min(keys.indexOf(k) - 1, levelRamp.length - 1)])
@@ -452,6 +456,7 @@ function ActivitiesCard({
   subjectName: (id: number) => string
   userName: (id: number) => string
 }) {
+  const { fmt: yen, signed } = useAmountUnit()
   const [sort, setSort] = useState<SortKey>('spread')
   const [open, setOpen] = useState<Set<number>>(new Set())
   const items = sortActivities(activities, sort)
@@ -546,6 +551,7 @@ function ActivitiesCard({
 }
 
 function ActivityDetail({ a, report, subjectName, userName }: { a: RiskActivity; report: RiskReport; subjectName: (id: number) => string; userName: (id: number) => string }) {
+  const { fmt: yen } = useAmountUnit()
   const kinds = warningKinds(a)
   return (
     <div className="grid gap-4 py-2 text-sm lg:grid-cols-2">
@@ -563,7 +569,7 @@ function ActivityDetail({ a, report, subjectName, userName }: { a: RiskActivity;
                   <td className="py-1 pr-2">
                     <Badge tone="slate">{l.confidence_level}</Badge> {outlookLabels[l.outlook]}
                   </td>
-                  <td className="py-1 text-right tabular-nums">{formatYen(l.amount)}</td>
+                  <td className="py-1 text-right tabular-nums">{yen(l.amount)}</td>
                 </tr>
               ))}
             </tbody>
@@ -590,7 +596,7 @@ function ActivityDetail({ a, report, subjectName, userName }: { a: RiskActivity;
               )}
               {a.warnings.downward && (
                 <li className="text-red-700">
-                  ⚠ 下方修正: {formatYen(a.warnings.downward.diff)}（−{a.warnings.downward.rate}%）
+                  ⚠ 下方修正: {yen(a.warnings.downward.diff)}（{minusSign}{a.warnings.downward.rate}%）
                 </li>
               )}
               {a.warnings.consecutive && <li className="text-red-700">⚠ 連続の下方修正: 直近の見込で2回続けて下がっています</li>}

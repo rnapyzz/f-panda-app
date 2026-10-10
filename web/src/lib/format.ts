@@ -64,3 +64,43 @@ export function formatPercent(v: string | number | null | undefined): string {
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
 }
+
+// --- 金額の表示単位（docs/plan.md「7. 前提・決定事項」） ---
+// 確認・報告の画面は、画面ごとに 百万円（既定、小数点以下1桁）・千円・円 を切り替える。
+// 数値の入力・実績の明細・変更履歴・CSV・報告資料の Excel は円のまま。
+
+export type AmountUnit = 'million' | 'thousand' | 'yen'
+
+export const amountUnitLabels: Record<AmountUnit, string> = { million: '百万円', thousand: '千円', yen: '円' }
+
+/** 円の整数を、単位の最小桁（百万円は 10万円、千円は 1,000円）で四捨五入した値（0 から遠い方へ） */
+function roundTo(v: bigint, step: bigint): bigint {
+  const q = (v < 0n ? -v : v) * 2n + step
+  const r = q / (step * 2n)
+  return v < 0n ? -r : r
+}
+
+/** 金額（円）を単位で表す。百万円は「158.9」、千円は「158,940」、円は「158,940,000」。マイナスは ▲ */
+export function formatAmount(v: bigint | string | number | null | undefined, unit: AmountUnit): string {
+  if (v === null || v === undefined || v === '') return ''
+  const n = typeof v === 'bigint' ? v : BigInt(typeof v === 'number' ? Math.round(v) : v)
+  if (unit === 'yen') return formatYen(String(n))
+  // 丸めて 0 になるマイナスも「▲0.0」と表し、マイナスであることを残す
+  const sign = n < 0n ? minusSign : ''
+  if (unit === 'thousand') {
+    const r = roundTo(n, 1000n)
+    return `${sign}${yen.format(r < 0n ? -r : r)}`
+  }
+  const tenth = roundTo(n, 100_000n) // 0.1 百万円の単位
+  const abs = tenth < 0n ? -tenth : tenth
+  return `${sign}${yen.format(abs / 10n)}.${abs % 10n}`
+}
+
+/** 差の金額を単位で表す。プラスは「+3.4」、マイナスは「▲6.2」、0 ちょうどは「0.0」 */
+export function formatSignedAmount(v: bigint | string | number | null | undefined, unit: AmountUnit): string {
+  const s = formatAmount(v, unit)
+  if (s === '' || s.startsWith(minusSign)) return s
+  // 0 ちょうどは符号なし。丸めて 0 になるプラスは「+0.0」
+  const n = typeof v === 'bigint' ? v : BigInt(typeof v === 'number' ? Math.round(v) : (v as string))
+  return n === 0n ? s : `+${s}`
+}

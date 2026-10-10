@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit } from './helpers'
 
 test('予実比較で、基準との差異をセグメント → ユニット → 施策とたどれる', async ({ page }) => {
   await login(page)
@@ -22,6 +22,9 @@ test('予実比較で、基準との差異をセグメント → ユニット �
 
   await page.goto(`/reports?fy=2026&base=${budget.id}&cmp=${forecast.id}&measure=profit&period=year`)
   const segment = page.getByRole('row', { name: new RegExp(`E2E事業 ${f.run}`) })
+  // 金額の単位: 開くと百万円（小数点以下1桁）。円に切り替えて確かめる
+  await expect(segment).toContainText('0.6')
+  await showUnit(page, '円')
   // 利益: 予算 600,000 → 見込 700,000（+100,000、+16.6%）
   await expect(segment).toContainText('600,000')
   await expect(segment).toContainText('700,000')

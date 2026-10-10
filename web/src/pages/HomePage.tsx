@@ -7,7 +7,9 @@ import { DeadlineBadge } from '../components/Layout'
 import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
-import { formatDateTime, formatSignedYen, formatYen, monthLabel } from '../lib/format'
+import { amountUnitLabels, formatAmount, formatDateTime, monthLabel, type AmountUnit } from '../lib/format'
+import { AmountUnitProvider, useAmountUnit } from '../lib/amountUnit'
+import { AmountUnitSwitch } from '../components/AmountUnitSwitch'
 import { countByStatus, profitDiff, profitOf, sortStatuses, summarizeChanges, type SortMode } from '../lib/home'
 import { Link, navigate, useLocation } from '../lib/router'
 import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
@@ -91,6 +93,7 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
   const [scope, setScope] = useState<Scope>(scopes[0])
   const [unitId, setUnitId] = useState('')
   const [sort, setSort] = useState<SortMode>('status')
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
   const report = useApi<ActivityProgressReport>(`/scenarios/${scenarioId}/activity-status${query({ scope })}`)
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
@@ -118,9 +121,10 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
   const largeMisses = r.new_actual_months.length > 0 ? sortStatuses(filtered.filter((it) => it.accuracy?.large), 'previous') : []
 
   return (
-    <>
+    <AmountUnitProvider unit={amountUnit}>
       <PageHeader
         title="ホーム"
+        actions={<AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />}
         description={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>
@@ -150,7 +154,7 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
                       {it.name}
                     </Link>
                     <span className="text-xs text-slate-500 tabular-nums">
-                      前回の見込 {formatYen(String(profitOf(it.accuracy!.plan)))} → 実績 {formatYen(String(profitOf(it.accuracy!.actual)))}（利益）
+                      前回の見込 {formatAmount(profitOf(it.accuracy!.plan), amountUnit)} → 実績 {formatAmount(profitOf(it.accuracy!.actual), amountUnit)}（利益・{amountUnitLabels[amountUnit]}）
                       {it.accuracy!.rate !== null && `・差 ${it.accuracy!.rate}%`}
                     </span>
                   </li>
@@ -251,15 +255,16 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
           </Table>
         )}
       </Card>
-    </>
+    </AmountUnitProvider>
   )
 }
 
 function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId: number; unit?: string; owner?: string }) {
+  const { fmt, signed } = useAmountUnit()
   const diff = (compare: typeof it.base) => {
     const d = profitDiff(it.current, compare)
     if (d === null) return <span className="text-slate-300">—</span>
-    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{formatSignedYen(d)}</span>
+    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{signed(d)}</span>
   }
   return (
     <tr>
@@ -286,7 +291,7 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
           <CommentCount count={it.comment_count} />
         </span>
       </td>
-      <td className="text-right tabular-nums">{formatYen(String(profitOf(it.current)))}</td>
+      <td className="text-right tabular-nums">{fmt(profitOf(it.current))}</td>
       <td className="text-right tabular-nums">{diff(it.base)}</td>
       <td className="text-right tabular-nums">{diff(it.previous)}</td>
       <td className="text-xs whitespace-nowrap text-slate-500">{it.completed_at ? formatDateTime(it.completed_at) : it.last_edited_at ? formatDateTime(it.last_edited_at) : '—'}</td>

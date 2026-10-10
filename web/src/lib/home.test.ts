@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityProgress, NoteStatus } from '../api/types.ts'
-import { compactYen, countByStatus, profitDiff, sortStatuses, summarizeChanges, summaryText, sumTotals, totalsByUnit } from './home.ts'
+import { compactAmount, countByStatus, profitDiff, sortStatuses, summarizeChanges, summaryText, sumTotals, totalsByUnit } from './home.ts'
 
 const item = (code: string, status: NoteStatus, current: number, base: number | null, previous: number | null = null): ActivityProgress => ({
   activity_id: code.length,
@@ -93,15 +93,16 @@ test('summarizeChanges: 施策別・要因別（重ねて数えない）・説�
   assert.equal(s.initialDiff, -1000n)
 })
 
-test('compactYen', () => {
-  assert.equal(compactYen(-12_004_999n), '▲1,200万円')
-  assert.equal(compactYen(15_000n), '+2万円')
-  assert.equal(compactYen(9_999n), '+9,999円')
-  assert.equal(compactYen(0n), '0円')
+test('compactAmount', () => {
+  assert.equal(compactAmount(-12_004_999n), '▲12.0百万円')
+  assert.equal(compactAmount(150_000n), '+0.2百万円')
+  assert.equal(compactAmount(-12_004_999n, 'thousand'), '▲12,005千円')
+  assert.equal(compactAmount(9_999n, 'yen'), '+9,999円')
+  assert.equal(compactAmount(0n), '0.0百万円')
 })
 
 test('summaryText: 決まった型の文章', () => {
   const a = { ...item('A', 'completed', 1000, 0, 12_001_000), name: 'A 案件', causes: ['timing' as const], has_explanation: true }
   const b = { ...item('B', 'in_progress', 3_000_000, 0, 1_000_000), name: 'B 新規' }
-  assert.equal(summaryText(summarizeChanges([a, b])), '前回の見込から利益 ▲1,000万円（売上 ▲1,000万円）。増加 1施策・減少 1施策。主な変動: A 案件 ▲1,200万円（時期のずれ）、B 新規 +200万円。説明のない施策 1件、未完了 1件。')
+  assert.equal(summaryText(summarizeChanges([a, b])), '前回の見込から利益 ▲10.0百万円（売上 ▲10.0百万円）。増加 1施策・減少 1施策。主な変動: A 案件 ▲12.0百万円（時期のずれ）、B 新規 +2.0百万円。説明のない施策 1件、未完了 1件。')
 })

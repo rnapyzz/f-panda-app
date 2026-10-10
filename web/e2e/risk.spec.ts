@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit } from './helpers'
 
 // ほかのテストとシナリオの年度が重ならないよう、2034年度を使う
 test('リスク画面で、楽観・基準・悲観、見込の構成、施策の内訳、警告を確認できる', async ({ page }) => {
@@ -21,6 +21,7 @@ test('リスク画面で、楽観・基準・悲観、見込の構成、施策�
   })
 
   await page.goto(`/risks?fy=2034&base=${scenario.id}&cmp=0`)
+  await showUnit(page, '円')
   // サマリー: 悲観 0 ― 基準 5,400,000 ― 楽観 12,000,000（docs/plan.md「2.8」の例の 1万倍）
   const band = page.getByRole('img', { name: /利益: 悲観/ })
   await expect(band).toHaveAccessibleName(/悲観 0、加重見込 5,400,000、楽観 12,000,000/)

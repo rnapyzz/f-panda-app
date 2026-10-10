@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import type { List, Scenario, ValuesView } from '../../api/types'
 import { Card, Empty, ErrorMessage, Loading, Select, cx } from '../../components/ui'
 import { isFavorable, varianceRate } from '../../lib/aggregate'
-import { formatRate, formatSignedYen, formatYen } from '../../lib/format'
+import { formatRate, type AmountUnit } from '../../lib/format'
+import { AmountUnitProvider, useAmountUnit } from '../../lib/amountUnit'
+import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
 import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain, type PlNode } from '../../lib/pl'
 import { Link } from '../../lib/router'
 import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
@@ -31,6 +33,7 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
   const baseId = picked.base ?? defaults.base?.id
   const latestId = picked.latest ?? defaults.latest?.id
   const [grain, setGrain] = useState<Grain>('quarter')
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
   const [open, setOpen] = useState<Set<string>>(new Set())
 
   const base = useApi<ValuesView>(baseId ? `/scenarios/${baseId}/activities/${activityId}` : null)
@@ -81,12 +84,14 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
   const allOpen = expandable.length > 0 && expandable.every((id) => open.has(id))
 
   return (
+    <AmountUnitProvider unit={amountUnit}>
     <Card title="P/L" actions={controls}>
       {years.length === 0 ? (
         <Empty>シナリオがまだありません。</Empty>
       ) : (
         <div className="space-y-3">
           <RestrictedNote hidden={base.data?.restricted_hidden || latest.data?.restricted_hidden} />
+          <AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />
           <div className="flex flex-wrap items-end gap-3 text-xs">
             <label className="space-y-1">
               <span className="block font-medium text-slate-500">年度</span>
@@ -147,10 +152,12 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
         </div>
       )}
     </Card>
+    </AmountUnitProvider>
   )
 }
 
 function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods: ReturnType<typeof periodsOf>; open: Set<string>; onToggle: (id: string) => void }) {
+  const { fmt, signed } = useAmountUnit()
   const visible: { node: PlNode; depth: number }[] = []
   const walk = (n: PlNode, depth: number) => {
     visible.push({ node: n, depth })
@@ -214,7 +221,7 @@ function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods:
                 <td className="px-2 py-1 text-xs font-normal whitespace-nowrap text-slate-500">目標</td>
                 {amounts.map((a) => (
                   <td key={a.key} className={cx(cellClass(a.key), a.base === 0n ? 'text-slate-300' : 'text-slate-600')}>
-                    {formatYen(String(a.base))}
+                    {fmt(a.base)}
                   </td>
                 ))}
               </tr>
@@ -222,7 +229,7 @@ function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods:
                 <td className="px-2 py-1 text-xs font-normal whitespace-nowrap text-slate-500">最新</td>
                 {amounts.map((a) => (
                   <td key={a.key} className={cx(cellClass(a.key), a.latest === 0n ? 'text-slate-300' : 'text-slate-900')}>
-                    {formatYen(String(a.latest))}
+                    {fmt(a.latest)}
                   </td>
                 ))}
               </tr>
@@ -237,7 +244,7 @@ function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods:
                       title={rate === null ? undefined : formatRate(rate)}
                       className={cx(cellClass(a.key), 'border-b border-slate-200', fav === true && 'text-emerald-700', fav === false && 'text-red-600', fav === null && 'text-slate-300')}
                     >
-                      {formatSignedYen(a.diff)}
+                      {signed(a.diff)}
                       {a.key === 'total' && rate !== null && <span className="ml-1 text-xs font-normal">({formatRate(rate)})</span>}
                     </td>
                   )

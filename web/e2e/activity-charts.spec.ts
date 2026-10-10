@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit } from './helpers'
 
 // ほかのテストの施策もあるので、キーワードで自分の施策に絞り込む
 test('施策の一覧を図（6種類）で見られ、図から施策を開ける', async ({ page }) => {
@@ -17,6 +17,8 @@ test('施策の一覧を図（6種類）で見られ、図から施策を開け�
 
   await page.goto(`/activities?q=${activity.code}`)
   await page.getByRole('group', { name: '表示' }).getByRole('button', { name: 'ポートフォリオ' }).click()
+  await expect(page.getByText('（金額の単位: 百万円）')).toBeVisible()
+  await showUnit(page, '円')
   await expect(page).toHaveURL(/view=portfolio/)
   const bubble = page.getByRole('link', { name: new RegExp(`^E2E図 ${f.run}: 確度の割合 100%`) })
   await bubble.hover()
