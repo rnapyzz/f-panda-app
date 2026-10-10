@@ -445,11 +445,14 @@ export type ActualEntry = {
 }
 
 export type ActualEntries = {
-  month: string
   /** 施策の実績がある月 */
   months: string[]
+  /** 明細の1ページ（新しい月から）。total は絞り込んだ明細の件数（明細を見せない会計科目を除く） */
   items: ActualEntry[]
-  /** 明細を見せない会計科目の合計 */
+  total: number
+  offset: number
+  has_more: boolean
+  /** 明細を見せない会計科目の合計（絞り込んだ範囲） */
   hidden: { gl_account_code: string; gl_account_name: string; subject_id: number; count: number; amount: string }[]
   entries_total: string
   fact_total: string

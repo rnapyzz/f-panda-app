@@ -54,6 +54,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("POST /api/actuals/reallocate", write(h.reallocate))
 
 	mux.Handle("GET /api/activities/{id}/actual-entries", read(h.activityEntries))
+	mux.Handle("GET /api/activities/{id}/actual-entries/export", read(h.exportEntries))
 
 	// 締めた後の実績の修正と年度の締め（docs/plan.md「2.14」）
 	mux.Handle("GET /api/scenarios/actual-drift", write(h.listDrift))
