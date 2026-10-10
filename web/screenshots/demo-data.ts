@@ -144,6 +144,8 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   )
   await a.put(`/scenarios/${oct.id}/activities/${plan.id}/note`, { explanation: '9月の新規契約が想定より多く、契約社数を上方修正した。単価は据え置き。', causes: ['volume'] })
   await a.post(`/scenarios/${oct.id}/activities/${plan.id}/complete`, {})
+  // 説明へのコメント（docs/plan.md「2.24」）: FP&A が A社の後ろ倒しについて聞いている
+  await a.post(`/scenarios/${oct.id}/activities/${bigA.id}/comments`, { body: '10〜12月の売上が後ろ倒しになっています。理由と、年度内に戻る見込みを説明に書いてください。' })
 
   return { activityId: bigA.id, scenarioId: oct.id }
 }

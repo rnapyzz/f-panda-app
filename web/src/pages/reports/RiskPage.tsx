@@ -603,6 +603,13 @@ function ActivityDetail({ a, report, subjectName, userName }: { a: RiskActivity;
           <p className="text-xs whitespace-pre-wrap text-slate-700">{a.assumptions || <span className="text-slate-400">前提条件は未入力</span>}</p>
           {a.conditions.scenario && <p className="mt-1 text-xs text-slate-700">今回の見込の説明: {a.conditions.scenario}</p>}
           {a.conditions.compare && <p className="mt-1 text-xs text-slate-700">比較シナリオの説明: {a.conditions.compare}</p>}
+          {a.comment_count > 0 && (
+            <p className="mt-1 text-xs">
+              <Link to={`/activities/${a.id}?tab=update&scenario=${report.scenario.id}`} className="text-indigo-700 hover:underline">
+                説明へのコメント {a.comment_count}件
+              </Link>
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -54,6 +54,7 @@ type activityStatus struct {
 	HasExplanation bool       `json:"has_explanation"`
 	Explanation    string     `json:"explanation"`
 	Causes         []string   `json:"causes"`
+	CommentCount   int        `json:"comment_count"` // 説明へのコメントの件数（消したものを除く、2.24）
 	IsPriority     bool       `json:"is_priority"`
 	IsWatched      bool       `json:"is_watched"`
 	LastEditedAt   *time.Time `json:"last_edited_at"`
@@ -143,12 +144,13 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 	}
 	rows, err := h.db.QueryContext(ctx, `
 		SELECT a.id, a.code, a.name, a.unit_id, a.owner_user_id, a.is_priority, w.user_id IS NOT NULL,
-		       COALESCE(n.explanation, ''), COALESCE(n.causes, ''), n.last_edited_at, n.completed_at
+		       COALESCE(n.explanation, ''), COALESCE(n.causes, ''), n.last_edited_at, n.completed_at,
+		       (SELECT COUNT(*) FROM activity_scenario_comments c WHERE c.scenario_id = ? AND c.activity_id = a.id AND c.deleted_at IS NULL)
 		FROM activities a
 		JOIN units un ON un.id = a.unit_id
 		LEFT JOIN activity_scenario_notes n ON n.activity_id = a.id AND n.scenario_id = ?
 		LEFT JOIN activity_watches w ON w.activity_id = a.id AND w.user_id = ?`+where+`
-		ORDER BY a.code`, append([]any{id, u.ID}, args...)...)
+		ORDER BY a.code`, append([]any{id, id, u.ID}, args...)...)
 	if err != nil {
 		return err
 	}
@@ -158,7 +160,7 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 		var owner sql.NullInt64
 		var causes string
 		var edited, completed sql.NullTime
-		if err := rows.Scan(&it.ActivityID, &it.Code, &it.Name, &it.UnitID, &owner, &it.IsPriority, &it.IsWatched, &it.Explanation, &causes, &edited, &completed); err != nil {
+		if err := rows.Scan(&it.ActivityID, &it.Code, &it.Name, &it.UnitID, &owner, &it.IsPriority, &it.IsWatched, &it.Explanation, &causes, &edited, &completed, &it.CommentCount); err != nil {
 			rows.Close()
 			return err
 		}

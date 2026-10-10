@@ -136,6 +136,8 @@ type RiskActivity struct {
 	BadForLevel bool `json:"bad_for_level"`
 	// Conditions はシナリオごとの今回の見込の説明（scenario / compare）
 	Conditions map[string]string `json:"conditions"`
+	// CommentCount は基準シナリオの説明へのコメントの件数（消したものを除く、docs/plan.md「2.24」）
+	CommentCount int `json:"comment_count"`
 
 	sums map[string]plSum // 指標ごとの期間の合計
 	year map[string]plSum // 指標ごとの年間の合計（シグナルに使う）
@@ -824,7 +826,7 @@ func fillRiskMilestones(ctx context.Context, db *sql.DB, index map[int64]*RiskAc
 	return rows.Err()
 }
 
-// fillConditions は基準・比較シナリオの、今回の見込の説明（docs/plan.md「2.18」で想定条件を統合）を加える。
+// fillConditions は基準・比較シナリオの、今回の見込の説明（docs/plan.md「2.18」で想定条件を統合）と、基準シナリオのコメントの件数を加える。
 func fillConditions(ctx context.Context, db *sql.DB, scenarioID int64, compare *riskScenario, index map[int64]*RiskActivity) error {
 	targets := map[string]int64{"scenario": scenarioID}
 	if compare != nil {
@@ -851,5 +853,21 @@ func fillConditions(ctx context.Context, db *sql.DB, scenarioID int64, compare *
 			return err
 		}
 	}
-	return nil
+	// 説明へのコメントの件数
+	rows, err := db.QueryContext(ctx, "SELECT activity_id, COUNT(*) FROM activity_scenario_comments WHERE scenario_id = ? AND deleted_at IS NULL GROUP BY activity_id", scenarioID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var aid int64
+		var n int
+		if err := rows.Scan(&aid, &n); err != nil {
+			return err
+		}
+		if a, ok := index[aid]; ok {
+			a.CommentCount = n
+		}
+	}
+	return rows.Err()
 }

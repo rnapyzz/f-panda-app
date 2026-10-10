@@ -1,5 +1,6 @@
 import { noteCauseLabels, noteStatusLabels, type ActivityProgress, type NoteCause } from '../api/types'
 import { Badge, Card, cx } from '../components/ui'
+import { CommentCount } from '../components/CommentCount'
 import { formatYen } from '../lib/format'
 import { compactYen, summaryText, type ChangeSummary } from '../lib/home'
 import { Link } from '../lib/router'
@@ -53,6 +54,7 @@ export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary:
                         ))}
                         <Badge tone={statusTone[it.status]}>{noteStatusLabels[it.status]}</Badge>
                         <span className="text-xs text-slate-400">{ownerName(it)}</span>
+                        <CommentCount count={it.comment_count} />
                       </div>
                       <p className={cx('mt-0.5 text-xs', it.explanation ? 'text-slate-600' : 'text-amber-700')}>{it.explanation ? excerpt(it.explanation) : '説明がありません'}</p>
                     </li>
