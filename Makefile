@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots perf demo demo-down demo-reset reset-db
+.PHONY: up down logs migrate migrate-status create-user test test-api test-web e2e manual-screenshots perf demo demo-down demo-reset dev-demo reset-db
 
 up: ## 開発環境を起動する
 	docker compose up --build -d
@@ -38,6 +38,9 @@ demo-down: ## 研修・試用の環境を止めて、データを消す
 
 demo-reset: ## 研修・試用の環境を、デモのデータの初期の状態に戻す
 	scripts/demo.sh reset
+
+dev-demo: ## 開発環境（8080）のデータをすべて消して、デモのデータを入れる（確認あり。FORCE=1 で省略）
+	scripts/dev-demo.sh
 
 perf: ## 本番に近い量のデータで、主な API の速さを測る（docs/performance.md）
 	scripts/perf.sh
