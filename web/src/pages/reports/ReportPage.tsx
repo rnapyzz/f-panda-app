@@ -16,7 +16,7 @@ import {
 } from '../../api/types'
 import { Button, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
 import { aggregate, isFavorable, measureLabels, measureOf, varianceRate, type Measure, type Totals } from '../../lib/aggregate'
-import { formatYen, monthLabel } from '../../lib/format'
+import { formatRate, formatSignedYen, formatYen, monthLabel } from '../../lib/format'
 import { Link, navigate, useLocation } from '../../lib/router'
 import { defaultScenarios, fiscalMonths, scenarioLabel as labelOf } from '../../lib/scenario'
 import { buildTree, subtreeIds, type Tree } from '../../lib/tree'
@@ -518,9 +518,8 @@ function VarianceCell({ base, value, measure }: { base: bigint; value: bigint; m
   const rate = varianceRate(base, value)
   return (
     <td className={cx('border-b border-slate-100 px-3 py-1.5 text-right tabular-nums whitespace-nowrap', fav === true && 'text-emerald-700', fav === false && 'text-red-600')}>
-      {diff > 0n ? '+' : ''}
-      {formatYen(String(diff))}
-      {rate !== null && diff !== 0n && <span className="ml-1 text-xs opacity-70">({rate > 0 ? '+' : ''}{rate}%)</span>}
+      {formatSignedYen(diff)}
+      {rate !== null && diff !== 0n && <span className="ml-1 text-xs opacity-70">({formatRate(rate)})</span>}
     </td>
   )
 }

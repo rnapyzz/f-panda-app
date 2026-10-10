@@ -118,7 +118,7 @@ test('範囲の選択・右方向へのコピー・貼り付け・消去・元�
     document.activeElement!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
   })
   await expect(gridCell(page, `${rev} 5月`)).toHaveAccessibleName(`${rev} 5月: 2,000`)
-  await expect(gridCell(page, `${rev} 6月`)).toHaveAccessibleName(`${rev} 6月: -500`)
+  await expect(gridCell(page, `${rev} 6月`)).toHaveAccessibleName(`${rev} 6月: ▲500`)
 
   // Delete で消去
   await gridCell(page, `${rev} 7月`).click()

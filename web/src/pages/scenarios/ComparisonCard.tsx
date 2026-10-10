@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { AmountRow } from '../../api/types'
 import { Card, cx } from '../../components/ui'
 import { isFavorable, varianceRate } from '../../lib/aggregate'
-import { formatYen } from '../../lib/format'
+import { formatRate, formatSignedYen, formatYen } from '../../lib/format'
 import { buildSeriesPl, grainLabels, periodsOf, sumOver, type Grain, type SeriesPlNode } from '../../lib/pl'
 
 /** 比べる系列。rows が undefined のときは「未設定」や「読み込み中」として扱う */
@@ -127,15 +127,13 @@ export function ComparisonCard({ months, current, compares }: { months: string[]
                         return (
                           <td
                             key={key}
-                            title={rate === null ? undefined : `${rate > 0 ? '+' : ''}${rate}%`}
+                            title={rate === null ? undefined : formatRate(rate)}
                             className={cx(cellClass(key), last && 'border-b border-slate-200', fav === true && 'text-emerald-700', fav === false && 'text-red-600', fav === null && 'text-slate-300')}
                           >
-                            {value > 0n ? '+' : ''}
-                            {formatYen(String(value))}
+                            {formatSignedYen(value)}
                             {key === 'total' && rate !== null && (
                               <span className="ml-1 text-xs font-normal">
-                                ({rate > 0 ? '+' : ''}
-                                {rate}%)
+                                ({formatRate(rate)})
                               </span>
                             )}
                           </td>

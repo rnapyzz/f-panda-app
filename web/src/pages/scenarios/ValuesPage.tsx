@@ -3,6 +3,7 @@ import { api, ApiError } from '../../api/client'
 import { categoryLabels, outlookLabels, type AmountRow, type List, type Scenario, type Subject, type ValuesView } from '../../api/types'
 import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sheet'
 import { Badge, Button, Card, ErrorMessage, Loading, Select, Textarea, cx } from '../../components/ui'
+import { cleanNumber } from '../../lib/sheet'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
 import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
@@ -25,9 +26,8 @@ type ServerCell = CellEdit & { source?: string }
 
 const sourceLabels: Record<string, string> = { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' }
 
-function normalize(v: string): string {
-  return v.replace(/,/g, '').trim()
-}
+// 桁区切りを除き、▲・△・全角などの表記を半角の数値にそろえる（貼り付けと同じ）
+const normalize = cleanNumber
 
 /** 施策の画面の内訳・ドライバーの追加（「今回の更新」の表から開く。docs/plan.md「2.19」） */
 export type PanelActions = { addLine: () => void; addDriver: () => void }

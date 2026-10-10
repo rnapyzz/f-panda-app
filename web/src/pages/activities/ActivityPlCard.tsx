@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { List, Scenario, ValuesView } from '../../api/types'
 import { Card, Empty, ErrorMessage, Loading, Select, cx } from '../../components/ui'
 import { isFavorable, varianceRate } from '../../lib/aggregate'
-import { formatYen } from '../../lib/format'
+import { formatRate, formatSignedYen, formatYen } from '../../lib/format'
 import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain, type PlNode } from '../../lib/pl'
 import { Link } from '../../lib/router'
 import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
@@ -234,12 +234,11 @@ function PlTable({ nodes, periods, open, onToggle }: { nodes: PlNode[]; periods:
                   return (
                     <td
                       key={a.key}
-                      title={rate === null ? undefined : `${rate > 0 ? '+' : ''}${rate}%`}
+                      title={rate === null ? undefined : formatRate(rate)}
                       className={cx(cellClass(a.key), 'border-b border-slate-200', fav === true && 'text-emerald-700', fav === false && 'text-red-600', fav === null && 'text-slate-300')}
                     >
-                      {a.diff > 0n ? '+' : ''}
-                      {formatYen(String(a.diff))}
-                      {a.key === 'total' && rate !== null && <span className="ml-1 text-xs font-normal">({rate > 0 ? '+' : ''}{rate}%)</span>}
+                      {formatSignedYen(a.diff)}
+                      {a.key === 'total' && rate !== null && <span className="ml-1 text-xs font-normal">({formatRate(rate)})</span>}
                     </td>
                   )
                 })}
