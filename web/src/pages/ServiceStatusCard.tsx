@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { unitTypeLabels, type ActivityProgress, type ActivityProgressReport, type Unit } from '../api/types'
 import { Card, cx } from '../components/ui'
-import { formatSignedYen, formatYen } from '../lib/format'
 import { sumTotals, totalsByUnit, type UnitTotals } from '../lib/home'
 import { scenarioLabel } from '../lib/scenario'
 import { Help } from '../components/Help'
+import { useAmountUnit } from '../lib/amountUnit'
 
 type Measure = 'profit' | 'revenue'
 
@@ -27,6 +27,7 @@ export function ServiceStatusCard({
 }) {
   const [measure, setMeasure] = useState<Measure>('profit')
   const [serviceOnly, setServiceOnly] = useState(true)
+  const { fmt, signed } = useAmountUnit()
   const unitById = new Map(units.map((u) => [u.id, u]))
   const has = { initial: report.initial !== null, revised: report.revised !== null, previous: report.previous !== null }
   const shown = items.filter((it) => !serviceOnly || unitById.get(it.unit_id)?.unit_type === 'service')
@@ -34,11 +35,11 @@ export function ServiceStatusCard({
   const total = sumTotals(rows, has)
 
   const value = (p: UnitTotals['current'] | null) => (p ? p[measure] : null)
-  const amount = (v: bigint | null) => (v === null ? <span className="text-slate-300">—</span> : formatYen(String(v)))
+  const amount = (v: bigint | null) => (v === null ? <span className="text-slate-300">—</span> : fmt(v))
   const diff = (cur: bigint, cmp: bigint | null) => {
     if (cmp === null) return <span className="text-slate-300">—</span>
     const d = cur - cmp
-    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{formatSignedYen(d)}</span>
+    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{signed(d)}</span>
   }
   const columns: { key: 'initial' | 'revised' | 'previous'; label: string }[] = [
     { key: 'initial', label: '期初計画' },

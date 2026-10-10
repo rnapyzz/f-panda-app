@@ -16,7 +16,9 @@ import {
 } from '../../api/types'
 import { Button, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
 import { aggregate, isFavorable, measureLabels, measureOf, varianceRate, type Measure, type Totals } from '../../lib/aggregate'
-import { formatRate, formatSignedYen, formatYen, monthLabel } from '../../lib/format'
+import { formatRate, monthLabel, type AmountUnit } from '../../lib/format'
+import { AmountUnitProvider, useAmountUnit } from '../../lib/amountUnit'
+import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
 import { Link, navigate, useLocation } from '../../lib/router'
 import { defaultScenarios, fiscalMonths, scenarioLabel as labelOf } from '../../lib/scenario'
 import { buildTree, subtreeIds, type Tree } from '../../lib/tree'
@@ -138,6 +140,7 @@ function ReportView({
   activities: Activity[]
 }) {
   const [settings, update] = useSettings(scenarios)
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
   const inYear = scenarios.filter((s) => s.fiscal_year === settings.fy)
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
 
@@ -207,9 +210,10 @@ function ReportView({
   const allTotals = data ? aggregate([...reportRows, ...unallocatedRows], seriesKeys, categoryOf, () => true, periodMonths) : null
 
   return (
-    <>
+    <AmountUnitProvider unit={amountUnit}>
       <PageHeader
         title="予実比較"
+        actions={<AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />}
         description="シナリオ（実績の月は実績、それより後は計画値）と実績を並べ、セグメント・組織の階層で比較します。差異は1つ目の系列（比較元）との差です。「加重見込」にすると、計画値に確度の段階の標準の確率を掛けます（実績はそのまま）。"
       />
 
@@ -364,7 +368,7 @@ function ReportView({
           />
         </>
       )}
-    </>
+    </AmountUnitProvider>
   )
 }
 
@@ -493,6 +497,7 @@ function ValueRow({
   onSelect: () => void
   className?: string
 }) {
+  const { fmt } = useAmountUnit()
   const base = measureOf(totals.get(series[0].key), measure)
   return (
     <tr onClick={onSelect} className={cx('cursor-pointer hover:bg-indigo-50/40', selected && 'bg-indigo-50', className)}>
@@ -503,7 +508,7 @@ function ValueRow({
         const v = measureOf(totals.get(s.key), measure)
         return (
           <Fragment key={s.key}>
-            <td className="border-b border-slate-100 px-3 py-1.5 text-right tabular-nums">{formatYen(String(v))}</td>
+            <td className="border-b border-slate-100 px-3 py-1.5 text-right tabular-nums">{fmt(v)}</td>
             {i > 0 && <VarianceCell base={base} value={v} measure={measure} />}
           </Fragment>
         )
@@ -513,12 +518,13 @@ function ValueRow({
 }
 
 function VarianceCell({ base, value, measure }: { base: bigint; value: bigint; measure: Measure | 'revenue' | 'expense' }) {
+  const { signed } = useAmountUnit()
   const diff = value - base
   const fav = isFavorable(diff, measure)
   const rate = varianceRate(base, value)
   return (
     <td className={cx('border-b border-slate-100 px-3 py-1.5 text-right tabular-nums whitespace-nowrap', fav === true && 'text-emerald-700', fav === false && 'text-red-600')}>
-      {formatSignedYen(diff)}
+      {signed(diff)}
       {rate !== null && diff !== 0n && <span className="ml-1 text-xs opacity-70">({formatRate(rate)})</span>}
     </td>
   )
@@ -543,6 +549,7 @@ function DetailPanel({
   measure: Measure
   periodLabel: string
 }) {
+  const { fmt } = useAmountUnit()
   const [view, setView] = useState<'subjects' | 'months'>('subjects')
   const title = node ? node.name : '全体'
   const used = subjects.filter((s) => series.some((x) => totals.get(x.key)?.bySubject.has(s.id)))
@@ -603,7 +610,7 @@ function DetailPanel({
                             const v = totals.get(x.key)?.bySubject.get(s.id) ?? 0n
                             return (
                               <Fragment key={x.key}>
-                                <td className="text-right tabular-nums">{formatYen(String(v))}</td>
+                                <td className="text-right tabular-nums">{fmt(v)}</td>
                                 {i > 0 && <VarianceCell base={base} value={v} measure={cat} />}
                               </Fragment>
                             )
@@ -622,7 +629,7 @@ function DetailPanel({
                       const v = measureOf(totals.get(x.key), m)
                       return (
                         <Fragment key={x.key}>
-                          <td className="text-right tabular-nums">{formatYen(String(v))}</td>
+                          <td className="text-right tabular-nums">{fmt(v)}</td>
                           {i > 0 && <VarianceCell base={base} value={v} measure={m} />}
                         </Fragment>
                       )
@@ -655,10 +662,10 @@ function DetailPanel({
                   <td className="whitespace-nowrap">{s.label}</td>
                   {values.map((v, i) => (
                     <td key={months[i]} className={cx('text-right tabular-nums', s.actual_through && months[i] <= s.actual_through && 'bg-slate-50')}>
-                      {formatYen(String(v))}
+                      {fmt(v)}
                     </td>
                   ))}
-                  <td className="text-right font-semibold tabular-nums">{formatYen(String(values.reduce((a, b) => a + b, 0n)))}</td>
+                  <td className="text-right font-semibold tabular-nums">{fmt(values.reduce((a, b) => a + b, 0n))}</td>
                 </tr>
               )
             })}

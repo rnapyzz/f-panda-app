@@ -7,6 +7,9 @@ import { saveElementAsPng } from '../../lib/domImage'
 import { defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { buildTree, subtreeIds } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
+import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
+import { AmountUnitProvider } from '../../lib/amountUnit'
+import type { AmountUnit } from '../../lib/format'
 
 // 図は開いたときに読み込む（I-22）
 const ActivityCharts = lazy(() => import('../activities/ActivityCharts').then((m) => ({ default: m.ActivityCharts })))
@@ -122,6 +125,7 @@ function PackView({ scenarios, segments, units, activities }: { scenarios: Scena
   }, [activities, units, tree, scopeKind, scopeId])
 
   const chartsRef = useRef<HTMLDivElement>(null)
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
   const [savingAll, setSavingAll] = useState(false)
   const [saveError, setSaveError] = useState('')
   const saveAll = async () => {
@@ -251,6 +255,7 @@ function PackView({ scenarios, segments, units, activities }: { scenarios: Scena
                 {saveError}
               </span>
             )}
+            <AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />
             <Button size="sm" onClick={saveAll} disabled={savingAll}>
               {savingAll ? '保存中…' : '図をまとめて保存'}
             </Button>
@@ -258,6 +263,7 @@ function PackView({ scenarios, segments, units, activities }: { scenarios: Scena
         }
       >
         <p className="mb-4 text-xs text-slate-500">今回の見込の図です（範囲で絞り込みます）。1つずつ保存するときは、図の「画像を保存」を使います。Chrome か Edge で保存できます。</p>
+        <AmountUnitProvider unit={amountUnit}>
         <div ref={chartsRef} className="space-y-6">
           {packCharts.map((view) => (
             <section key={view} aria-label={chartViewLabels[view]}>
@@ -268,6 +274,7 @@ function PackView({ scenarios, segments, units, activities }: { scenarios: Scena
             </section>
           ))}
         </div>
+        </AmountUnitProvider>
       </Card>
     </>
   )

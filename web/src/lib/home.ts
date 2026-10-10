@@ -1,6 +1,6 @@
 // ホームの一覧の計算（利益・差・並べ替え）。金額は BigInt で扱う。
 
-import { minusSign } from './format.ts'
+import { amountUnitLabels, formatSignedAmount, type AmountUnit } from './format.ts'
 import { noteCauseLabels, type ActivityProgress, type NoteCause, type NoteStatus, type PLTotals } from '../api/types.ts'
 
 export function profitOf(t: PLTotals | null | undefined): bigint | null {
@@ -154,22 +154,18 @@ export function summarizeChanges(items: ActivityProgress[], limit = 5): ChangeSu
   }
 }
 
-/** 金額を「▲1,200万円」のように短く表す（1万円未満は円のまま）。文章のサマリー用 */
-export function compactYen(v: bigint): string {
-  const sign = v < 0n ? minusSign : v > 0n ? '+' : ''
-  const abs = v < 0n ? -v : v
-  if (abs < 10000n) return `${sign}${abs.toLocaleString('ja-JP')}円`
-  const man = (abs + 5000n) / 10000n // 万円未満を四捨五入
-  return `${sign}${man.toLocaleString('ja-JP')}万円`
+/** 差の金額を単位付きで短く表す（例: 百万円なら「▲12.0百万円」「+0.2百万円」）。文章のサマリー用 */
+export function compactAmount(v: bigint, unit: AmountUnit = 'million'): string {
+  return `${formatSignedAmount(v, unit)}${amountUnitLabels[unit]}`
 }
 
 /** 文章のサマリー（決まった型で組み立てる。docs/plan.md「2.11」の ②） */
-export function summaryText(s: ChangeSummary): string {
-  const parts = [`前回の見込から利益 ${compactYen(s.profitDiff)}（売上 ${compactYen(s.revenueDiff)}）。`, `増加 ${s.increased}施策・減少 ${s.decreased}施策。`]
+export function summaryText(s: ChangeSummary, unit: AmountUnit = 'million'): string {
+  const parts = [`前回の見込から利益 ${compactAmount(s.profitDiff, unit)}（売上 ${compactAmount(s.revenueDiff, unit)}）。`, `増加 ${s.increased}施策・減少 ${s.decreased}施策。`]
   if (s.top.length > 0) {
     const main = s.top.slice(0, 3).map((c) => {
       const causes = c.item.causes.map((x) => noteCauseLabels[x]).join('・')
-      return `${c.item.name} ${compactYen(c.diff)}${causes ? `（${causes}）` : ''}`
+      return `${c.item.name} ${compactAmount(c.diff, unit)}${causes ? `（${causes}）` : ''}`
     })
     parts.push(`主な変動: ${main.join('、')}。`)
   }

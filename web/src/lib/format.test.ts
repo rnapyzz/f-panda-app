@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { formatNumber, formatPercent, formatRate, formatSignedYen, formatYen, monthLabel, yearMonthLabel } from './format.ts'
+import { formatAmount, formatNumber, formatSignedAmount, formatPercent, formatRate, formatSignedYen, formatYen, monthLabel, yearMonthLabel } from './format.ts'
 
 test('formatYen: 3桁区切り。大きな整数も桁落ちしない', () => {
   assert.equal(formatYen('1234567'), '1,234,567')
@@ -36,4 +36,21 @@ test('formatSignedYen・formatRate', () => {
   assert.equal(formatRate(5.2), '+5.2%')
   assert.equal(formatRate(-5.2), '▲5.2%')
   assert.equal(formatRate(0), '0%')
+})
+
+test('formatAmount: 百万円は小数点以下1桁、千円は整数（四捨五入）', () => {
+  assert.equal(formatAmount(158_940_000n, 'million'), '158.9')
+  assert.equal(formatAmount(158_950_000n, 'million'), '159.0')
+  assert.equal(formatAmount(-6_250_000n, 'million'), '▲6.3')
+  assert.equal(formatAmount(40_000n, 'million'), '0.0')
+  assert.equal(formatAmount(1_234_567_890_000n, 'million'), '1,234,567.9')
+  assert.equal(formatAmount('158940500', 'thousand'), '158,941')
+  assert.equal(formatAmount(-1499, 'thousand'), '▲1')
+  assert.equal(formatAmount(1234, 'yen'), '1,234')
+  assert.equal(formatSignedAmount(3_400_000n, 'million'), '+3.4')
+  assert.equal(formatSignedAmount(-3_400_000n, 'million'), '▲3.4')
+  assert.equal(formatSignedAmount(10_000n, 'million'), '+0.0')
+  assert.equal(formatSignedAmount(-10_000n, 'million'), '▲0.0')
+  assert.equal(formatSignedAmount(0n, 'million'), '0.0')
+  assert.equal(formatAmount(-400n, 'thousand'), '▲0')
 })

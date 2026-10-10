@@ -20,7 +20,8 @@ import {
   type Rect,
 } from '../../lib/activityCharts'
 import { actualColor, diverging, downColor, downsideColor, ink, levelRamp, totalColor, typeColor, upColor } from '../../lib/chartTheme'
-import { formatYen, monthLabel } from '../../lib/format'
+import { formatAmount, formatSignedAmount, monthLabel } from '../../lib/format'
+import { useAmountUnit } from '../../lib/amountUnit'
 import { navigate } from '../../lib/router'
 import { currentFiscalYear, defaultScenarios, fiscalMonths, scenarioLabel, todayInTokyo } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
@@ -28,13 +29,20 @@ import { useApi } from '../../lib/useApi'
 const diffFill: Record<DiffBucket, string> = { [-2]: diverging.strongDown, [-1]: diverging.down, 0: diverging.mid, 1: diverging.up, 2: diverging.strongUp }
 const diffLabels: Record<DiffBucket, string> = { [-2]: '−20% 以下', [-1]: '−20〜−5%', 0: '±5% 未満', 1: '+5〜+20%', 2: '+20% 以上' }
 
-/** 金額を「1,234万」の形にする（図の目盛り・ラベル用） */
-function man(n: number, signed = false): string {
-  const v = Math.round(n / 10_000)
-  return `${signed && v > 0 ? '+' : ''}${formatYen(v)}万`
+/**
+ * 図の金額の書式（画面で選んだ単位。docs/plan.md「7. 前提・決定事項」）。
+ * man は目盛り・ラベル用（単位なし。単位は図の説明に出す）、yen・signedYen はツールチップ用（単位付き）。
+ */
+function useChartFormat() {
+  const { unit, label } = useAmountUnit()
+  return {
+    label,
+    // 目盛り・ラベル: 整数のときは「.0」を省く（例: 百万円の目盛り「20」）
+    man: (n: number, signed = false) => (signed ? formatSignedAmount(n, unit) : formatAmount(n, unit)).replace(/\.0$/, ''),
+    yen: (n: number) => `${formatAmount(n, unit)} ${label}`,
+    signedYen: (n: number) => `${formatSignedAmount(n, unit)} ${label}`,
+  }
 }
-const yen = (n: number) => `${formatYen(Math.round(n))} 円`
-const signedYen = (n: number) => `${n > 0 ? '+' : ''}${yen(n)}`
 
 /**
  * 施策の一覧の「図で見る」（docs/plan.md「2.22」）。今回の見込（なければ今年度の最新見込）の年間の金額を、
@@ -108,7 +116,8 @@ export function ActivityCharts({ view, activities }: { view: ChartView; activiti
 
 // --- 共通: カード・凡例・ツールチップ ---
 
-function ChartCard({ legend, actions, footer, children }: { legend?: ReactNode; actions?: ReactNode; footer?: ReactNode; children: ReactNode }) {
+function ChartCard({ legend, actions, footer, amounts = true, children }: { legend?: ReactNode; actions?: ReactNode; footer?: ReactNode; amounts?: boolean; children: ReactNode }) {
+  const { label } = useAmountUnit()
   return (
     <Card>
       {(legend || actions) && (
@@ -120,7 +129,12 @@ function ChartCard({ legend, actions, footer, children }: { legend?: ReactNode; 
         </div>
       )}
       {children}
-      {footer && <p className="mt-3 text-xs text-slate-500">{footer}</p>}
+      {(footer || amounts) && (
+        <p className="mt-3 text-xs text-slate-500">
+          {footer}
+          {amounts && <span className="ml-1">（金額の単位: {label}）</span>}
+        </p>
+      )}
     </Card>
   )
 }
@@ -254,6 +268,7 @@ const PAD = 32
 
 /** 横軸は確度の割合、縦軸は年間の利益、丸の大きさは売上、色は施策のタイプ */
 function PortfolioMap({ items, unitName, levels }: { items: RiskActivity[]; unitName: (id: number) => string; levels: RiskReport['levels'] }) {
+  const { man, yen, label } = useChartFormat()
   const { tip, active, anyActive, props } = useMarks()
   const { points, skipped } = bubblePoints(items)
   if (points.length === 0) return <Empty>売上のある施策がありません（ポートフォリオは売上のある施策を表示します）</Empty>
@@ -336,7 +351,7 @@ function PortfolioMap({ items, unitName, levels }: { items: RiskActivity[]; unit
             確度の割合（加重見込 ÷ 満額、売上） →
           </text>
           <text x={16} y={(M.top + H - M.bottom) / 2} textAnchor="middle" fontSize={12} fill={ink.secondary} transform={`rotate(-90 16 ${(M.top + H - M.bottom) / 2})`}>
-            年間の利益（満額） →
+            年間の利益（満額・{label}） →
           </text>
           {quadrant(W - M.right, M.top - 14, '確実で利益が大きい ↗', 'end')}
           {quadrant(M.left, M.top - 14, '↖ 利益は大きいが不確か', 'start')}
@@ -405,6 +420,7 @@ const TH = 520
 
 /** セグメント → ユニット → 施策の入れ子。面積は売上（または費用）、色は目標との差（加重見込の利益） */
 function Treemap({ items, unitOf, segmentName, hasTarget }: { items: RiskActivity[]; unitOf: (id: number) => Unit | undefined; segmentName: (id: number) => string; hasTarget: boolean }) {
+  const { man, yen, signedYen } = useChartFormat()
   const [metric, setMetric] = useState<Metric>('revenue')
   const { tip, active, props } = useMarks()
   const value = (a: RiskActivity) => Number(BigInt(a.full[metric]))
@@ -551,6 +567,7 @@ const ROW_H = 34
 
 /** 施策ごとに、悲観〜楽観の利益を帯、加重見込を点で描く。振れ幅の大きい順 */
 function RangeChart({ items, unitName }: { items: RiskActivity[]; unitName: (id: number) => string }) {
+  const { man, yen } = useChartFormat()
   const { tip, active, props } = useMarks()
   const { rows, rest } = rangeRows(items)
   if (rows.length === 0) return <Empty>金額のある施策がありません</Empty>
@@ -638,6 +655,7 @@ function WaterfallChart({
   onCompareTo: (v: 'target' | 'previous') => void
   hasPrevious: boolean
 }) {
+  const { man, yen, signedYen } = useChartFormat()
   const { tip, active, props } = useMarks()
   const steps = waterfallSteps(items, startLabel)
   const values = steps.flatMap((s) => [s.from, s.to])
@@ -746,6 +764,7 @@ function TimelineChart({ activities, scenario, unitName }: { activities: Activit
 
   return (
     <ChartCard
+      amounts={false}
       legend={
         <>
           {types.map((t) => (
@@ -848,6 +867,7 @@ function TimelineChart({ activities, scenario, unitName }: { activities: Activit
 
 /** 月ごとの売上（満額）を、実績・確度の段階・ダウンサイドで積み上げる。ダウンサイドは 0 の下に出す */
 function PipelineChart({ items, months, levels, actualThrough }: { items: RiskActivity[]; months: string[]; levels: RiskReport['levels']; actualThrough: string | null }) {
+  const { man, yen } = useChartFormat()
   const { tip, active, props } = useMarks()
   const data = pipelineByMonth(items, months)
   const keys = ['actual', ...levels.map((l) => l.code)]

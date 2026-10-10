@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit } from './helpers'
 
 test('ホームで、作成中のシナリオの施策の状態と差を確認し、実績のお知らせから施策を開ける', async ({ page }) => {
   await login(page)
@@ -36,6 +36,9 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   // サービスの状況（FP&A は「すべて」）: ユニットごとの今回・期初計画・前回見込と差
   const service = page.getByRole('table', { name: 'サービスの状況' })
   const unitRow = service.getByRole('row', { name: new RegExp(`E2E課 ${f.run}`) })
+  // 金額の単位: 開くと百万円。円に切り替えて確かめる
+  await expect(unitRow).toContainText('▲0.2')
+  await showUnit(page, '円')
   await expect(unitRow).toContainText('800,000')
   await expect(unitRow).toContainText('1,000,000')
   await expect(unitRow).toContainText('▲200,000')
@@ -44,9 +47,9 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   await unitRow.getByRole('button', { name: `E2E課 ${f.run}` }).click()
   await expect(page.getByRole('button', { name: `E2E課 ${f.run}`, pressed: true })).toBeVisible()
 
-  // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（▲40万円）。説明がないので「要因なし」
-  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回の見込から利益 ▲40万円')
-  await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} ▲40万円`)
+  // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（▲400,000円）。説明がないので「要因なし」
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回の見込から利益 ▲400,000円')
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} ▲400,000円`)
   await expect(page.getByRole('list', { name: '変動の大きい施策' })).toContainText('説明がありません')
   await expect(page.getByRole('table', { name: '要因別の変動' })).toContainText('要因なし')
 

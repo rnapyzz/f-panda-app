@@ -10,6 +10,9 @@ import { useApi } from '../../lib/useApi'
 import { confidenceLabel } from '../../lib/confidence'
 import { ActivityFormDialog, createActivity } from './ActivityFormDialog'
 import { chartViewLabels, type ChartView } from '../../lib/activityCharts'
+import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
+import { AmountUnitProvider } from '../../lib/amountUnit'
+import type { AmountUnit } from '../../lib/format'
 // 図は開いたときに読み込む（I-22）
 const ActivityCharts = lazy(() => import('./ActivityCharts').then((m) => ({ default: m.ActivityCharts })))
 
@@ -55,6 +58,7 @@ export function ActivityListPage() {
   const userName = useMemo(() => new Map((users.data?.items ?? []).map((u) => [u.id, u.name])), [users.data])
   const creatable = creatableUnits(me, units.data?.items ?? [])
   const [creating, setCreating] = useState(false)
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>('million')
 
   // 絞り込み条件は URL に持たせる（戻る・共有で同じ一覧を表示できるように）
   const setFilter = (key: string, value: string) => {
@@ -148,18 +152,21 @@ export function ActivityListPage() {
         </div>
       </Card>
 
-      <div role="group" aria-label="表示" className="mb-3 inline-flex flex-wrap gap-0.5 rounded-full bg-slate-100 p-1">
-        {(Object.keys(viewLabels) as View[]).map((v) => (
-          <button
-            key={v}
-            type="button"
-            aria-pressed={view === v}
-            onClick={() => setView(v)}
-            className={cx('rounded-full px-3.5 py-1 text-sm font-medium transition-colors', view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}
-          >
-            {viewLabels[v]}
-          </button>
-        ))}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label="表示" className="inline-flex flex-wrap gap-0.5 rounded-full bg-slate-100 p-1">
+          {(Object.keys(viewLabels) as View[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={cx('rounded-full px-3.5 py-1 text-sm font-medium transition-colors', view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}
+            >
+              {viewLabels[v]}
+            </button>
+          ))}
+        </div>
+        {view !== 'table' && <AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />}
       </div>
 
       {view !== 'table' ? (
@@ -169,7 +176,9 @@ export function ActivityListPage() {
           <Loading />
         ) : (
           <Suspense fallback={<Loading />}>
-            <ActivityCharts view={view} activities={activities.data.items} />
+            <AmountUnitProvider unit={amountUnit}>
+              <ActivityCharts view={view} activities={activities.data.items} />
+            </AmountUnitProvider>
           </Suspense>
         )
       ) : (

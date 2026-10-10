@@ -73,3 +73,8 @@ export async function createActivity(page: Page, f: Fixture, extra: Record<strin
     ...extra,
   })
 }
+
+/** 金額の表示単位（百万円・千円・円）を切り替える。画面を開くと百万円になっている */
+export async function showUnit(page: Page, unit: '百万円' | '千円' | '円') {
+  await page.getByRole('radiogroup', { name: '金額の単位' }).getByRole('radio', { name: unit, exact: true }).click()
+}

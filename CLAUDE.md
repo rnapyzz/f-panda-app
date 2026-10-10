@@ -48,6 +48,7 @@ nginx + React.js + TailwindCSS + Go + MySQL 8。すべて Docker コンテナで
 - 金額・ドライバー値は `DECIMAL` で扱い、浮動小数点で計算しない。
 - 年月（`target_month`）は月初日の `DATE` で保持する。
 - 画面・図・Excel の金額のマイナスは「▲1,000」で表示する（`web/src/lib/format.ts` の `formatYen`・`formatSignedYen` を使う）。CSV は「-」のまま。
+- 確認・報告の画面の金額は、画面ごとの「金額の単位」（百万円が既定・千円・円）で表示する。`AmountUnitSwitch` と `AmountUnitProvider` を置き、部品は `useAmountUnit()` の `fmt`・`signed` を使う。数値の入力・明細・変更履歴は円のまま（docs/plan.md「7. 前提・決定事項」）。
 - 値の変更は変更セット（`change_sets`）単位で行い、変更理由を必須にする。変更前後の値は `audit_logs` に残す。
 - ロック済みシナリオと、シナリオの決算確定月以前の月（実績）は画面から編集できないようにする。現場が入力できるのは作成中のシナリオだけ。
 - ドキュメント・UI 文言は日本語で書く。
