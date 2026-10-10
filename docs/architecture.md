@@ -155,7 +155,7 @@
 | -------------- | --------------------------------------------------------------------------------------- |
 | 施策           | `GET/POST /api/activities`、`GET/PUT/DELETE /api/activities/{id}`                        |
 | 外部コード     | `POST /api/activities/{id}/external-codes`、`DELETE /api/activities/{id}/external-codes/{eid}` |
-| 実績の明細     | `GET /api/activities/{id}/actual-entries?month=&subject_id=`（会計科目・部門・箱の ID・摘要・金額・割当の根拠。`hide_details` の会計科目は、FP&A 以外には会計科目 × 月の合計だけを返す） |
+| 実績の明細     | `GET /api/activities/{id}/actual-entries?fiscal_year=&month=&subject_id=&offset=&limit=`（既定はすべての月。新しい月から `limit`（既定 100、最大 500）件。件数 `total`・続き `has_more`・明細の合計と実績データの合計は絞り込んだ全件。`hide_details` の会計科目は、FP&A 以外には会計科目 × 科目の合計 `hidden` だけを返す）、`GET .../actual-entries/export`（同じ絞り込みの全件を CSV で。`hide_details` は月 × 会計科目 × 科目の合計の行） |
 | マイルストーン | `POST /api/activities/{id}/milestones`、`PUT/DELETE /api/activities/{id}/milestones/{mid}` |
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 重点施策       | `PUT /api/activities/{id}/priority`（`is_priority`。施策の作成・削除の権限が必要。変更履歴に残す） |
