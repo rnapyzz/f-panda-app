@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { createActivity, login, seedMasters } from './helpers'
 
@@ -63,10 +64,20 @@ test('会計の明細を取り込み、未割当の一覧で施策を選ぶと�
   await expect(page.getByText(box, { exact: true }).first()).toBeVisible() // 外部コード
   await page.getByRole('tab', { name: '概要' }).click()
   const entries = page.getByRole('table').filter({ hasText: '割当の根拠' })
-  await page.getByLabel('実績の月').selectOption('2026-07')
+  // 既定はすべての月。月で絞り込める
+  await expect(entries.getByRole('row', { name: /新規案件/ })).toContainText('未割当の一覧から選択')
+  await page.getByLabel('月', { exact: true }).selectOption('2026-07')
   await expect(entries.getByRole('row', { name: /新規案件/ })).toContainText('未割当の一覧から選択')
   await expect(entries.getByRole('row', { name: /既存の受託/ })).toContainText('施策コード')
   await expect(page.getByText('明細の合計 350,000 円')).toBeVisible()
+  // 絞り込みどおりに CSV で出力できる
+  const csvDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'CSV に出力' }).click()
+  const file = await csvDownload
+  expect(file.suggestedFilename()).toMatch(/^actual_entries_.+\.csv$/)
+  const text = (await readFile((await file.path())!)).toString('utf8')
+  expect(text).toContain('新規案件')
+  expect(text).toContain('2026-07')
 
   // 取り込み直すと、ルールで同じ施策に入る
   const res = await page.request.post('/api/actuals/import?dry_run=true', { multipart: { file: { name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) } } })

@@ -5,7 +5,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { CommentThread } from './CommentThread'
 import { Badge, Button, Card, ErrorMessage, Textarea, cx } from '../../components/ui'
 import { Help } from '../../components/Help'
-import { formatDateTime, formatYen } from '../../lib/format'
+import { formatDateTime, formatSignedYen, formatYen } from '../../lib/format'
 import { isLargeVariance, summarizeVariance, type VarianceSummary } from '../../lib/variance'
 
 const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'green' } as const
@@ -190,7 +190,7 @@ export function NoteCard({
 }
 
 function Summary({ title, summary, empty }: { title: string; summary: VarianceSummary | null; empty: string }) {
-  const signed = (x: bigint) => `${x > 0n ? '+' : ''}${formatYen(String(x))}`
+  const signed = (x: bigint) => formatSignedYen(x)
   const tone = (x: bigint) => (x > 0n ? 'text-emerald-700' : x < 0n ? 'text-red-600' : 'text-slate-500')
   return (
     <div>

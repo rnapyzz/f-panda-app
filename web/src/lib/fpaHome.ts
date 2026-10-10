@@ -1,7 +1,7 @@
 // FP&A のホームの「今月の作業」（docs/plan.md「2.20」）。サイクルのチェックリストと更新の状況を組み立てる。
 
 import type { ActivityProgress, NoteStatus } from '../api/types.ts'
-import { monthLabel } from './format.ts'
+import { formatYen, monthLabel } from './format.ts'
 import { actualThroughLabel, deadlineStatus } from './scenario.ts'
 
 export type StepKey = 'import' | 'allocate' | 'start' | 'deadline' | 'update'
@@ -35,7 +35,7 @@ export function buildChecklist(input: {
       key: 'allocate',
       label: '未割当をなくす',
       done: m !== null && unallocated.count === 0,
-      detail: unallocated.count === 0 ? '未割当はありません' : `未割当 ${unallocated.count} 件（${unallocated.amount.toLocaleString('ja-JP')} 円）`,
+      detail: unallocated.count === 0 ? '未割当はありません' : `未割当 ${unallocated.count} 件（${formatYen(String(unallocated.amount))} 円）`,
     },
     {
       key: 'start',

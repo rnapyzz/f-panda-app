@@ -16,7 +16,7 @@ import {
 } from '../../api/types'
 import { SaveImageButton } from '../../components/SaveImageButton'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
-import { formatYen } from '../../lib/format'
+import { formatSignedYen, formatYen } from '../../lib/format'
 import {
   compareDiffOf,
   compareProfit,
@@ -42,7 +42,7 @@ import { actualColor, downsideColor, levelRamp } from '../../lib/chartTheme'
 
 // 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→淡い紫、ダウンサイドは赤（lib/chartTheme.ts。施策の一覧の図と同じ）
 
-const signed = (v: bigint) => `${v > 0n ? '+' : ''}${formatYen(String(v))}`
+const signed = (v: bigint) => formatSignedYen(v)
 const yen = (v: bigint) => formatYen(String(v))
 const profitOfPL = (p: { revenue: string; expense: string }) => BigInt(p.revenue) - BigInt(p.expense)
 

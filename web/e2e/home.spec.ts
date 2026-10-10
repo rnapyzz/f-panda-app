@@ -38,15 +38,15 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   const unitRow = service.getByRole('row', { name: new RegExp(`E2E課 ${f.run}`) })
   await expect(unitRow).toContainText('800,000')
   await expect(unitRow).toContainText('1,000,000')
-  await expect(unitRow).toContainText('-200,000')
-  await expect(unitRow).toContainText('-400,000')
+  await expect(unitRow).toContainText('▲200,000')
+  await expect(unitRow).toContainText('▲400,000')
   // ユニット名を選ぶと、一覧・サマリー・マイルストーンがそのユニットに絞り込まれる
   await unitRow.getByRole('button', { name: `E2E課 ${f.run}` }).click()
   await expect(page.getByRole('button', { name: `E2E課 ${f.run}`, pressed: true })).toBeVisible()
 
-  // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（−40万円）。説明がないので「要因なし」
-  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回の見込から利益 −40万円')
-  await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} −40万円`)
+  // 変動のサマリー: 前回見込 1,200,000 → 今回 800,000（▲40万円）。説明がないので「要因なし」
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText('前回の見込から利益 ▲40万円')
+  await expect(page.getByLabel('変動の文章のサマリー')).toContainText(`主な変動: ${activity.name} ▲40万円`)
   await expect(page.getByRole('list', { name: '変動の大きい施策' })).toContainText('説明がありません')
   await expect(page.getByRole('table', { name: '要因別の変動' })).toContainText('要因なし')
 
@@ -61,8 +61,8 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   const row = page.getByRole('row', { name: new RegExp(activity.code) }) // 施策の一覧の行（コードを含む）
   await expect(row).toContainText('未着手')
   await expect(row).toContainText('800,000') // 今回（4月は実績）
-  await expect(row).toContainText('-200,000') // 基準 1,000,000 との差
-  await expect(row).toContainText('-400,000') // 前回見込 1,200,000 との差
+  await expect(row).toContainText('▲200,000') // 基準 1,000,000 との差
+  await expect(row).toContainText('▲400,000') // 前回見込 1,200,000 との差
 
   // 施策を開くと、作成中のシナリオの数値入力画面
   await row.getByRole('link', { name: activity.name }).click()

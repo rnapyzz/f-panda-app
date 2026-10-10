@@ -7,7 +7,7 @@ import { DeadlineBadge } from '../components/Layout'
 import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
 import { useCurrentUser } from '../lib/auth'
-import { formatDateTime, formatYen, monthLabel } from '../lib/format'
+import { formatDateTime, formatSignedYen, formatYen, monthLabel } from '../lib/format'
 import { countByStatus, profitDiff, profitOf, sortStatuses, summarizeChanges, type SortMode } from '../lib/home'
 import { Link, navigate, useLocation } from '../lib/router'
 import { actualThroughLabel, scenarioLabel } from '../lib/scenario'
@@ -259,7 +259,7 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
   const diff = (compare: typeof it.base) => {
     const d = profitDiff(it.current, compare)
     if (d === null) return <span className="text-slate-300">—</span>
-    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{`${d > 0n ? '+' : ''}${formatYen(String(d))}`}</span>
+    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{formatSignedYen(d)}</span>
   }
   return (
     <tr>

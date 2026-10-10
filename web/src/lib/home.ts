@@ -1,5 +1,6 @@
 // ホームの一覧の計算（利益・差・並べ替え）。金額は BigInt で扱う。
 
+import { minusSign } from './format.ts'
 import { noteCauseLabels, type ActivityProgress, type NoteCause, type NoteStatus, type PLTotals } from '../api/types.ts'
 
 export function profitOf(t: PLTotals | null | undefined): bigint | null {
@@ -153,9 +154,9 @@ export function summarizeChanges(items: ActivityProgress[], limit = 5): ChangeSu
   }
 }
 
-/** 金額を「−1,200万円」のように短く表す（1万円未満は円のまま）。文章のサマリー用 */
+/** 金額を「▲1,200万円」のように短く表す（1万円未満は円のまま）。文章のサマリー用 */
 export function compactYen(v: bigint): string {
-  const sign = v < 0n ? '−' : v > 0n ? '+' : ''
+  const sign = v < 0n ? minusSign : v > 0n ? '+' : ''
   const abs = v < 0n ? -v : v
   if (abs < 10000n) return `${sign}${abs.toLocaleString('ja-JP')}円`
   const man = (abs + 5000n) / 10000n // 万円未満を四捨五入

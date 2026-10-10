@@ -1,7 +1,7 @@
 import { noteCauseLabels, noteStatusLabels, type ActivityProgress, type NoteCause } from '../api/types'
 import { Badge, Card, cx } from '../components/ui'
 import { CommentCount } from '../components/CommentCount'
-import { formatYen } from '../lib/format'
+import { formatSignedYen } from '../lib/format'
 import { compactYen, summaryText, type ChangeSummary } from '../lib/home'
 import { Link } from '../lib/router'
 import { Help } from '../components/Help'
@@ -13,7 +13,7 @@ const excerpt = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s
 /** 変動のサマリー（前回見込 → 今回）。文章・施策別（上位）・要因別 */
 export function ChangeSummaryCard({ summary, scenarioId, ownerName }: { summary: ChangeSummary; scenarioId: number; ownerName: (it: ActivityProgress) => string }) {
   const signed = (v: bigint) => (
-    <span className={cx('tabular-nums', v > 0n && 'text-emerald-700', v < 0n && 'text-red-600', v === 0n && 'text-slate-400')}>{`${v > 0n ? '+' : ''}${formatYen(String(v))}`}</span>
+    <span className={cx('tabular-nums', v > 0n && 'text-emerald-700', v < 0n && 'text-red-600', v === 0n && 'text-slate-400')}>{formatSignedYen(v)}</span>
   )
   return (
     <Card

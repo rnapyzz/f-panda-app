@@ -19,7 +19,7 @@ const (
 	Plain       Style = iota // 標準
 	Bold                     // 太字
 	Header                   // 見出し: 太字・薄い灰色の塗り・下罫線・中央
-	Number                   // 金額: 3桁区切り、マイナスは赤
+	Number                   // 金額: 3桁区切り、マイナスは赤の ▲
 	NumberSum                // 合計の金額: 太字・上罫線
 	LabelSum                 // 合計の見出し: 太字・上罫線
 	Indent1                  // 字下げ 1
@@ -144,9 +144,9 @@ func workbookRels(n int) string {
 	return b.String()
 }
 
-// styles は Style の順番どおりの cellXfs を持つ。金額の表示形式は 164 番（3桁区切り、マイナスは赤）。
+// styles は Style の順番どおりの cellXfs を持つ。金額の表示形式は 164 番（3桁区切り、マイナスは赤の ▲。値は数値のまま）。
 const styles = xmlHeader + `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-	`<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0;[Red]-#,##0"/></numFmts>` +
+	`<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0;[Red]&quot;▲&quot;#,##0"/></numFmts>` +
 	`<fonts count="4">` +
 	`<font><sz val="11"/><name val="Yu Gothic"/><family val="2"/></font>` +
 	`<font><b/><sz val="11"/><name val="Yu Gothic"/><family val="2"/></font>` +
