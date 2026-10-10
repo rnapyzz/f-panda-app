@@ -150,3 +150,31 @@ func TestRiskWarnings(t *testing.T) {
 		t.Errorf("不正な period: status = %d", status)
 	}
 }
+
+// TestRiskAccuracyComparedMonths は、見込の当たり具合で、比較シナリオでも実績の月を比べないことを確かめる。
+// 以前は比較シナリオの実績の月（計画値がない）も実績の側にだけ数え、差が 100% 以上になっていた。
+func TestRiskAccuracyComparedMonths(t *testing.T) {
+	f := newScenarioFixture(t)
+	a := f.admin
+	put := func(sid int64, month string, amount int) {
+		t.Helper()
+		if status, body := a.do("PUT", f.valuesPath(sid, f.manualAct)+"/amounts", map[string]any{"reason": "r", "amounts": []map[string]any{{"subject_id": f.sales, "target_month": month, "amount": amount}}}); status != http.StatusOK {
+			t.Fatalf("amounts: status = %d, body = %v", status, body)
+		}
+	}
+	// 計画は 4月・5月とも 100,000。実績も同じ。9月見込は 4月まで実績、10月見込は 5月まで実績
+	put(f.budget, "2026-04", 100_000)
+	put(f.budget, "2026-05", 100_000)
+	a.upload(actualsPath, "target_month,box_code,account_code,amount\n2026-04,PRJ-1,4110,100000\n2026-05,PRJ-1,4110,100000\n", "4・5月実績")
+	sep := a.mustCreate("/api/scenarios", map[string]any{"name": "9月見込", "fiscal_year": 2026, "base_scenario_id": f.budget, "actual_through": "2026-04"})
+	oct := a.mustCreate("/api/scenarios", map[string]any{"name": "10月見込", "fiscal_year": 2026, "base_scenario_id": sep, "actual_through": "2026-05"})
+	path := fmt.Sprintf("/api/reports/risk?scenario_id=%d&compare_id=%d", oct, sep)
+	if acc := riskActivity(a.mustGet(path), "PRJ-1")["warnings"].(map[string]any)["accuracy"]; acc != nil {
+		t.Errorf("計画どおりの実績なのに当たり具合 = %v", acc)
+	}
+	// 5月（9月見込では計画値の月）の実績が 150,000 なら、差は 50%
+	a.upload(actualsPath, "target_month,box_code,account_code,amount\n2026-05,PRJ-1,4110,150000\n", "5月実績の修正")
+	if acc := riskActivity(a.mustGet(path), "PRJ-1")["warnings"].(map[string]any)["accuracy"]; acc == nil || acc.(float64) != 50 {
+		t.Errorf("当たり具合 = %v, want 50", acc)
+	}
+}

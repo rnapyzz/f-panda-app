@@ -631,14 +631,15 @@ func downward(cur, cmp *big.Rat) *struct {
 	}{roundYen(diff), float64(int64(rate*10+0.5)) / 10}
 }
 
-// fillAccuracy は見込の当たり具合を加える: 基準の決算確定済みの直近3か月で、比較シナリオの計画値と実績の差の率が 20% 以上。
+// fillAccuracy は見込の当たり具合を加える: 基準の決算確定済みの直近3か月（比較シナリオでは計画値の月）で、比較シナリオの計画値と実績の差の率が 20% 以上。
 func fillAccuracy(ctx context.Context, db *sql.DB, filter func(string) string, s, compare riskScenario, index map[int64]*RiskActivity) error {
 	if s.ActualThrough == nil {
 		return nil
 	}
+	// 比べるのは、基準では実績で、比較シナリオでは計画値の月だけ（比較シナリオでも実績の月は、計画値がないので比べない）
 	var months []string
 	for _, m := range calc.FiscalMonths(s.fiscalYear) {
-		if m <= *s.ActualThrough {
+		if m <= *s.ActualThrough && (compare.ActualThrough == nil || m > *compare.ActualThrough) {
 			months = append(months, m)
 		}
 	}
