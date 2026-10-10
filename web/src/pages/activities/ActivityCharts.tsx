@@ -20,7 +20,7 @@ import {
   type Rect,
 } from '../../lib/activityCharts'
 import { actualColor, diverging, downColor, downsideColor, ink, levelRamp, totalColor, typeColor, upColor } from '../../lib/chartTheme'
-import { monthLabel } from '../../lib/format'
+import { formatYen, monthLabel } from '../../lib/format'
 import { navigate } from '../../lib/router'
 import { currentFiscalYear, defaultScenarios, fiscalMonths, scenarioLabel, todayInTokyo } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
@@ -31,9 +31,9 @@ const diffLabels: Record<DiffBucket, string> = { [-2]: '−20% 以下', [-1]: '�
 /** 金額を「1,234万」の形にする（図の目盛り・ラベル用） */
 function man(n: number, signed = false): string {
   const v = Math.round(n / 10_000)
-  return `${signed && v > 0 ? '+' : ''}${v.toLocaleString('ja-JP')}万`
+  return `${signed && v > 0 ? '+' : ''}${formatYen(v)}万`
 }
-const yen = (n: number) => `${Math.round(n).toLocaleString('ja-JP')} 円`
+const yen = (n: number) => `${formatYen(Math.round(n))} 円`
 const signedYen = (n: number) => `${n > 0 ? '+' : ''}${yen(n)}`
 
 /**

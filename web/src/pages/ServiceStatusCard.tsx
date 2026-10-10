@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { unitTypeLabels, type ActivityProgress, type ActivityProgressReport, type Unit } from '../api/types'
 import { Card, cx } from '../components/ui'
-import { formatYen } from '../lib/format'
+import { formatSignedYen, formatYen } from '../lib/format'
 import { sumTotals, totalsByUnit, type UnitTotals } from '../lib/home'
 import { scenarioLabel } from '../lib/scenario'
 import { Help } from '../components/Help'
@@ -38,7 +38,7 @@ export function ServiceStatusCard({
   const diff = (cur: bigint, cmp: bigint | null) => {
     if (cmp === null) return <span className="text-slate-300">—</span>
     const d = cur - cmp
-    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{`${d > 0n ? '+' : ''}${formatYen(String(d))}`}</span>
+    return <span className={cx(d > 0n && 'text-emerald-700', d < 0n && 'text-red-600', d === 0n && 'text-slate-400')}>{formatSignedYen(d)}</span>
   }
   const columns: { key: 'initial' | 'revised' | 'previous'; label: string }[] = [
     { key: 'initial', label: '期初計画' },
