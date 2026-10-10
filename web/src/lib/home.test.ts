@@ -11,6 +11,7 @@ const item = (code: string, status: NoteStatus, current: number, base: number | 
   owner_user_id: null,
   status,
   has_explanation: false,
+  comment_count: 0,
   explanation: '',
   causes: [],
   is_priority: false,

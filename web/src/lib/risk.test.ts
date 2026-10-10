@@ -27,6 +27,7 @@ const act = (code: string, o: Partial<RiskActivity> = {}): RiskActivity => ({
   warning_count: 0,
   bad_for_level: false,
   conditions: {},
+  comment_count: 0,
   ...o,
 })
 const levels: RiskReport['levels'] = [

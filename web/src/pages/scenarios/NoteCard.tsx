@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../../api/client'
 import { noteCauseLabels, noteStatusLabels, type AmountRow, type NoteCause, type ValuesView } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { CommentThread } from './CommentThread'
 import { Badge, Button, Card, ErrorMessage, Textarea, cx } from '../../components/ui'
 import { Help } from '../../components/Help'
 import { formatDateTime, formatYen } from '../../lib/format'
@@ -83,7 +84,7 @@ export function NoteCard({
         <>
           今回の見込の説明
           <Help manual="member#note">
-            目標・前回の見込との差がなぜ生じたか、想定している条件（楽観・悲観の見通しなど）を書きます。「説明して完了」で、この施策の今回の更新が終わったことを記録します。完了の後に数値や説明を変えると「入力中」に戻ります。
+            目標・前回の見込との差がなぜ生じたか、想定している条件（楽観・悲観の見通しなど）を書きます。「説明して完了」で、この施策の今回の更新が終わったことを記録します。完了の後に数値や説明を変えると「入力中」に戻ります。下のコメントで、マネージャーなどとやり取りできます（コメントでは状態は変わりません）。
           </Help>
         </>
       }
@@ -168,6 +169,10 @@ export function NoteCard({
           )}
           {error ? <ErrorMessage error={error} /> : null}
         </div>
+      </div>
+
+      <div className="mt-6 border-t border-slate-100 pt-4">
+        <CommentThread key={path} path={path} />
       </div>
 
       <ConfirmDialog

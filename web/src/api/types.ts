@@ -584,6 +584,8 @@ export type RiskActivity = {
   /** 段階に対して状況が悪い（確度の高い段階で警告あり） */
   bad_for_level: boolean
   conditions: Partial<Record<'scenario' | 'compare', string>>
+  /** 今回の見込の説明へのコメントの件数（docs/plan.md「2.24」） */
+  comment_count: number
 }
 
 export type RiskScenarioRef = { id: number; name: string; plan_role: PlanRole | null; actual_through: string | null; base_scenario_id: number | null }
@@ -616,6 +618,8 @@ export type ActivityProgress = {
   owner_user_id: number | null
   status: NoteStatus
   has_explanation: boolean
+  /** 説明へのコメントの件数（消したものを除く、docs/plan.md「2.24」） */
+  comment_count: number
   explanation: string
   causes: NoteCause[]
   is_priority: boolean
@@ -665,8 +669,8 @@ export const notificationKindDescriptions: Record<NotificationKind, string> = {
 
 export type AppNotification = {
   id: number
-  /** org_change_failed は組織変更の予約の失敗（FP&A 宛て） */
-  kind: NotificationKind | 'org_change_failed'
+  /** org_change_failed は組織変更の予約の失敗（FP&A 宛て）、comment は説明へのコメント（docs/plan.md「2.24」） */
+  kind: NotificationKind | 'org_change_failed' | 'comment'
   scenario_id: number | null
   title: string
   body: string
@@ -674,6 +678,19 @@ export type AppNotification = {
   created_at: string
   read_at: string | null
 }
+
+/** 説明へのコメント（docs/plan.md「2.24」）。消したコメントは body が空 */
+export type NoteComment = {
+  id: number
+  user_id: number
+  user_name: string
+  body: string
+  deleted: boolean
+  created_at: string
+  can_delete: boolean
+}
+
+export type NoteCommentList = { items: NoteComment[]; can_post: boolean }
 
 export type NotificationList = { items: AppNotification[]; unread: number }
 

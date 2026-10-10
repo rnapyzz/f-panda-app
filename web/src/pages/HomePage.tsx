@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { query } from '../api/client'
 import { noteStatusLabels, type ActivityProgress, type ActivityProgressReport, type List, type Scenario, type Unit, type User } from '../api/types'
 import { Badge, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../components/ui'
+import { CommentCount } from '../components/CommentCount'
 import { DeadlineBadge } from '../components/Layout'
 import { PriorityBadge, WatchButton } from '../components/PriorityWatch'
 import { useActiveScenario } from '../lib/activeScenario'
@@ -281,6 +282,9 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
             📝
           </span>
         )}
+        <span className="ml-1">
+          <CommentCount count={it.comment_count} />
+        </span>
       </td>
       <td className="text-right tabular-nums">{formatYen(String(profitOf(it.current)))}</td>
       <td className="text-right tabular-nums">{diff(it.base)}</td>
