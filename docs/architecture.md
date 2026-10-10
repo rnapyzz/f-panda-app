@@ -193,8 +193,9 @@
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
 | `PUT .../activities/{aid}/condition`                          | 廃止（想定条件は今回の見込の説明に統合。docs/plan.md「2.18」）。410 を返す | － |
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
+| `GET/POST .../activities/{aid}/comments`、`DELETE .../activities/{aid}/comments/{cid}` | 説明へのコメント（docs/plan.md「2.24」）。書いた順に返し、削除したものは本文を返さない（`deleted: true`） | 参照・投稿は全員（ロック済みのシナリオには投稿できない）、削除は書いた本人だけ |
 | `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
-| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差 | 全員（範囲はロールで決まる） |
+| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差、コメントの件数（`comment_count`） | 全員（範囲はロールで決まる） |
 | `GET /api/scenarios/{id}/milestones?activity_ids=` | ホームのマイルストーン（docs/plan.md「2.11」）。完了していないマイルストーンと、期日超過・遅延・期日が近い・後ろ倒し（前回見込の作成以降の回数と日数） | 全員 |
 
 - 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
@@ -283,6 +284,7 @@
 | `POST /api/scenarios/{id}/reminders` | 催促（`user_id`）。作成中のシナリオの、その人の未完了の施策の一覧を、お知らせと Slack で送る（docs/plan.md「2.20」）。今日すでに送っていれば 409、未完了の施策がなければ 422 | FP&A |
 | `GET /api/scenarios/{id}/reminders` | 今日（日本時間）催促した人（`user_ids`） | FP&A |
 
+- コメントのお知らせ（`comment`）は、投稿の API の中で宛先（担当者、いなければユニットのマネージャーと、そのやり取りにすでに書いた人）ごとに作る。Slack には送らず、送信の記録（`notification_runs`）にも残さない
 - 通知の組み立てと送信は `internal/notify`。宛先の決定（未完了の施策・担当者・マネージャー）はホームの更新の状態（`activity-status`）と同じ判定を使う
 - 定期の送信: API の起動時にゴルーチンを1つ起動し、1分ごとに送信時刻を過ぎたかを確かめる。送信の記録（`notification_runs`）の一意制約で、同じ通知を同じ日に二重に送らない（複数台・再起動でも安全）
 - 即時の通知: 締切の設定（「更新の開始」）と決算確定月の変更（「実績の反映」）は、保存のトランザクションが終わった後に送る。送信の失敗は保存を失敗させない
@@ -359,6 +361,7 @@
   - 月別・段階別の売上（`revenue_by_month`。施策の一覧の「確度の推移」で使う）
   - 警告: マイルストーンの遅れ（`overdue` / `delayed`、注意として `upcoming`）、後ろ倒し（回数・日数）、下方修正（幅）、連続の下方修正、当たり具合（差の率）。しきい値は docs/plan.md「2.8」の固定値
   - 今回の見込の説明（基準・比較）
+  - 基準シナリオの説明へのコメントの件数（`comment_count`、docs/plan.md「2.24」）
 - マイルストーンの日付は日本時間
 - セグメント・組織での集計、並べ替えは画面側で行う
 
