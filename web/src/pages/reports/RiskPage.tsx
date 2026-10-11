@@ -389,7 +389,7 @@ function CompositionCard({
           ))}
         </ul>
         {asTable ? (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <div className="-mx-4 overflow-x-auto px-4 md:overflow-visible">
             <Table>
               <thead>
                 <tr>
@@ -484,7 +484,7 @@ function ActivitiesCard({
       {items.length === 0 ? (
         <Empty>金額のある施策はありません</Empty>
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4">
+        <div className="-mx-4 overflow-x-auto px-4 md:overflow-visible">
           <Table>
             <thead>
               <tr>

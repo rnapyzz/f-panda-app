@@ -120,8 +120,8 @@ export function ServiceStatusCard({
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">{serviceOnly ? 'サービスのユニットの施策はありません。' : '施策はありません。'}</p>
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4">
-          <table aria-label="サービスの状況" className="min-w-full text-sm [&_td]:border-b [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-slate-100 [&_th]:px-3 [&_th]:py-1.5">
+        <div className="-mx-4 overflow-x-auto px-4 md:overflow-visible">
+          <table aria-label="サービスの状況" className="min-w-full border-separate border-spacing-0 text-sm [&_td]:border-b [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-slate-100 [&_th]:px-3 [&_th]:py-1.5 [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-white">
             <thead>
               <tr className="text-xs text-slate-500">
                 <th className="text-left font-semibold">ユニット</th>
