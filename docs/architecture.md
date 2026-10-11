@@ -168,6 +168,7 @@
 | 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定。計算式・反映の有無・段階・見通しの種類の変更は理由必須） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
+- 作成（`POST /api/activities`）で `copy_from_activity_id` を指定すると、その施策の内訳・ドライバーを写して作る（docs/plan.md「2.27」）。閲覧制限のある科目の内訳は FP&A 以外は写さず、レスポンスの `skipped_restricted_lines` に件数を返す。元の施策が見つからなければ 422
 - 詳細（`GET /api/activities/{id}`）はマイルストーン・ドライバー・内訳を含む。各施策に `can_edit`（ログインユーザーが編集できるか）を付ける
 - 権限は施策ごとに判定する（docs/plan.md「4. ロール」）
 - 値の形式
