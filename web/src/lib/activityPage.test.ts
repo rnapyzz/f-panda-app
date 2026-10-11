@@ -15,8 +15,8 @@ const sc = (id: number, o: Partial<Scenario> = {}) => ({ id, name: `S${id}`, fis
 test('initialScenario: URL → 今回の見込 → 今年度の最新見込', () => {
   const list = [sc(1, { plan_role: 'initial' }), sc(2, { plan_role: 'latest' }), sc(3, { is_active: true })]
   assert.equal(initialScenario('1', list)?.id, 1)
-  assert.equal(initialScenario(null, list)?.id, 3)
-  assert.equal(initialScenario(null, list.slice(0, 2), new Date('2026-10-09'))?.id, 2)
+  assert.equal(initialScenario(null, list, 3)?.id, 3)
+  assert.equal(initialScenario(null, list.slice(0, 2), null, new Date('2026-10-09'))?.id, 2)
   assert.equal(initialScenario(null, []), undefined)
 })
 

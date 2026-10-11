@@ -78,3 +78,24 @@ export async function createActivity(page: Page, f: Fixture, extra: Record<strin
 export async function showUnit(page: Page, unit: '百万円' | '千円' | '円') {
   await page.getByRole('radiogroup', { name: '金額の単位' }).getByRole('radio', { name: unit, exact: true }).click()
 }
+
+/**
+ * ほかのテストが残した作成中の版をロックして外す（作成中は年度ごとに1つで、今回の見込は最も新しい年度の見込になるため。
+ * docs/plan.md「2.25」）。keep の版はそのまま。E2E 専用の DB なのでロックしてよい
+ */
+export async function clearActives(page: Page, keep: number[] = []) {
+  const res = await page.request.get('/api/scenarios/active')
+  if (!res.ok()) throw new Error(`作成中のシナリオを読めません: ${res.status()}`)
+  const body = (await res.json()) as { current: { id: number } | null; next_plan: { id: number } | null; others: { id: number }[] }
+  const ids = [body.current, body.next_plan, ...body.others].filter((s): s is { id: number } => s !== null).map((s) => s.id)
+  for (const id of ids.filter((id) => !keep.includes(id))) {
+    const r = await page.request.post(`/api/scenarios/${id}/lock`, { data: { reason: 'E2E: ほかのテストの作成中を外す' } })
+    if (!r.ok()) throw new Error(`作成中の版をロックできません: ${r.status()} ${await r.text()}`)
+  }
+}
+
+/** シナリオを、ただ1つの作成中（今回の見込）にする */
+export async function makeCurrent(page: Page, scenarioId: number) {
+  await clearActives(page, [scenarioId])
+  await api(page).post(`/scenarios/${scenarioId}/activate`, {})
+}

@@ -41,6 +41,7 @@ import { buildTree, pathName } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
 import { RestrictedNote } from '../../components/RestrictedNote'
 import { actualColor, downsideColor, levelRamp } from '../../lib/chartTheme'
+import { activeLabel, useActiveScenario } from '../../lib/activeScenario'
 
 // 見込の構成の色: 実績はグレー、段階は確度の高い順に濃い→淡い紫、ダウンサイドは赤（lib/chartTheme.ts。施策の一覧の図と同じ）
 
@@ -58,12 +59,13 @@ export function RiskPage() {
   const users = useApi<List<User>>('/users')
   const segTree = useMemo(() => buildTree(segments.data?.items ?? []), [segments.data])
   const { search } = useLocation()
+  const actives = useActiveScenario()
   const unitType = (['service', 'cost_center', 'corporate'] as const).find((t) => t === search.get('unit')) ?? ('' as UnitType | '')
   const period = search.get('period') === 'remaining' ? 'remaining' : 'year'
 
   const all = scenarios.data?.items ?? []
   const years = [...new Set(all.map((s) => s.fiscal_year))].sort((a, b) => b - a)
-  const fy = Number(search.get('fy')) || all.find((s) => s.is_active)?.fiscal_year || years[0] || 0
+  const fy = Number(search.get('fy')) || actives.active?.fiscal_year || years[0] || 0
   const inYear = all.filter((s) => s.fiscal_year === fy)
   // 基準の既定は作成中の版、なければ最新見込。比較の既定は基準の複製元（「なし」は 0）
   const base = Number(search.get('base')) || inYear.find((s) => s.is_active)?.id || defaultScenarios(inYear).latest?.id
@@ -102,7 +104,7 @@ export function RiskPage() {
               {inYear.map((s) => (
                 <option key={s.id} value={s.id}>
                   {scenarioLabel(s)}
-                  {s.is_active ? '・今回の見込' : ''}
+                  {activeLabel(s, actives) && `・${activeLabel(s, actives)}`}
                 </option>
               ))}
             </Select>

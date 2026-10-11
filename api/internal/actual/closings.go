@@ -110,7 +110,7 @@ func pathFiscalYear(r *http.Request) (int, error) {
 	return fy, nil
 }
 
-// closeYear は POST /api/fiscal-years/{fy}/close。FP&A のみ。締めに条件はない。
+// closeYear は POST /api/fiscal-years/{fy}/close。FP&A のみ。締めに条件はない。その年度の作成中の版はロックする。
 func (h *Handler) closeYear(w http.ResponseWriter, r *http.Request) error {
 	fy, err := pathFiscalYear(r)
 	if err != nil {
@@ -137,7 +137,14 @@ func (h *Handler) closeYear(w http.ResponseWriter, r *http.Request) error {
 		if created, err = scanClosing(tx.QueryRowContext(ctx, closingSelect+" WHERE c.fiscal_year = ?", fy)); err != nil {
 			return err
 		}
-		return rec.Insert(ctx, "fiscal_year_closings", int64(fy), created)
+		if err := rec.Insert(ctx, "fiscal_year_closings", int64(fy), created); err != nil {
+			return err
+		}
+		// その年度に作成中の版が残っていれば（新年度の見込を始めた後の前年度の最後の見込など）、ロックする
+		if h.OnClose != nil {
+			return h.OnClose(ctx, tx, rec, fy)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

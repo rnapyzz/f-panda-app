@@ -221,6 +221,9 @@ export const planRoleLabels: Record<PlanRole, string> = {
   latest: '最新見込',
 }
 
+/** 作成中のシナリオ（年度ごとに1つ。docs/plan.md「2.6」「2.25」） */
+export type ActiveScenarios = { current: Scenario | null; next_plan: Scenario | null; others: Scenario[] }
+
 export type Scenario = Timestamps & {
   id: number
   name: string
@@ -634,6 +637,8 @@ export type ActivityProgress = {
   initial: PLTotals | null
   revised: PLTotals | null
   previous: PLTotals | null
+  /** 翌期の計画のときの、今回の見込（当期）の年間の収益・費用 */
+  current_year: PLTotals | null
   /** 新しく実績になった月の、前回見込の計画値と実績の差 */
   accuracy: { plan: PLTotals; actual: PLTotals; rate: number | null; large: boolean } | null
 }
@@ -646,6 +651,10 @@ export type ActivityProgressReport = {
   initial: ScenarioRef | null
   revised: ScenarioRef | null
   previous: ScenarioRef | null
+  /** 版の種類（current: 今回の見込 / next_plan: 翌期の計画 / other / 空: 作成中でない） */
+  kind: 'current' | 'next_plan' | 'other' | ''
+  /** 翌期の計画のときに比べる今回の見込（当期）。docs/plan.md「2.25」 */
+  current_year: ScenarioRef | null
   new_actual_months: string[]
   items: ActivityProgress[]
   /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */

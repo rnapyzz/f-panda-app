@@ -32,9 +32,10 @@ const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'gre
  */
 export function HomePage() {
   const me = useCurrentUser()
-  const { active } = useActiveScenario()
+  const { active, nextPlan } = useActiveScenario()
+  const [version, setVersion] = useVersion()
   if (active === undefined) return <Loading />
-  if (me.role === 'fpa_admin') return <FpaHome active={active} />
+  if (me.role === 'fpa_admin') return <FpaHome active={active} nextPlan={nextPlan} />
   if (active === null) {
     return (
       <>
@@ -45,15 +46,53 @@ export function HomePage() {
       </>
     )
   }
-  return <HomeView key={active.id} scenarioId={active.id} />
+  // 翌期の計画があるときは、今回の見込と翌期の計画を切り替える（docs/plan.md「2.25」）
+  const shown = version === 'plan' && nextPlan ? nextPlan : active
+  return <HomeView key={shown.id} scenarioId={shown.id} tabs={nextPlan ? <VersionTabs value={version} onChange={setVersion} /> : undefined} />
+}
+
+type Version = 'current' | 'plan'
+
+/** 今回の見込・翌期の計画の切り替え（URL の ?version=plan に残す） */
+function useVersion(): [Version, (v: Version) => void] {
+  const { search } = useLocation()
+  const version: Version = search.get('version') === 'plan' ? 'plan' : 'current'
+  const set = (v: Version) => {
+    const next = new URLSearchParams(search)
+    if (v === 'plan') next.set('version', 'plan')
+    else next.delete('version')
+    const q = next.toString()
+    navigate(`/${q ? `?${q}` : ''}`, { replace: true })
+  }
+  return [version, set]
+}
+
+function VersionTabs({ value, onChange }: { value: Version; onChange: (v: Version) => void }) {
+  return (
+    <div role="tablist" aria-label="見込と計画" className="mb-4 inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+      {(['current', 'plan'] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={value === v}
+          onClick={() => onChange(v)}
+          className={cx('rounded px-3 py-1.5 text-sm font-medium', value === v ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100')}
+        >
+          {v === 'current' ? '今回の見込' : '翌期の計画'}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 type HomeTab = 'work' | 'numbers'
 const homeTabLabels: Record<HomeTab, string> = { work: '今月の作業', numbers: '数字の状況' }
 
 /** FP&A のホーム（docs/plan.md「2.20」）。「今月の作業」と「数字の状況」（これまでのホーム）のタブ。タブは URL（?tab=）に残す */
-function FpaHome({ active }: { active: Scenario | null }) {
+function FpaHome({ active, nextPlan }: { active: Scenario | null; nextPlan: Scenario | null }) {
   const { search } = useLocation()
+  const [version, setVersion] = useVersion()
   const tab: HomeTab = search.get('tab') === 'numbers' ? 'numbers' : 'work'
   const tabs = (
     <div role="tablist" aria-label="ホーム" className="mb-4 flex gap-1 border-b border-slate-200">
@@ -71,13 +110,27 @@ function FpaHome({ active }: { active: Scenario | null }) {
       ))}
     </div>
   )
-  if (tab === 'numbers' && active) return <HomeView key={active.id} scenarioId={active.id} tabs={tabs} />
+  if (tab === 'numbers' && active) {
+    const shown = version === 'plan' && nextPlan ? nextPlan : active
+    return (
+      <HomeView
+        key={shown.id}
+        scenarioId={shown.id}
+        tabs={
+          <>
+            {tabs}
+            {nextPlan && <VersionTabs value={version} onChange={setVersion} />}
+          </>
+        }
+      />
+    )
+  }
   return (
     <>
       <PageHeader title="ホーム" />
       {tabs}
       {tab === 'work' ? (
-        <FpaWorkTab active={active} />
+        <FpaWorkTab active={active} nextPlan={nextPlan} />
       ) : (
         <Card>
           <Empty>今回の見込がまだありません。シナリオ管理で月次の見込を始めると、数字の状況が表示されます。</Empty>
@@ -100,8 +153,12 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
 
   const error = report.error ?? units.error ?? users.error
   if (error) return <ErrorMessage error={error} />
-  const r = report.data
-  if (!r || !units.data || !users.data) return <Loading />
+  const raw = report.data
+  if (!raw || !units.data || !users.data) return <Loading />
+  // 翌期の計画は、目標・前回の見込の代わりに今回の見込（当期）の年間と比べる（docs/plan.md「2.25」）。
+  // 一覧の差・並べ替えは「目標との差」の列で扱う
+  const isPlan = raw.kind === 'next_plan'
+  const r = isPlan ? { ...raw, items: raw.items.map((it) => ({ ...it, base: it.current_year, previous: null })) } : raw
 
   const unitName = new Map(units.data.items.map((u) => [u.id, u.name]))
   const userName = new Map(users.data.items.map((u) => [u.id, u.name]))
@@ -126,14 +183,24 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
         title="ホーム"
         actions={<AmountUnitSwitch value={amountUnit} onChange={setAmountUnit} />}
         description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>
-              今回の見込: <Link to={`/scenarios/${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">{scenarioLabel(r.scenario)}</Link>（{actualThroughLabel(r.scenario.actual_through)}）
+          isPlan ? (
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                翌期の計画: <Link to={`/scenarios/${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">{scenarioLabel(r.scenario)}</Link>（{r.scenario.fiscal_year}年度）
+              </span>
+              <span>比較: 今回の見込 {r.current_year ? scenarioLabel(r.current_year) : '未設定'} の年間</span>
+              <DeadlineBadge deadline={r.scenario.update_deadline} />
             </span>
-            <span>目標: {r.base ? scenarioLabel(r.base) : '未設定'}</span>
-            <span>前回の見込: {r.previous ? scenarioLabel(r.previous) : '未設定'}</span>
-            <DeadlineBadge deadline={r.scenario.update_deadline} />
-          </span>
+          ) : (
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                今回の見込: <Link to={`/scenarios/${r.scenario.id}`} className="font-medium text-indigo-700 hover:underline">{scenarioLabel(r.scenario)}</Link>（{actualThroughLabel(r.scenario.actual_through)}）
+              </span>
+              <span>目標: {r.base ? scenarioLabel(r.base) : '未設定'}</span>
+              <span>前回の見込: {r.previous ? scenarioLabel(r.previous) : '未設定'}</span>
+              <DeadlineBadge deadline={r.scenario.update_deadline} />
+            </span>
+          )
         }
       />
       {tabs}
@@ -167,7 +234,7 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
         </Card>
       )}
 
-      {scope !== 'mine' && (
+      {scope !== 'mine' && !isPlan && (
         <>
           <ServiceStatusCard report={r} items={r.items} units={units.data.items} selectedUnit={unitId} onSelectUnit={setUnitId} />
           <ChangeSummaryCard summary={changes} scenarioId={r.scenario.id} ownerName={(it) => (it.owner_user_id ? userName.get(it.owner_user_id) ?? '' : '担当者未設定')} />
@@ -224,8 +291,8 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
             <div className="w-48">
             <Select aria-label="並べ替え" value={sort} onChange={(e) => setSort(e.target.value as SortMode)} className="py-1 text-xs">
               <option value="status">未完了を先に</option>
-              <option value="base">目標との差の大きい順</option>
-              <option value="previous">前回の見込との差の大きい順</option>
+              <option value="base">{isPlan ? '今回の見込（当期）との差の大きい順' : '目標との差の大きい順'}</option>
+              {!isPlan && <option value="previous">前回の見込との差の大きい順</option>}
             </Select>
             </div>
           </div>
@@ -241,15 +308,15 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
                 <th>ユニット</th>
                 <th>担当者</th>
                 <th>状態</th>
-                <th className="text-right">今回の利益（年間）</th>
-                <th className="text-right">目標との差</th>
-                <th className="text-right">前回の見込との差</th>
+                <th className="text-right">{isPlan ? '計画の利益（年間）' : '今回の利益（年間）'}</th>
+                <th className="text-right">{isPlan ? '今回の見込（当期）との差' : '目標との差'}</th>
+                {!isPlan && <th className="text-right">前回の見込との差</th>}
                 <th>最終更新</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => (
-                <Row key={it.activity_id} it={it} scenarioId={r.scenario.id} unit={unitName.get(it.unit_id)} owner={it.owner_user_id ? userName.get(it.owner_user_id) : undefined} />
+                <Row key={it.activity_id} it={it} scenarioId={r.scenario.id} unit={unitName.get(it.unit_id)} owner={it.owner_user_id ? userName.get(it.owner_user_id) : undefined} showPrevious={!isPlan} />
               ))}
             </tbody>
           </Table>
@@ -259,7 +326,7 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
   )
 }
 
-function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId: number; unit?: string; owner?: string }) {
+function Row({ it, scenarioId, unit, owner, showPrevious }: { it: ActivityProgress; scenarioId: number; unit?: string; owner?: string; showPrevious: boolean }) {
   const { fmt, signed } = useAmountUnit()
   const diff = (compare: typeof it.base) => {
     const d = profitDiff(it.current, compare)
@@ -293,7 +360,7 @@ function Row({ it, scenarioId, unit, owner }: { it: ActivityProgress; scenarioId
       </td>
       <td className="text-right tabular-nums">{fmt(profitOf(it.current))}</td>
       <td className="text-right tabular-nums">{diff(it.base)}</td>
-      <td className="text-right tabular-nums">{diff(it.previous)}</td>
+      {showPrevious && <td className="text-right tabular-nums">{diff(it.previous)}</td>}
       <td className="text-xs whitespace-nowrap text-slate-500">{it.completed_at ? formatDateTime(it.completed_at) : it.last_edited_at ? formatDateTime(it.last_edited_at) : '—'}</td>
     </tr>
   )

@@ -5,6 +5,7 @@ import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sh
 import { Badge, Button, Card, ErrorMessage, Loading, Select, Textarea, cx } from '../../components/ui'
 import { cleanNumber } from '../../lib/sheet'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
+import { shiftYears } from '../../lib/variance'
 import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
 import { Link } from '../../lib/router'
@@ -102,12 +103,15 @@ function ValuesEditor({
   onDirtyChange: (dirty: boolean) => void
   actions?: PanelActions
 }) {
-  const { active } = useActiveScenario()
+  const { active, nextPlan } = useActiveScenario()
   const me = useCurrentUser()
 
   // 比較するシナリオ: 基準（修正計画、なければ期初計画）と前回見込（シナリオに FP&A が指定）
-  const baseScenario = defaultScenarios(scenarios.filter((s) => s.fiscal_year === v.scenario.fiscal_year)).base
-  const previousScenario = scenarios.find((s) => s.id === v.scenario.previous_scenario_id)
+  // 翌期の計画は、目標・前回の見込の代わりに今回の見込（当期）の年間と比べる（docs/plan.md「2.25」）
+  const isPlan = nextPlan?.id === v.scenario.id
+  const baseScenario = isPlan ? undefined : defaultScenarios(scenarios.filter((s) => s.fiscal_year === v.scenario.fiscal_year)).base
+  const previousScenario = isPlan ? undefined : scenarios.find((s) => s.id === v.scenario.previous_scenario_id)
+  const currentYearView = useApi<ValuesView>(isPlan && active ? `/scenarios/${active.id}/activities/${v.activity.id}` : null)
   const baseView = useApi<ValuesView>(baseScenario ? `/scenarios/${baseScenario.id}/activities/${v.activity.id}` : null)
   const previousView = useApi<ValuesView>(previousScenario ? `/scenarios/${previousScenario.id}/activities/${v.activity.id}` : null)
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
@@ -422,7 +426,17 @@ function ValuesEditor({
   return (
     <>
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
-      {active && active.id !== v.scenario.id && (
+      {isPlan && (
+        <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
+          翌期の計画（{v.scenario.fiscal_year}年度）を入力しています。比較は今回の見込（当期）の年間です。
+          {active && (
+            <Link to={`/activities/${v.activity.id}?tab=update&scenario=${active.id}`} className="ml-1 font-medium underline">
+              今回の見込「{active.name}」で開く →
+            </Link>
+          )}
+        </p>
+      )}
+      {active && active.id !== v.scenario.id && !isPlan && (
         <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
           このシナリオは今回の見込ではありません。
           <Link to={`/activities/${v.activity.id}?tab=update&scenario=${active.id}`} className="ml-1 font-medium underline">
@@ -616,6 +630,7 @@ function ValuesEditor({
         )}
       </Card>
 
+      {!isPlan && (
       <ComparisonCard
         months={v.months}
         current={currentRows}
@@ -632,6 +647,7 @@ function ValuesEditor({
           },
         ]}
       />
+      )}
 
       <NoteCard
         path={path}
@@ -642,6 +658,7 @@ function ValuesEditor({
         current={currentRows}
         base={baseScenario ? baseView.data?.amounts : undefined}
         previous={previousScenario ? previousView.data?.amounts : undefined}
+        currentYear={isPlan && active ? { label: scenarioLabel(active), rows: currentYearView.data ? shiftYears(currentYearView.data.amounts, 1) : undefined } : undefined}
         onSaved={setData}
       />
 

@@ -17,6 +17,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/versions"
 	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
@@ -134,12 +135,16 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 	if err != nil {
 		return valuesView{}, err
 	}
+	canInput, err := canEditScenario(ctx, q, u, s)
+	if err != nil {
+		return valuesView{}, err
+	}
 	v := valuesView{
 		Scenario:     s,
 		Activity:     a,
 		Months:       calc.FiscalMonths(s.FiscalYear),
 		ActualMonths: s.ActualMonths(),
-		Editable:     a.CanEdit && !s.IsLocked && canEditScenario(u, s),
+		Editable:     a.CanEdit && !s.IsLocked && canInput,
 		Drivers:      []driverRow{},
 		Amounts:      []amountRow{},
 	}
@@ -195,9 +200,21 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 }
 
 // canEditScenario は、ユーザーがシナリオの数値を入力できるか（ロックと施策の権限は別に判定する）。
-// 作成中のシナリオは施策の編集権限があれば入力でき、それ以外のシナリオは FP&A のみが入力できる。
-func canEditScenario(u auth.User, s Scenario) bool {
-	return s.IsActive || u.Role == auth.RoleFPAAdmin
+// 作成中のシナリオのうち、今回の見込と翌期の計画（docs/plan.md「2.25」）は施策の編集権限があれば入力でき、
+// それ以外のシナリオは FP&A のみが入力できる。
+func canEditScenario(ctx context.Context, q versions.Querier, u auth.User, s Scenario) (bool, error) {
+	if u.Role == auth.RoleFPAAdmin {
+		return true, nil
+	}
+	if !s.IsActive {
+		return false, nil
+	}
+	actives, err := versions.Load(ctx, q)
+	if err != nil {
+		return false, err
+	}
+	kind := actives.Kind(s.ID)
+	return kind == "current" || kind == "next_plan", nil
 }
 
 // loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
@@ -323,7 +340,9 @@ func (h *Handler) editTxRaw(r *http.Request, scenarioID, activityID int64, reaso
 		if s.IsLocked {
 			return httpx.Conflict("ロックされたシナリオは変更できません")
 		}
-		if !canEditScenario(u, s) {
+		if ok, err := canEditScenario(ctx, tx, u, s); err != nil {
+			return err
+		} else if !ok {
 			return httpx.Conflict("作成中ではないシナリオの数値は FP&A のみが入力できます")
 		}
 		a, err := activity.LockForEdit(ctx, tx, u, activityID)

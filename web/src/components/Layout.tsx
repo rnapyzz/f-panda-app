@@ -192,35 +192,49 @@ export function Layout({ children }: { children: ReactNode }) {
   )
 }
 
-/** 作成中のシナリオ（アプリ全体での入力の対象）を、すべての画面の上部に表示する */
+/** 作成中のシナリオ（今回の見込と、あれば翌期の計画。docs/plan.md「2.25」）を、すべての画面の上部に表示する */
 function ActiveScenarioBar() {
-  const { active } = useActiveScenario()
+  const { active, nextPlan } = useActiveScenario()
   const user = useCurrentUser()
   if (active === undefined) return null
   return (
-    <div className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-1.5 text-xs text-emerald-900 md:px-6" role="status" aria-label="今回の見込">
-      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-semibold">✎ 今回の見込</span>
-        {active ? (
-          <>
-            <Link to={`/scenarios/${active.id}`} className="font-medium underline-offset-2 hover:underline">
-              {scenarioLabel(active)}
-            </Link>
-            <span className="text-emerald-700">
-              {active.fiscal_year}年度・{actualThroughLabel(active.actual_through)}
-            </span>
-            <DeadlineBadge deadline={active.update_deadline} />
-          </>
-        ) : (
-          <span className="text-emerald-700">
-            なし（数値を入力できるのは FP&A のみです）
-            {user.role === 'fpa_admin' && (
-              <Link to="/admin/scenarios" className="ml-2 font-medium underline">
-                シナリオ管理で指定する
-              </Link>
+    <div className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-1.5 text-xs text-emerald-900 md:px-6">
+      <div className="mx-auto flex max-w-[1440px] items-start gap-x-2">
+        <div className="flex flex-1 flex-col gap-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1" role="status" aria-label="今回の見込">
+            <span className="font-semibold">✎ 今回の見込</span>
+            {active ? (
+              <>
+                <Link to={`/scenarios/${active.id}`} className="font-medium underline-offset-2 hover:underline">
+                  {scenarioLabel(active)}
+                </Link>
+                <span className="text-emerald-700">
+                  {active.fiscal_year}年度・{actualThroughLabel(active.actual_through)}
+                </span>
+                <DeadlineBadge deadline={active.update_deadline} />
+              </>
+            ) : (
+              <span className="text-emerald-700">
+                なし（数値を入力できるのは FP&A のみです）
+                {user.role === 'fpa_admin' && (
+                  <Link to="/admin/scenarios" className="ml-2 font-medium underline">
+                    シナリオ管理で指定する
+                  </Link>
+                )}
+              </span>
             )}
-          </span>
-        )}
+          </div>
+          {nextPlan && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1" role="status" aria-label="翌期の計画">
+              <span className="font-semibold">✎ 翌期の計画</span>
+              <Link to={`/scenarios/${nextPlan.id}`} className="font-medium underline-offset-2 hover:underline">
+                {scenarioLabel(nextPlan)}
+              </Link>
+              <span className="text-emerald-700">{nextPlan.fiscal_year}年度</span>
+              <DeadlineBadge deadline={nextPlan.update_deadline} />
+            </div>
+          )}
+        </div>
         <span className="ml-auto">
           <NotificationBell />
         </span>

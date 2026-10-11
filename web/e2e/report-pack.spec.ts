@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, makeCurrent } from './helpers'
 
 test('報告資料: P/L と変動の説明を Excel に、図を画像に出力できる', async ({ page }) => {
   await login(page)
@@ -9,7 +9,7 @@ test('報告資料: P/L と変動の説明を Excel に、図を画像に出力�
   const activity = await createActivity(page, f, { name: `E2E報告 ${f.run}` })
   // 変動の説明と図は今回の見込を使うので、2026年度の版を作って今回の見込にする
   const scenario = await a.post('/scenarios', { name: `E2E報告 ${f.run}`, fiscal_year: 2026 })
-  await a.post(`/scenarios/${scenario.id}/activate`, {})
+  await makeCurrent(page, scenario.id)
   await a.put(`/scenarios/${scenario.id}/activities/${activity.id}/amounts`, {
     reason: 'E2E',
     amounts: [{ subject_id: f.revenueId, target_month: '2026-10', amount: 1000000 }],

@@ -31,7 +31,7 @@ export function ScenarioAdminPage() {
 }
 
 function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () => Promise<void> }) {
-  const { active, reload: reloadActive } = useActiveScenario()
+  const { active, nextPlan, reload: reloadActive } = useActiveScenario()
   const { askReason, dialog: reasonDialog } = useReason()
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
   const [currentYear] = useState(() => currentFiscalYear())
@@ -165,7 +165,10 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
               </>
             ) : (
               <>
-                <span className="text-slate-500">会計の決算が確定したら、年度を締めると実績の取り込み直しを止められます。</span>
+                <span className="text-slate-500">
+                  会計の決算が確定したら、年度を締めると実績の取り込み直しを止められます。
+                  {inYear.some((s) => s.is_active) && `この年度の作成中の版（${inYear.find((s) => s.is_active)!.name}）は、締めるとロックされます。`}
+                </span>
                 <Button size="sm" onClick={closeYear}>
                   {fy}年度を締める
                 </Button>
@@ -210,7 +213,11 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
                   </td>
                   <td>
                     <span className="inline-flex flex-wrap gap-1">
-                      {s.is_active && <span className="text-xs font-medium text-emerald-700">✎ 作成中</span>}
+                      {s.is_active && (
+                        <span className="text-xs font-medium text-emerald-700">
+                          ✎ 作成中{s.id === active?.id ? '（今回の見込）' : s.id === nextPlan?.id ? '（翌期の計画）' : '（締め待ち）'}
+                        </span>
+                      )}
                       {s.is_locked && <span className="text-xs font-medium text-amber-700">🔒 ロック済み</span>}
                       {driftOf.has(s.id) && (
                         <span className="text-xs font-medium text-red-700" title="保存した実績が、今の実績（会計側の修正を取り込んだもの）と違います">
@@ -255,6 +262,7 @@ function AdminView({ scenarios, reload }: { scenarios: Scenario[]; reload: () =>
         <CycleDialog
           mode={cycle}
           active={active ?? null}
+          nextPlan={nextPlan}
           onClose={() => setCycle(null)}
           onDone={async (s) => {
             setCycle(null)

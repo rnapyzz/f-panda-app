@@ -15,12 +15,15 @@ export function initialTab(param: string | null, canEdit: boolean, hasActive: bo
   return canEdit && hasActive ? 'update' : 'overview'
 }
 
-/** 表示するシナリオ。URL の scenario、なければ今回の見込、なければ今年度の最新見込（なければ最初のシナリオ） */
-export function initialScenario(param: string | null, scenarios: Scenario[], today = new Date()): Scenario | undefined {
+/**
+ * 表示するシナリオ。URL の scenario、なければ今回の見込（currentId）、なければ今年度の最新見込（なければ最初のシナリオ）。
+ * 作成中は年度ごとに1つなので（docs/plan.md「2.25」）、作成中の版から1つを選ばず、今回の見込の ID を受け取る
+ */
+export function initialScenario(param: string | null, scenarios: Scenario[], currentId?: number | null, today = new Date()): Scenario | undefined {
   const byParam = scenarios.find((s) => String(s.id) === param)
   if (byParam) return byParam
-  const active = scenarios.find((s) => s.is_active)
-  if (active) return active
+  const current = scenarios.find((s) => s.id === currentId)
+  if (current) return current
   const fy = currentFiscalYear(today)
   return defaultScenarios(scenarios.filter((s) => s.fiscal_year === fy)).latest ?? scenarios[0]
 }

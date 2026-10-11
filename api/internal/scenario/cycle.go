@@ -14,6 +14,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/target"
+	"github.com/rnapyzz/f-panda-app/api/internal/versions"
 )
 
 // シナリオの切り替え（docs/plan.md「2.16」）。
@@ -21,9 +22,11 @@ import (
 // dry_run なら保存せず、変わる内容と注意を返す。注意があっても実行できる。
 
 type cycleRequest struct {
-	Name           string `json:"name"`
-	ActualThrough  string `json:"actual_through"` // 月次のみ（YYYY-MM）
-	FiscalYear     int    `json:"fiscal_year"`    // 新年度のみ
+	Name          string `json:"name"`
+	ActualThrough string `json:"actual_through"` // 月次のみ（YYYY-MM）
+	FiscalYear    int    `json:"fiscal_year"`    // 新年度のみ
+	// Source は新年度の期初計画の金額の作り方（empty: 空 / current: 今回の見込を元にする）。新年度のみ
+	Source         string `json:"source"`
 	UpdateDeadline string `json:"update_deadline"`
 	Reason         string `json:"reason"`
 	DryRun         bool   `json:"dry_run"`
@@ -50,9 +53,9 @@ type cycleResult struct {
 
 func ref(s Scenario) *cycleRef { return &cycleRef{ID: s.ID, Name: s.Name} }
 
-// activeScenario は作成中のシナリオを行ロック付きで返す（なければ nil）。
-func activeScenario(ctx context.Context, tx *sql.Tx) (*Scenario, error) {
-	s, err := scanScenario(tx.QueryRowContext(ctx, scenarioSelect+" WHERE is_active FOR UPDATE"))
+// activeOf はその年度の作成中のシナリオを行ロック付きで返す（なければ nil。作成中は年度ごとに1つ）。
+func activeOf(ctx context.Context, tx *sql.Tx, fiscalYear int) (*Scenario, error) {
+	s, err := scanScenario(tx.QueryRowContext(ctx, scenarioSelect+" WHERE is_active AND fiscal_year = ? FOR UPDATE", fiscalYear))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -106,13 +109,11 @@ func (h *Handler) startMonthly(w http.ResponseWriter, r *http.Request) error {
 	fy := fiscalYearOf(through)
 
 	return h.runCycle(w, r, req, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, userID int64, res *cycleResult) (*Scenario, error) {
-		// 複製元: 作成中の版。なければその年度の「最新見込」の版
-		base, err := activeScenario(ctx, tx)
+		// 複製元: その年度（決算確定月の年度）の作成中の版。なければその年度の「最新見込」の版。
+		// ほかの年度の作成中の版（12〜3月の翌期の計画など）には触れない（docs/plan.md「2.25」）
+		base, err := activeOf(ctx, tx, fy)
 		if err != nil {
 			return nil, err
-		}
-		if base != nil && base.FiscalYear != fy {
-			return nil, httpx.Validation(map[string]string{"actual_through": fmt.Sprintf("作成中の版（%d年度）と同じ年度の月を指定してください。年度の切り替えは「新年度の期初計画を始める」で行います", base.FiscalYear)})
 		}
 		if base == nil {
 			if base, err = roleHolder(ctx, tx, fy, "latest"); err != nil {
@@ -159,7 +160,7 @@ func (h *Handler) startMonthly(w http.ResponseWriter, r *http.Request) error {
 				return nil, err
 			}
 			if n > 0 {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("今の作成中の版「%s」で、更新を完了にしていない施策が %d 件あります", base.Name, n))
+				res.Warnings = append(res.Warnings, fmt.Sprintf("作成中の版「%s」で、更新を完了にしていない施策が %d 件あります", base.Name, n))
 			}
 		}
 		drifted, err := actual.DriftedScenarios(ctx, tx, fy)
@@ -220,33 +221,39 @@ func (h *Handler) startFiscalYear(w http.ResponseWriter, r *http.Request) error 
 	}
 	fy := req.FiscalYear
 
+	source := req.Source
+	if source == "" {
+		source = "empty"
+	}
+	if source != "empty" && source != "current" {
+		return httpx.Validation(map[string]string{"source": "金額の作り方は empty（空）か current（今回の見込を元にする）を指定してください"})
+	}
+
 	return h.runCycle(w, r, req, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, userID int64, res *cycleResult) (*Scenario, error) {
-		var closed int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM fiscal_year_closings WHERE fiscal_year = ?", fy-1).Scan(&closed); err != nil {
+		// 今回の見込はロックしない（12〜3月は当期の見込と翌期の計画を並行して更新する。docs/plan.md「2.25」）
+		if cur, err := activeOf(ctx, tx, fy); err != nil {
 			return nil, err
+		} else if cur != nil {
+			return nil, httpx.Validation(map[string]string{"fiscal_year": fmt.Sprintf("%d年度には作成中の版「%s」があります。ロックするか作成中を外してから始めてください", fy, cur.Name)})
 		}
-		if closed == 0 {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("前の年度（%d年度）を締めていません。会計の決算が確定したら、シナリオ管理で締めてください", fy-1))
-		}
-		// 1. 今の作成中の版をロックする
-		cur, err := activeScenario(ctx, tx)
-		if err != nil {
-			return nil, err
-		}
-		if cur != nil {
-			n, err := incompleteCount(ctx, tx, cur.ID)
+		// 元にする今回の見込（年度は新しい年度の前の年度）
+		var from *Scenario
+		if source == "current" {
+			actives, err := versions.Load(ctx, tx)
 			if err != nil {
 				return nil, err
 			}
-			if n > 0 {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("今の作成中の版「%s」で、更新を完了にしていない施策が %d 件あります", cur.Name, n))
+			if actives.Current == nil || actives.Current.FiscalYear != fy-1 {
+				return nil, httpx.Validation(map[string]string{"source": fmt.Sprintf("元にする今回の見込（%d年度の作成中の版）がありません", fy-1)})
 			}
-			res.Lock = ref(*cur)
-			if _, err := lockScenario(ctx, tx, rec, *cur); err != nil {
+			s, err := findScenario(ctx, tx, actives.Current.ID, "")
+			if err != nil {
 				return nil, err
 			}
+			from = &s
+			res.Base = ref(s)
 		}
-		// 2. 空の版を「期初計画」として作る
+		// 1. 新しい年度の版を「期初計画」として作る
 		if holder, err := roleHolder(ctx, tx, fy, "initial"); err != nil {
 			return nil, err
 		} else if holder != nil {
@@ -262,8 +269,68 @@ func (h *Handler) startFiscalYear(w http.ResponseWriter, r *http.Request) error 
 		if err != nil {
 			return nil, err
 		}
+		// 2. 今回の見込を元にするなら、継続する施策の金額を入れる
+		if from != nil {
+			if err := seedFromCurrent(ctx, tx, rec, *from, created); err != nil {
+				return nil, err
+			}
+		}
 		return &created, nil
 	})
+}
+
+// seedFromCurrent は、翌年度も続く施策（運用型・コストプール型で、完了・中止でなく、終了日が翌年度の初日以降か未設定）について、
+// 今回の見込の最後の月（3月）の金額（科目 × 内訳）とドライバー値を、新しい年度の12か月に入れ、計算式を計算し直す（docs/plan.md「2.16」）。
+// 3月が実績の月なら実績の金額を使う。入れた行は件数だけを変更履歴に残す（複製と同じ）。
+func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from, to Scenario) error {
+	fromMonths := calc.FiscalMonths(from.FiscalYear)
+	last := fromMonths[len(fromMonths)-1] + "-01"
+	toMonths := calc.FiscalMonths(to.FiscalYear)
+	var monthsSQL []string
+	monthArgs := make([]any, 0, len(toMonths))
+	for _, m := range toMonths {
+		monthsSQL = append(monthsSQL, "SELECT CAST(? AS DATE) AS target_month")
+		monthArgs = append(monthArgs, m+"-01")
+	}
+	months := "(" + strings.Join(monthsSQL, " UNION ALL ") + ")"
+	continuing := `a.activity_type IN ('recurring', 'cost_pool') AND a.status NOT IN ('completed', 'cancelled') AND (a.end_date IS NULL OR a.end_date >= ?)`
+	start := toMonths[0] + "-01"
+
+	args := append([]any{to.ID}, monthArgs...)
+	args = append(args, from.ID, last, start)
+	resAmounts, err := tx.ExecContext(ctx, `
+		INSERT INTO budget_facts (scenario_id, activity_id, subject_id, line_id, target_month, amount, source)
+		SELECT ?, b.activity_id, b.subject_id, b.line_id, m.target_month, b.amount, 'manual'
+		FROM `+months+` m
+		JOIN scenario_amounts b
+		JOIN activities a ON a.id = b.activity_id
+		WHERE b.scenario_id = ? AND b.target_month = ? AND b.amount <> 0 AND `+continuing, args...)
+	if err != nil {
+		return err
+	}
+	args = append([]any{to.ID}, monthArgs...)
+	args = append(args, from.ID, last, start)
+	resDrivers, err := tx.ExecContext(ctx, `
+		INSERT INTO driver_values (scenario_id, activity_driver_id, target_month, value)
+		SELECT ?, v.activity_driver_id, m.target_month, v.value
+		FROM `+months+` m
+		JOIN driver_values v
+		JOIN activity_drivers d ON d.id = v.activity_driver_id
+		JOIN activities a ON a.id = d.activity_id
+		WHERE v.scenario_id = ? AND v.target_month = ? AND `+continuing, args...)
+	if err != nil {
+		return err
+	}
+	if err := calc.RecalculateScenario(ctx, tx, rec, to.ID); err != nil {
+		return err
+	}
+	amounts, _ := resAmounts.RowsAffected()
+	drivers, _ := resDrivers.RowsAffected()
+	return rec.Update(ctx, "scenarios", to.ID, to, struct {
+		Scenario
+		SeededFrom int64            `json:"seeded_from"`
+		Seeded     map[string]int64 `json:"seeded"`
+	}{to, from.ID, map[string]int64{"budget_facts": amounts, "driver_values": drivers}})
 }
 
 // runCycle は切り替えを1つの変更セットで行い、新しい版を作成中にする。締切があれば、保存の後に「更新の開始」を送る。
@@ -284,8 +351,8 @@ func (h *Handler) runCycle(w http.ResponseWriter, r *http.Request, req cycleRequ
 		if err != nil {
 			return err
 		}
-		// 6. 新しい版を作成中に指定する（前の作成中はロックで外れている）
-		if err := deactivateCurrent(ctx, tx, rec); err != nil {
+		// 6. 新しい版を、その年度の作成中に指定する（ほかの年度の作成中はそのまま）
+		if err := deactivateCurrent(ctx, tx, rec, created.FiscalYear); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_active = TRUE WHERE id = ?", created.ID); err != nil {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters, showUnit } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit, makeCurrent } from './helpers'
 
 // ほかのテストの施策もあるので、キーワードで自分の施策に絞り込む
 test('施策の一覧を図（6種類）で見られ、図から施策を開ける', async ({ page }) => {
@@ -9,7 +9,7 @@ test('施策の一覧を図（6種類）で見られ、図から施策を開け�
   const activity = await createActivity(page, f, { name: `E2E図 ${f.run}`, start_date: '2026-06-01', end_date: '2027-02-28' })
   // 図は今回の見込を使うので、2026年度の版を作って今回の見込にする（ホームのテストなどと同じく、作成中を切り替える）
   const scenario = await a.post('/scenarios', { name: `E2E図 ${f.run}`, fiscal_year: 2026 })
-  await a.post(`/scenarios/${scenario.id}/activate`, {})
+  await makeCurrent(page, scenario.id)
   const res = await page.request.put(`/api/scenarios/${scenario.id}/activities/${activity.id}/amounts`, {
     data: { reason: 'E2E', amounts: [{ subject_id: f.revenueId, target_month: '2027-03', amount: 1000000 }] },
   })

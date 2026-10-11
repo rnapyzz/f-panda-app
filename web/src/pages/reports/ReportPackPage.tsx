@@ -10,6 +10,7 @@ import { useApi } from '../../lib/useApi'
 import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
 import { AmountUnitProvider } from '../../lib/amountUnit'
 import type { AmountUnit } from '../../lib/format'
+import { useActiveScenario } from '../../lib/activeScenario'
 
 // 図は開いたときに読み込む（I-22）
 const ActivityCharts = lazy(() => import('../activities/ActivityCharts').then((m) => ({ default: m.ActivityCharts })))
@@ -55,7 +56,7 @@ function defaultSeries(scenarios: Scenario[], fy: number): number[] {
 
 function PackView({ scenarios, segments, units, activities }: { scenarios: Scenario[]; segments: TreeNode[]; units: Unit[]; activities: Activity[] }) {
   const years = [...new Set(scenarios.map((s) => s.fiscal_year))].sort((a, b) => b - a)
-  const active = scenarios.find((s) => s.is_active)
+  const { active } = useActiveScenario()
   const [fy, setFy] = useState(active?.fiscal_year ?? years[0] ?? 0)
   const [series, setSeries] = useState<number[]>(() => defaultSeries(scenarios, fy))
   const [actual, setActual] = useState(true)

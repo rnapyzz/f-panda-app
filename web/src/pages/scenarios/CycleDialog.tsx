@@ -17,29 +17,37 @@ type CycleResult = {
 
 /**
  * シナリオの切り替え（docs/plan.md「2.16」）。
- * monthly: 月次の見込を始める（前の版のロック → 複製 → 決算確定月・最新見込・前回見込・作成中・締切）
- * fiscal-year: 新年度の期初計画を始める（前の版のロック → 空の版を期初計画として作成中に）
+ * monthly: 月次の見込を始める（その年度の作成中の版のロック → 複製 → 決算確定月・最新見込・前回見込・作成中・締切）
+ * fiscal-year: 新年度の期初計画を始める（今回の見込はロックしない。空か今回の見込を元にした版を、期初計画として作成中に。docs/plan.md「2.25」）
  * 「内容を確認」で変わる内容と注意を出し、注意があっても始められる。
  */
 export function CycleDialog({
   mode,
   active,
+  nextPlan,
   onClose,
   onDone,
 }: {
   mode: 'monthly' | 'fiscal-year'
   active: Scenario | null
+  /** 翌期の計画。あれば、月次の見込をその年度で始められる（新年度の最初の見込） */
+  nextPlan?: Scenario | null
   onClose: () => void
   onDone: (s: Scenario) => Promise<void>
 }) {
   const monthly = mode === 'monthly'
-  const baseYear = active?.fiscal_year ?? new Date().getFullYear()
+  const activeYear = active?.fiscal_year ?? new Date().getFullYear()
+  // 月次の見込は、決算確定月の年度で始める。翌期の計画があれば、その年度（新年度の最初の見込）も選べる
+  const years = [...new Set([activeYear, ...(nextPlan ? [nextPlan.fiscal_year] : [])])]
+  const [monthlyYear, setMonthlyYear] = useState(activeYear)
+  const baseYear = monthly ? monthlyYear : activeYear
   const imported = useApi<{ months: string[] }>(monthly ? `/actuals/months?fiscal_year=${baseYear}` : null)
   const last = imported.data?.months[imported.data.months.length - 1]
   const [name, setName] = useState('')
   const [through, setThrough] = useState('')
   const [fiscalYear, setFiscalYear] = useState(String(baseYear + 1))
   const [deadline, setDeadline] = useState('')
+  const [source, setSource] = useState<'empty' | 'current'>('empty')
   const [preview, setPreview] = useState<CycleResult | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -48,7 +56,7 @@ export function CycleDialog({
   const body = (dryRun: boolean) =>
     monthly
       ? { name, actual_through: throughValue, update_deadline: deadline, dry_run: dryRun }
-      : { name, fiscal_year: Number(fiscalYear), update_deadline: deadline, dry_run: dryRun }
+      : { name, fiscal_year: Number(fiscalYear), update_deadline: deadline, source, dry_run: dryRun }
   const path = monthly ? '/scenarios/start-monthly' : '/scenarios/start-fiscal-year'
   const send = async (dryRun: boolean) => {
     setBusy(true)
@@ -87,8 +95,8 @@ export function CycleDialog({
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
           {monthly
-            ? '今の作成中の版をロックして複製し、決算確定月・エイリアス「最新見込」・前回見込・作成中・締切をまとめて設定します。'
-            : '今の作成中の版をロックし、新しい年度の空の版を「期初計画」として作り、作成中にします。'}
+            ? '決算確定月の年度の作成中の版をロックして複製し、決算確定月・エイリアス「最新見込」・前回見込・作成中・締切をまとめて設定します。ほかの年度の作成中の版（翌期の計画など）はそのままです。'
+            : '新しい年度の版を「期初計画」として作り、その年度の作成中にします。今回の見込はロックせず、当期の月次の見込と並行して進められます（翌期の計画）。'}
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="sm:col-span-3">
@@ -107,6 +115,27 @@ export function CycleDialog({
               )}
             </Field>
           </div>
+          {monthly && years.length > 1 && (
+            <Field label="年度" hint="新年度の最初の見込は、新年度を選びます（期初計画をロックして複製）">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={monthlyYear}
+                  onChange={(e) => {
+                    setMonthlyYear(Number(e.target.value))
+                    setThrough('')
+                    changed()
+                  }}
+                >
+                  {years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}年度
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
           {monthly ? (
             <Field label="決算確定月" required error={fieldError(error, 'actual_through')} hint="既定は、実績を取り込み済みの最後の月">
               {(p) => (
@@ -143,6 +172,30 @@ export function CycleDialog({
               )}
             </Field>
           )}
+          {!monthly && (
+            <fieldset className="sm:col-span-3">
+              <legend className="mb-1 text-sm font-medium text-slate-700">金額の作り方</legend>
+              <div className="space-y-1 text-sm text-slate-700">
+                <label className="flex items-start gap-2">
+                  <input type="radio" name="source" className="mt-1" checked={source === 'empty'} onChange={() => {
+                      setSource('empty')
+                      changed()
+                    }} />
+                  <span>空で作る（施策・内訳・ドライバーの定義だけ引き継ぐ）</span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="radio" name="source" className="mt-1" checked={source === 'current'} onChange={() => {
+                      setSource('current')
+                      changed()
+                    }} disabled={!active} />
+                  <span>
+                    今回の見込を元にする
+                    <span className="block text-xs text-slate-500">運用型・コストプール型で翌年度も続く施策は、今回の見込の3月の金額とドライバー値を12か月に入れます。プロジェクト型・終わる施策は空です。</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+          )}
           <Field label="締切日" error={fieldError(error, 'update_deadline')} hint="入れると担当者に「更新の開始」が届きます">
             {(p) => (
               <Input
@@ -159,13 +212,14 @@ export function CycleDialog({
         </div>
 
         {error && !(error instanceof ApiError && Object.keys(error.details).length > 0) ? <ErrorMessage error={error} /> : null}
-        <FormError error={error} fields={['name', 'actual_through', 'fiscal_year', 'update_deadline']} />
+        <FormError error={error} fields={['name', 'actual_through', 'fiscal_year', 'update_deadline', 'source']} />
 
         {preview && (
           <div className="space-y-3" aria-label="変わる内容">
             <ul className="space-y-1 rounded-md border border-slate-200 p-3 text-sm">
               {preview.lock && <li>🔒 「{preview.lock.name}」をロックします（実績を固定）</li>}
-              {preview.base && <li>📄 「{preview.base.name}」を複製します</li>}
+              {preview.base && <li>📄 「{preview.base.name}」を{monthly ? '複製します' : '元に、継続する施策の金額を入れます'}</li>}
+              {!monthly && <li>✎ 今回の見込はロックしません（翌期の計画と並行して進めます）</li>}
               <li>
                 ✨ 新しい版「{preview.scenario.name}」（{preview.scenario.fiscal_year}年度
                 {preview.scenario.actual_through ? `・実績〜${yearMonthLabel(preview.scenario.actual_through)}` : '・全月計画'}）を作り、作成中にします

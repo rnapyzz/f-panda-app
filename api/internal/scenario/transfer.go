@@ -394,7 +394,9 @@ func (h *Handler) importPlanValues(w http.ResponseWriter, r *http.Request) error
 		if s.IsLocked {
 			return httpx.Conflict("ロックされたシナリオには取り込めません")
 		}
-		if !canEditScenario(u, s) {
+		if ok, err := canEditScenario(ctx, tx, u, s); err != nil {
+			return err
+		} else if !ok {
 			return httpx.Conflict("作成中ではないシナリオの数値は FP&A のみが入力できます")
 		}
 		p := &planImport{

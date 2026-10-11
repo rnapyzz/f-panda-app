@@ -4,15 +4,18 @@ import { useCurrentUser } from '../../lib/auth'
 import { Link, useLocation } from '../../lib/router'
 import { actualThroughLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { activeLabel, useActiveScenario } from '../../lib/activeScenario'
 
 const roleTone: Record<PlanRole, 'indigo' | 'green' | 'amber'> = { initial: 'indigo', revised: 'amber', latest: 'green' }
 
 /** シナリオの状態（エイリアス・作成中・ロック・決算確定月） */
 export function ScenarioBadges({ s }: { s: Scenario }) {
+  const actives = useActiveScenario()
+  const label = activeLabel(s, actives)
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {s.plan_role && <Badge tone={roleTone[s.plan_role]}>{planRoleLabels[s.plan_role]}</Badge>}
-      {s.is_active && <Badge tone="green">✎ 今回の見込</Badge>}
+      {label && <Badge tone="green">✎ {label}</Badge>}
       {s.is_locked && <Badge tone="amber">🔒 ロック済み</Badge>}
       <Badge tone="slate">{actualThroughLabel(s.actual_through)}</Badge>
     </span>
