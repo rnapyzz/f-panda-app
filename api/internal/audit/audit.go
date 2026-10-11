@@ -8,6 +8,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strings"
+
+	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
+	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
 
 // Recorder は1つの変更セットに監査ログを記録する。
@@ -27,6 +30,10 @@ func Begin(ctx context.Context, tx *sql.Tx, userID int64, scenarioID *int64, rea
 		"INSERT INTO change_sets (user_id, scenario_id, reason) VALUES (?, ?, ?)",
 		userID, scenarioID, r,
 	)
+	// 変更セットはシナリオの存在を確かめる前に作るため、存在しないシナリオはここで外部キーのエラーになる
+	if scenarioID != nil && dbx.ErrNo(err) == dbx.ErrNoReferencedRow {
+		return nil, httpx.NotFound("シナリオが見つかりません")
+	}
 	if err != nil {
 		return nil, err
 	}

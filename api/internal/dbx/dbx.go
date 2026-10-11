@@ -18,6 +18,7 @@ type Querier interface {
 const (
 	ErrDuplicateEntry  = 1062
 	ErrRowIsReferenced = 1451
+	ErrNoReferencedRow = 1452
 )
 
 // ErrNo は MySQL のエラー番号を返す。MySQL のエラーでなければ 0。

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/activity"
@@ -68,14 +69,35 @@ func NewHandler(d Deps) http.Handler {
 	report.NewHandler(d.DB).Register(mux, requireAuth)
 	history.NewHandler(d.DB).Register(mux, requireAuth)
 
-	// 未定義の /api パスは JSON で 404 を返す。
+	// 未定義の /api パスは JSON で 404 を返す。パスはあるがメソッドが違うときは 405（Allow に使えるメソッド）
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		if allowed := allowedMethods(mux, r); len(allowed) > 0 {
+			w.Header().Set("Allow", strings.Join(allowed, ", "))
+			httpx.WriteError(w, r, &httpx.Error{Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "この API では " + r.Method + " は使えません"})
+			return
+		}
 		httpx.WriteError(w, r, httpx.NotFound("API が見つかりません"))
 	})
 
 	// CSRF 対策: 別オリジンからのブラウザによる更新系リクエストを拒否する。
 	csrf := http.NewCrossOriginProtection()
 	return recoverer(d.Logger, accessLog(d.Logger, csrf.Handler(mux)))
+}
+
+// allowedMethods は、r のパスに登録されているメソッド（/api/ の受け皿を除く）を返す。
+func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
+	var out []string
+	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		if m == r.Method {
+			continue
+		}
+		probe := r.Clone(r.Context())
+		probe.Method = m
+		if _, pattern := mux.Handler(probe); pattern != "" && pattern != "/api/" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func healthHandler(db *sql.DB) http.HandlerFunc {
