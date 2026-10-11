@@ -17,7 +17,7 @@ import (
 
 // 説明へのコメント（docs/plan.md「2.24」）。施策 × シナリオの今回の見込の説明に、関係者がコメントを書いてやり取りする。
 //
-// 施策を見られる人（ログインユーザー全員）が書ける。ロック済みのシナリオには書けない・消せない。
+// 施策を見られる人（ログインユーザー全員）が書ける。書いた本人は編集・削除できる。ロック済みのシナリオには書けない・編集・削除できない。
 // コメントは値ではないので、変更セット・監査ログには残さず、更新の状態（未着手・入力中・完了）も変えない。
 // 書くと、施策の担当者（いなければユニットのマネージャー）と、そのやり取りにすでに書いた人にアプリ内のお知らせを送る。
 
@@ -31,7 +31,10 @@ type comment struct {
 	Body      string    `json:"body"`
 	Deleted   bool      `json:"deleted"`
 	CreatedAt time.Time `json:"created_at"`
-	// CanDelete はログインユーザーが消せるか（書いた本人で、シナリオがロックされていない）
+	// EditedAt は最後に編集した日時（編集していなければ null）。画面に「編集済み」と出す
+	EditedAt *time.Time `json:"edited_at"`
+	// CanEdit・CanDelete はログインユーザーが編集・削除できるか（書いた本人で、消しておらず、シナリオがロックされていない）
+	CanEdit   bool `json:"can_edit"`
 	CanDelete bool `json:"can_delete"`
 }
 
@@ -62,7 +65,7 @@ func (h *Handler) respondComments(w http.ResponseWriter, ctx context.Context, u 
 		return err
 	}
 	rows, err := h.db.QueryContext(ctx, `
-		SELECT c.id, c.user_id, u.name, c.body, c.deleted_at IS NOT NULL, c.created_at
+		SELECT c.id, c.user_id, u.name, c.body, c.deleted_at IS NOT NULL, c.created_at, c.edited_at
 		FROM activity_scenario_comments c JOIN users u ON u.id = c.user_id
 		WHERE c.scenario_id = ? AND c.activity_id = ?
 		ORDER BY c.id`, scenarioID, activityID)
@@ -73,13 +76,17 @@ func (h *Handler) respondComments(w http.ResponseWriter, ctx context.Context, u 
 	list := commentList{Items: []comment{}, CanPost: !s.IsLocked}
 	for rows.Next() {
 		var c comment
-		if err := rows.Scan(&c.ID, &c.UserID, &c.UserName, &c.Body, &c.Deleted, &c.CreatedAt); err != nil {
+		var edited sql.NullTime
+		if err := rows.Scan(&c.ID, &c.UserID, &c.UserName, &c.Body, &c.Deleted, &c.CreatedAt, &edited); err != nil {
 			return err
 		}
 		if c.Deleted {
 			c.Body = ""
+		} else if edited.Valid {
+			c.EditedAt = &edited.Time
 		}
-		c.CanDelete = !c.Deleted && !s.IsLocked && c.UserID == u.ID
+		c.CanEdit = !c.Deleted && !s.IsLocked && c.UserID == u.ID
+		c.CanDelete = c.CanEdit
 		list.Items = append(list.Items, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -174,13 +181,87 @@ func (h *Handler) postComment(w http.ResponseWriter, r *http.Request) error {
 	return h.respondComments(w, ctx, u, scenarioID, activityID, http.StatusCreated)
 }
 
-// deleteComment は DELETE /api/scenarios/{id}/activities/{aid}/comments/{cid}。書いた本人だけが消せる。
-func (h *Handler) deleteComment(w http.ResponseWriter, r *http.Request) error {
-	scenarioID, activityID, err := pathIDs(r)
+// lockOwnComment は、ロックされていないシナリオの、自分のコメントを行ロック付きで読む。消したコメントなら deleted が true。
+func lockOwnComment(ctx context.Context, tx *sql.Tx, u auth.User, scenarioID, activityID, commentID int64, action string) (deleted bool, err error) {
+	s, err := findScenario(ctx, tx, scenarioID, " FOR SHARE")
+	if err != nil {
+		return false, err
+	}
+	if s.IsLocked {
+		return false, httpx.Conflict("ロックされたシナリオのコメントは" + action + "できません")
+	}
+	var authorID int64
+	err = tx.QueryRowContext(ctx, "SELECT user_id, deleted_at IS NOT NULL FROM activity_scenario_comments WHERE id = ? AND scenario_id = ? AND activity_id = ? FOR UPDATE",
+		commentID, scenarioID, activityID).Scan(&authorID, &deleted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, httpx.NotFound("コメントが見つかりません")
+	}
+	if err != nil {
+		return false, err
+	}
+	if authorID != u.ID {
+		return false, httpx.Forbidden()
+	}
+	return deleted, nil
+}
+
+// commentPath は {id}・{aid}・{cid} を読む。
+func commentPath(r *http.Request) (scenarioID, activityID, commentID int64, err error) {
+	if scenarioID, activityID, err = pathIDs(r); err != nil {
+		return
+	}
+	commentID, err = httpx.PathID(r, "cid")
+	return
+}
+
+// putComment は PUT /api/scenarios/{id}/activities/{aid}/comments/{cid}。書いた本人だけが本文を編集できる。
+// 編集した日時を残す（編集前の本文は残さない）。編集ではお知らせを送らない。
+func (h *Handler) putComment(w http.ResponseWriter, r *http.Request) error {
+	scenarioID, activityID, commentID, err := commentPath(r)
 	if err != nil {
 		return err
 	}
-	commentID, err := httpx.PathID(r, "cid")
+	u, err := currentUser(r)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+	v := httpx.Validator{}
+	body := v.Text("body", "コメント", req.Body, commentMaxLen)
+	if err := v.Err(); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	deleted, err := lockOwnComment(ctx, tx, u, scenarioID, activityID, commentID, "編集")
+	if err != nil {
+		return err
+	}
+	if deleted {
+		return httpx.Conflict("削除したコメントは編集できません")
+	}
+	// 本文が変わったときだけ、編集した日時を残す
+	if _, err := tx.ExecContext(ctx, "UPDATE activity_scenario_comments SET edited_at = IF(body = ?, edited_at, NOW()), body = ? WHERE id = ?", body, body, commentID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return h.respondComments(w, ctx, u, scenarioID, activityID, http.StatusOK)
+}
+
+// deleteComment は DELETE /api/scenarios/{id}/activities/{aid}/comments/{cid}。書いた本人だけが消せる。
+func (h *Handler) deleteComment(w http.ResponseWriter, r *http.Request) error {
+	scenarioID, activityID, commentID, err := commentPath(r)
 	if err != nil {
 		return err
 	}
@@ -194,25 +275,9 @@ func (h *Handler) deleteComment(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback()
-	s, err := findScenario(ctx, tx, scenarioID, " FOR SHARE")
+	deleted, err := lockOwnComment(ctx, tx, u, scenarioID, activityID, commentID, "削除")
 	if err != nil {
 		return err
-	}
-	if s.IsLocked {
-		return httpx.Conflict("ロックされたシナリオのコメントは消せません")
-	}
-	var authorID int64
-	var deleted bool
-	err = tx.QueryRowContext(ctx, "SELECT user_id, deleted_at IS NOT NULL FROM activity_scenario_comments WHERE id = ? AND scenario_id = ? AND activity_id = ? FOR UPDATE",
-		commentID, scenarioID, activityID).Scan(&authorID, &deleted)
-	if errors.Is(err, sql.ErrNoRows) {
-		return httpx.NotFound("コメントが見つかりません")
-	}
-	if err != nil {
-		return err
-	}
-	if authorID != u.ID {
-		return httpx.Forbidden()
 	}
 	if !deleted {
 		if _, err := tx.ExecContext(ctx, "UPDATE activity_scenario_comments SET body = '', deleted_at = NOW() WHERE id = ?", commentID); err != nil {

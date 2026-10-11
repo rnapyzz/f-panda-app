@@ -690,6 +690,9 @@ export type NoteComment = {
   body: string
   deleted: boolean
   created_at: string
+  /** 最後に編集した日時（編集していなければ null） */
+  edited_at: string | null
+  can_edit: boolean
   can_delete: boolean
 }
 

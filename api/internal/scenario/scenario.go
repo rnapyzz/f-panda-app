@@ -81,6 +81,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("POST /api/scenarios/{id}/activities/{aid}/complete", read(h.complete))
 	mux.Handle("GET /api/scenarios/{id}/activities/{aid}/comments", read(h.listComments))
 	mux.Handle("POST /api/scenarios/{id}/activities/{aid}/comments", read(h.postComment))
+	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/comments/{cid}", read(h.putComment))
 	mux.Handle("DELETE /api/scenarios/{id}/activities/{aid}/comments/{cid}", read(h.deleteComment))
 	mux.Handle("DELETE /api/scenarios/{id}/activities/{aid}/complete", read(h.uncomplete))
 }

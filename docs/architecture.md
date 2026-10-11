@@ -193,7 +193,7 @@
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
 | `PUT .../activities/{aid}/condition`                          | 廃止（想定条件は今回の見込の説明に統合。docs/plan.md「2.18」）。410 を返す | － |
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
-| `GET/POST .../activities/{aid}/comments`、`DELETE .../activities/{aid}/comments/{cid}` | 説明へのコメント（docs/plan.md「2.24」）。書いた順に返し、削除したものは本文を返さない（`deleted: true`） | 参照・投稿は全員（ロック済みのシナリオには投稿できない）、削除は書いた本人だけ |
+| `GET/POST .../activities/{aid}/comments`、`PUT/DELETE .../activities/{aid}/comments/{cid}` | 説明へのコメント（docs/plan.md「2.24」）。書いた順に返し、削除したものは本文を返さない（`deleted: true`）。編集すると `edited_at` を返す（本文が変わったときだけ更新。お知らせは送らない） | 参照・投稿は全員、編集・削除は書いた本人だけ（ロック済みのシナリオではどれもできない。消したコメントは編集できない） |
 | `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
 | `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差、コメントの件数（`comment_count`） | 全員（範囲はロールで決まる） |
 | `GET /api/scenarios/{id}/milestones?activity_ids=` | ホームのマイルストーン（docs/plan.md「2.11」）。完了していないマイルストーンと、期日超過・遅延・期日が近い・後ろ倒し（前回見込の作成以降の回数と日数） | 全員 |
