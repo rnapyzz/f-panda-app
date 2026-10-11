@@ -186,10 +186,10 @@
 | API                                                           | 内容                                         | 権限           |
 | ------------------------------------------------------------- | -------------------------------------------- | -------------- |
 | `GET /api/scenarios`（`fiscal_year` で絞り込み）              | 一覧（エイリアス・決算確定月・作成中を含む） | 全員           |
-| `GET /api/scenarios/active`                                   | 作成中のシナリオ（未設定なら `null`）        | 全員           |
+| `GET /api/scenarios/active`                                   | 作成中のシナリオ。`{"current": 今回の見込, "next_plan": 翌期の計画, "others": [ほかの作成中]}`（ないものは `null`・空配列。docs/plan.md「2.6」「2.25」） | 全員           |
 | `POST /api/scenarios`                                         | 作成（`base_scenario_id` 指定で複製。`plan_role`・`actual_through`・`previous_scenario_id`（前回見込、省略時は複製元）も指定できる） | FP&A           |
 | `GET/PUT /api/scenarios/{id}`                                 | 取得・名称、エイリアス（`plan_role`）、前回見込（`previous_scenario_id`）、決算確定月（`actual_through`、変更は理由必須）、現場の更新の締切日（`update_deadline`、`YYYY-MM-DD`）の変更 | 全員 / FP&A    |
-| `POST /api/scenarios/{id}/activate`                           | 作成中に指定（前の作成中は外れる）           | FP&A           |
+| `POST /api/scenarios/{id}/activate`                           | 作成中に指定（同じ年度の前の作成中は外れる。ほかの年度の作成中はそのまま） | FP&A           |
 | `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
 | `GET /api/scenarios/actual-drift`                             | ロック済みのシナリオごとに、保存した実績と今の実績が食い違う月（月・収益の差・費用の差）。食い違いのないシナリオは返さない（docs/plan.md「2.14」） | FP&A           |
 | `POST /api/scenarios/{id}/refresh-actuals`                    | ロック済みのシナリオに保存した実績を、今の実績に入れ替える（理由必須。`dry_run: true` で月ごとの差だけを返す）。ロックは外れない | FP&A           |
@@ -200,7 +200,7 @@
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
 | `GET/POST .../activities/{aid}/comments`、`PUT/DELETE .../activities/{aid}/comments/{cid}` | 説明へのコメント（docs/plan.md「2.24」）。書いた順に返し、削除したものは本文を返さない（`deleted: true`）。編集すると `edited_at` を返す（本文が変わったときだけ更新。お知らせは送らない） | 参照・投稿は全員、編集・削除は書いた本人だけ（ロック済みのシナリオではどれもできない。消したコメントは編集できない） |
 | `POST/DELETE .../activities/{aid}/complete`                   | 更新を完了にする・完了を取り消す             | 数値の入力と同じ |
-| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差、コメントの件数（`comment_count`） | 全員（範囲はロールで決まる） |
+| `GET /api/scenarios/{id}/activity-status?scope=mine\|units\|all` | ホーム用。施策ごとの状態・差異の説明・要因の分類、重点施策・ウォッチ、今回・基準・期初計画・修正計画・前回見込の年間の収益・費用、新しく実績になった月の前回見込との差、コメントの件数（`comment_count`）。翌期の計画では、今回の見込（当期）の年間の収益・費用（`current_year`）も返す（docs/plan.md「2.25」） | 全員（範囲はロールで決まる） |
 | `GET /api/scenarios/{id}/milestones?activity_ids=` | ホームのマイルストーン（docs/plan.md「2.11」）。完了していないマイルストーンと、期日超過・遅延・期日が近い・後ろ倒し（前回見込の作成以降の回数と日数） | 全員 |
 
 - 月は `YYYY-MM`。値を `null` にすると削除。1リクエスト1,000件まで
@@ -219,8 +219,8 @@
 
 | API | 内容 |
 | --- | ---- |
-| `POST /api/scenarios/start-monthly` | 月次の見込を始める（`name`・`actual_through`・`update_deadline`、`reason` 任意） |
-| `POST /api/scenarios/start-fiscal-year` | 新年度の期初計画を始める（`fiscal_year`・`name`・`update_deadline`） |
+| `POST /api/scenarios/start-monthly` | 月次の見込を始める（`fiscal_year`（既定は今回の見込の年度）・`name`・`actual_through`・`update_deadline`、`reason` 任意）。その年度の作成中の版だけをロック・複製する |
+| `POST /api/scenarios/start-fiscal-year` | 新年度の期初計画を始める（`fiscal_year`・`name`・`update_deadline`・`source`: `empty` / `current`（今回の見込を元にする））。今回の見込はロックしない。その年度に作成中の版があれば 422 |
 
 - どちらも `dry_run: true` で保存せず、変わる内容（ロックする版、複製元、新しい版、付け替えるエイリアス、前回見込）と注意（`warnings`: 種類と件数・月）を返す。注意があっても実行できる
 - 実行は1つの変更セット（全部か無しか）。ロック・複製・エイリアスの付け替え・作成中の指定は、それぞれの API と同じ処理（`scenario` パッケージ）を使い、監査ログに残す
@@ -290,6 +290,7 @@
 | `GET /api/scenarios/{id}/reminders` | 今日（日本時間）催促した人（`user_ids`） | FP&A |
 
 - コメントのお知らせ（`comment`）は、投稿の API の中で宛先（担当者、いなければユニットのマネージャーと、そのやり取りにすでに書いた人）ごとに作る。Slack には送らず、送信の記録（`notification_runs`）にも残さない
+- 通知の対象の版は、今回の見込と翌期の計画（docs/plan.md「2.25」）。締切の前・超過は版ごとに送り、送信の記録（`notification_runs`）も（種類・シナリオ・日付）で版ごとに一意にする。実績の反映は今回の見込だけ
 - 通知の組み立てと送信は `internal/notify`。宛先の決定（未完了の施策・担当者・マネージャー）はホームの更新の状態（`activity-status`）と同じ判定を使う
 - 定期の送信: API の起動時にゴルーチンを1つ起動し、1分ごとに送信時刻を過ぎたかを確かめる。送信の記録（`notification_runs`）の一意制約で、同じ通知を同じ日に二重に送らない（複数台・再起動でも安全）
 - 即時の通知: 締切の設定（「更新の開始」）と決算確定月の変更（「実績の反映」）は、保存のトランザクションが終わった後に送る。送信の失敗は保存を失敗させない
