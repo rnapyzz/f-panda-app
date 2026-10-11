@@ -169,10 +169,15 @@ export function Empty({ children }: { children: ReactNode }) {
 
 // --- 表 ---
 
+/**
+ * 表。画面を下へスクロールすると、見出しの行が画面の上に残る（position: sticky）。
+ * md 以上は横スクロールの枠を持たない（枠があると見出しが画面に対して固定されないため）。狭い画面は横スクロールを優先する。
+ * 見出しを固定するため、罫線は border-separate で引く（border-collapse だと固定した見出しの罫線が消える）。
+ */
 export function Table({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm [&_td]:border-b [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-2 [&_th]:border-b [&_th]:border-slate-200 [&_th]:px-3 [&_th]:py-2 [&_th]:text-xs [&_th]:font-semibold [&_th]:text-slate-500">
+    <div className="overflow-x-auto md:overflow-visible">
+      <table className="w-full border-separate border-spacing-0 text-left text-sm [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-white [&_td]:border-b [&_td]:border-slate-100 [&_td]:px-3 [&_td]:py-2 [&_th]:border-b [&_th]:border-slate-200 [&_th]:px-3 [&_th]:py-2 [&_th]:text-xs [&_th]:font-semibold [&_th]:text-slate-500">
         {children}
       </table>
     </div>
