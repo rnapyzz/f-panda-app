@@ -334,6 +334,8 @@ export type ValuesView = {
   scenario: Scenario
   activity: ActivitySummary
   months: string[]
+  /** 翌年度の月（施策の終了日が翌年度にかかるときだけ12か月。docs/plan.md「2.26」） */
+  beyond_months: string[]
   /** 実績の月（決算確定月以前）。入力できない */
   actual_months: string[]
   editable: boolean

@@ -279,13 +279,36 @@ func (h *Handler) startFiscalYear(w http.ResponseWriter, r *http.Request) error 
 	})
 }
 
-// seedFromCurrent は、翌年度も続く施策（運用型・コストプール型で、完了・中止でなく、終了日が翌年度の初日以降か未設定）について、
-// 今回の見込の最後の月（3月）の金額（科目 × 内訳）とドライバー値を、新しい年度の12か月に入れ、計算式を計算し直す（docs/plan.md「2.16」）。
-// 3月が実績の月なら実績の金額を使う。入れた行は件数だけを変更履歴に残す（複製と同じ）。
+// seedFromCurrent は、今回の見込から新しい年度の版に金額を入れ、計算式を計算し直す（docs/plan.md「2.16」「2.26」）。
+//
+//  1. 今回の見込に入れてある翌年度の月の金額・ドライバー値を、施策の種類にかかわらずそのまま入れる
+//  2. 翌年度の月に金額もドライバー値もない、翌年度も続く施策（運用型・コストプール型で、完了・中止でなく、
+//     終了日が翌年度の初日以降か未設定）は、今回の見込の最後の月（3月）の金額とドライバー値を12か月に入れる。3月が実績の月なら実績の金額
+//
+// 入れた行は件数だけを変更履歴に残す（複製と同じ）。
 func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from, to Scenario) error {
 	fromMonths := calc.FiscalMonths(from.FiscalYear)
 	last := fromMonths[len(fromMonths)-1] + "-01"
 	toMonths := calc.FiscalMonths(to.FiscalYear)
+	start, end := toMonths[0]+"-01", toMonths[len(toMonths)-1]+"-01"
+
+	// 1. 翌年度の月の金額・ドライバー値をそのまま入れる
+	resBeyond, err := tx.ExecContext(ctx, `
+		INSERT INTO budget_facts (scenario_id, activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason)
+		SELECT ?, activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason
+		FROM budget_facts WHERE scenario_id = ? AND target_month BETWEEN ? AND ?`, to.ID, from.ID, start, end)
+	if err != nil {
+		return err
+	}
+	resBeyondDrivers, err := tx.ExecContext(ctx, `
+		INSERT INTO driver_values (scenario_id, activity_driver_id, target_month, value, is_provisional, provisional_reason)
+		SELECT ?, activity_driver_id, target_month, value, is_provisional, provisional_reason
+		FROM driver_values WHERE scenario_id = ? AND target_month BETWEEN ? AND ?`, to.ID, from.ID, start, end)
+	if err != nil {
+		return err
+	}
+
+	// 2. 翌年度の月を入れていない継続する施策は、3月の金額を12か月に入れる
 	var monthsSQL []string
 	monthArgs := make([]any, 0, len(toMonths))
 	for _, m := range toMonths {
@@ -293,11 +316,12 @@ func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from,
 		monthArgs = append(monthArgs, m+"-01")
 	}
 	months := "(" + strings.Join(monthsSQL, " UNION ALL ") + ")"
-	continuing := `a.activity_type IN ('recurring', 'cost_pool') AND a.status NOT IN ('completed', 'cancelled') AND (a.end_date IS NULL OR a.end_date >= ?)`
-	start := toMonths[0] + "-01"
+	continuing := `a.activity_type IN ('recurring', 'cost_pool') AND a.status NOT IN ('completed', 'cancelled') AND (a.end_date IS NULL OR a.end_date >= ?)
+		AND NOT EXISTS (SELECT 1 FROM budget_facts nb WHERE nb.scenario_id = ? AND nb.activity_id = a.id)
+		AND NOT EXISTS (SELECT 1 FROM driver_values nv JOIN activity_drivers nd ON nd.id = nv.activity_driver_id WHERE nv.scenario_id = ? AND nd.activity_id = a.id)`
 
 	args := append([]any{to.ID}, monthArgs...)
-	args = append(args, from.ID, last, start)
+	args = append(args, from.ID, last, start, to.ID, to.ID)
 	resAmounts, err := tx.ExecContext(ctx, `
 		INSERT INTO budget_facts (scenario_id, activity_id, subject_id, line_id, target_month, amount, source)
 		SELECT ?, b.activity_id, b.subject_id, b.line_id, m.target_month, b.amount, 'manual'
@@ -309,7 +333,7 @@ func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from,
 		return err
 	}
 	args = append([]any{to.ID}, monthArgs...)
-	args = append(args, from.ID, last, start)
+	args = append(args, from.ID, last, start, to.ID, to.ID)
 	resDrivers, err := tx.ExecContext(ctx, `
 		INSERT INTO driver_values (scenario_id, activity_driver_id, target_month, value)
 		SELECT ?, v.activity_driver_id, m.target_month, v.value
@@ -324,13 +348,15 @@ func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from,
 	if err := calc.RecalculateScenario(ctx, tx, rec, to.ID); err != nil {
 		return err
 	}
-	amounts, _ := resAmounts.RowsAffected()
-	drivers, _ := resDrivers.RowsAffected()
+	count := func(r sql.Result) int64 { n, _ := r.RowsAffected(); return n }
 	return rec.Update(ctx, "scenarios", to.ID, to, struct {
 		Scenario
 		SeededFrom int64            `json:"seeded_from"`
 		Seeded     map[string]int64 `json:"seeded"`
-	}{to, from.ID, map[string]int64{"budget_facts": amounts, "driver_values": drivers}})
+	}{to, from.ID, map[string]int64{
+		"budget_facts_beyond": count(resBeyond), "driver_values_beyond": count(resBeyondDrivers),
+		"budget_facts": count(resAmounts), "driver_values": count(resDrivers),
+	}})
 }
 
 // runCycle は切り替えを1つの変更セットで行い、新しい版を作成中にする。締切があれば、保存の後に「更新の開始」を送る。

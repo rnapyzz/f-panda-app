@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AmountRow } from '../api/types.ts'
-import { buildPl, buildSeriesPl, defaultFiscalYear, periodsOf, sumOver } from './pl.ts'
+import { buildPl, buildSeriesPl, defaultFiscalYear, periodsOf, sumOver, totalsOver } from './pl.ts'
 
 const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03']
 
@@ -109,4 +109,14 @@ test('buildSeriesPl: 3つの系列（今回・基準・前回見込）を同じ�
     [900n, 1000n, 0n],
   )
   assert.equal(revenue.children[0].values.length, 3)
+})
+
+test('totalsOver: 指定した月の収益・費用（内訳を含む）', () => {
+  const cell = (m: string, amount: number) => ({ target_month: m, amount, source: 'manual' as const, is_provisional: false, provisional_reason: '' })
+  const rows = [
+    { subject_id: 1, code: 'R', name: '売上', category: 'revenue' as const, values: [cell('2027-03', 100), cell('2027-06', 50)], lines: [{ id: 1, name: 'A社', expression: '', formula_enabled: false, confidence_level: null, outlook: 'base' as const, values: [cell('2027-05', 7)] }] },
+    { subject_id: 2, code: 'E', name: '外注費', category: 'expense' as const, values: [cell('2027-06', 20)], lines: [] },
+  ]
+  assert.deepEqual(totalsOver(rows, ['2027-03']), { revenue: 100n, expense: 0n })
+  assert.deepEqual(totalsOver(rows, ['2027-05', '2027-06']), { revenue: 57n, expense: 20n })
 })

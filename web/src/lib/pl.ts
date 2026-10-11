@@ -135,3 +135,14 @@ export function defaultFiscalYear(years: number[], today = new Date()): number |
   const current = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
   return years.includes(current) ? current : [...years].sort((a, b) => b - a)[0]
 }
+
+/** 金額の行の、指定した月の収益・費用の合計（内訳と科目への直接入力を合わせる）。施策全体（年度をまたいだ合計。docs/plan.md「2.26」）に使う */
+export function totalsOver(rows: AmountRow[], months: string[]): { revenue: bigint; expense: bigint } {
+  const set = new Set(months)
+  const sum = (values: { target_month: string; amount: number | string }[]) => values.reduce((s, v) => (set.has(v.target_month) ? s + BigInt(v.amount) : s), 0n)
+  const out = { revenue: 0n, expense: 0n }
+  for (const r of rows) {
+    out[r.category] += sum(r.values) + r.lines.reduce((s, l) => s + sum(l.values), 0n)
+  }
+  return out
+}

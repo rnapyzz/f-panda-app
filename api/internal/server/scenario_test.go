@@ -220,7 +220,7 @@ func TestDriverValueValidation(t *testing.T) {
 		value map[string]any
 		field string
 	}{
-		{"年度外の月", map[string]any{"driver_id": f.priceID, "target_month": "2027-04", "value": 1}, "values[0].target_month"},
+		{"翌年度より先の月", map[string]any{"driver_id": f.priceID, "target_month": "2028-04", "value": 1}, "values[0].target_month"},
 		{"月の形式", map[string]any{"driver_id": f.priceID, "target_month": "2026-10-01", "value": 1}, "values[0].target_month"},
 		{"他施策のドライバー", map[string]any{"driver_id": otherDriver, "target_month": "2026-10", "value": 1}, "values[0].driver_id"},
 		{"小数7桁", map[string]any{"driver_id": f.priceID, "target_month": "2026-10", "value": "0.1234567"}, "values[0].value"},

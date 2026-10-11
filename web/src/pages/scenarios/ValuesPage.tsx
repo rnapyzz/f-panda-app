@@ -195,7 +195,10 @@ function ValuesEditor({
   // 今の入力に対する試算だけを使う（入力が変わったら、次の試算が届くまで「試算中」）
   const activePreview = driverItems.length > 0 && preview?.payload === driverPayload ? preview : null
   const previewing = driverItems.length > 0 && v.editable && !activePreview
-  const formulaKeys = new Set<CellKey>(v.amounts.flatMap((a) => a.lines.filter((l) => l.formula_enabled).flatMap((l) => v.months.map((m) => `a:${a.subject_id}:${l.id}:${m}` as CellKey))))
+  // 表の列: 当期の12か月と、翌年度にかかる施策なら翌年度の月（docs/plan.md「2.26」）
+  const gridMonths = [...v.months, ...v.beyond_months]
+  const beyondFrom = v.beyond_months[0]
+  const formulaKeys = new Set<CellKey>(v.amounts.flatMap((a) => a.lines.filter((l) => l.formula_enabled).flatMap((l) => gridMonths.map((m) => `a:${a.subject_id}:${l.id}:${m}` as CellKey))))
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
 
@@ -263,8 +266,8 @@ function ValuesEditor({
       })
     return { ...r, values: valuesOf(0), lines: r.lines.map((l) => ({ ...l, values: valuesOf(l.id) })) }
   })
-  const rowTotal = (subjectId: number, lineId: number) => v.months.reduce((sum, m) => sum + toBigInt(cell(`a:${subjectId}:${lineId}:${m}`).value), 0n)
-  const subjectTotal = (r: AmountRow) => v.months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
+  const rowTotal = (subjectId: number, lineId: number, months = v.months) => months.reduce((sum, m) => sum + toBigInt(cell(`a:${subjectId}:${lineId}:${m}`).value), 0n)
+  const subjectTotal = (r: AmountRow, months = v.months) => months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
 
   // スプレッドシートの行。内訳のない科目は直接入力の1行、内訳のある科目は内訳の行と「その他」の行
   const sheetLines: SheetLine[] = amountRows.flatMap((r): SheetLine[] => {
@@ -308,7 +311,7 @@ function ValuesEditor({
     }
   }
 
-  const readonlyKeys = new Set<CellKey>(sheetLines.filter((l) => !l.editable).flatMap((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)))
+  const readonlyKeys = new Set<CellKey>(sheetLines.filter((l) => !l.editable).flatMap((l) => gridMonths.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)))
   const sheetOptions = {
     isEditable: (k: CellKey) => editable && !readonlyKeys.has(k) && !actualMonths.has(monthOf(k)),
     rawValue: (k: CellKey) => normalize(cell(k).value),
@@ -317,14 +320,14 @@ function ValuesEditor({
     onUndo: undo,
     onRedo: redo,
   }
-  const driverSheet = useSheet<CellKey>({ ...sheetOptions, grid: drivers.map((d) => v.months.map((m) => `d:${d.id}:${m}` as CellKey)) })
-  const amountSheet = useSheet<CellKey>({ ...sheetOptions, grid: sheetLines.map((l) => v.months.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)) })
+  const driverSheet = useSheet<CellKey>({ ...sheetOptions, grid: drivers.map((d) => gridMonths.map((m) => `d:${d.id}:${m}` as CellKey)) })
+  const amountSheet = useSheet<CellKey>({ ...sheetOptions, grid: sheetLines.map((l) => gridMonths.map((m) => `a:${l.row.subject_id}:${l.lineId}:${m}` as CellKey)) })
 
   /** 金額を入力・表示する1行 */
   const amountLine = (l: SheetLine, index: number) => (
     <tr key={`${l.row.subject_id}:${l.lineId}`}>
       <RowHeader title={l.title} sub={l.sub} indent={l.indent} />
-      {v.months.map((m, c) => {
+      {gridMonths.map((m, c) => {
         const k: CellKey = `a:${l.row.subject_id}:${l.lineId}:${m}`
         return (
           <SheetCell
@@ -332,7 +335,8 @@ function ValuesEditor({
             sheet={amountSheet}
             r={index}
             c={c}
-            label={`${l.label} ${monthLabel(m)}`}
+            boundary={m === beyondFrom}
+            label={`${l.label} ${gridMonthLabel(m, beyondFrom)}`}
             display={formatYen(cell(k).value)}
             editable={editable && l.editable && !actualMonths.has(m)}
             provisional={cell(k).is_provisional}
@@ -342,6 +346,7 @@ function ValuesEditor({
         )
       })}
       <td className="border-b border-slate-100 bg-slate-50 px-2 text-right tabular-nums">{formatYen(String(rowTotal(l.row.subject_id, l.lineId)))}</td>
+      {beyondFrom && <td className="border-b border-slate-100 bg-indigo-50/40 px-2 text-right tabular-nums">{formatYen(String(rowTotal(l.row.subject_id, l.lineId, v.beyond_months)))}</td>}
     </tr>
   )
 
@@ -472,7 +477,7 @@ function ValuesEditor({
         {v.drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーがありません。単価・件数・顧客数など、金額の根拠となる値を追加できます。</p>
         ) : (
-          <Grid sheet={driverSheet} label="ドライバー・KPI" months={v.months} actualMonths={actualMonths}>
+          <Grid sheet={driverSheet} label="ドライバー・KPI" months={gridMonths} beyondFrom={beyondFrom} actualMonths={actualMonths}>
             {drivers.map((d, r) => (
               <tr
                 key={d.id}
@@ -511,7 +516,7 @@ function ValuesEditor({
                     )
                   }
                 />
-                {v.months.map((m, c) => {
+                {gridMonths.map((m, c) => {
                   const k: CellKey = `d:${d.id}:${m}`
                   return (
                     <SheetCell
@@ -519,7 +524,8 @@ function ValuesEditor({
                       sheet={driverSheet}
                       r={r}
                       c={c}
-                      label={`${d.name} ${monthLabel(m)}`}
+                      boundary={m === beyondFrom}
+                      label={`${d.name} ${gridMonthLabel(m, beyondFrom)}`}
                       display={formatNumber(cell(k).value)}
                       editable={editable && !actualMonths.has(m)}
                       provisional={cell(k).is_provisional}
@@ -529,6 +535,7 @@ function ValuesEditor({
                   )
                 })}
                 <td className="border-b border-slate-100" />
+                {beyondFrom && <td className="border-b border-slate-100" />}
               </tr>
             ))}
           </Grid>
@@ -585,19 +592,20 @@ function ValuesEditor({
         {amountRows.length === 0 ? (
           <p className="text-sm text-slate-500">金額はまだありません。{editable ? '「＋ 科目を追加」から入力する科目を選んでください。' : ''}</p>
         ) : (
-          <Grid sheet={amountSheet} label="金額" months={v.months} actualMonths={actualMonths} total>
+          <Grid sheet={amountSheet} label="金額" months={gridMonths} beyondFrom={beyondFrom} actualMonths={actualMonths} total>
             {amountRows.flatMap((r) => {
               const lines = sheetLines.map((l, i) => [l, i] as const).filter(([l]) => l.row === r)
               if (r.lines.length === 0) return lines.map(([l, i]) => amountLine(l, i))
               return [
                 <tr key={r.subject_id} className="bg-slate-50/60">
                   <RowHeader title={r.name} sub={`${r.code} ${categoryLabels[r.category]}・合計`} />
-                  {v.months.map((m) => (
-                    <td key={m} className="border-b border-slate-100 px-2 py-1 text-right font-medium tabular-nums">
+                  {gridMonths.map((m) => (
+                    <td key={m} className={cx('border-b border-slate-100 px-2 py-1 text-right font-medium tabular-nums', m === beyondFrom && 'border-l-2 border-l-indigo-200')}>
                       {formatYen(String(subjectMonth(r, m)))}
                     </td>
                   ))}
                   <td className="border-b border-slate-100 bg-slate-50 px-2 text-right font-medium tabular-nums">{formatYen(String(subjectTotal(r)))}</td>
+                  {beyondFrom && <td className="border-b border-slate-100 bg-indigo-50/40 px-2 text-right font-medium tabular-nums">{formatYen(String(subjectTotal(r, v.beyond_months)))}</td>}
                 </tr>,
                 ...lines.map(([l, i]) => amountLine(l, i)),
               ]
@@ -607,24 +615,26 @@ function ValuesEditor({
                 <th scope="row" className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-left text-xs text-slate-600">
                   {categoryLabels[c]}計
                 </th>
-                {v.months.map((m) => (
-                  <td key={m} className="px-2 py-1.5 text-right text-xs tabular-nums">
+                {gridMonths.map((m) => (
+                  <td key={m} className={cx('px-2 py-1.5 text-right text-xs tabular-nums', m === beyondFrom && 'border-l-2 border-l-indigo-200')}>
                     {formatYen(String(monthTotal(c, m)))}
                   </td>
                 ))}
                 <td className="px-2 text-right text-xs tabular-nums">{formatYen(String(v.months.reduce((s, m) => s + monthTotal(c, m), 0n)))}</td>
+                {beyondFrom && <td className="bg-indigo-50/40 px-2 text-right text-xs tabular-nums">{formatYen(String(v.beyond_months.reduce((s, m) => s + monthTotal(c, m), 0n)))}</td>}
               </tr>
             ))}
             <tr className="bg-slate-100 font-semibold">
               <th scope="row" className="sticky left-0 z-10 bg-slate-100 px-3 py-1.5 text-left text-xs text-slate-700">
                 利益（収益 − 費用）
               </th>
-              {v.months.map((m) => (
-                <td key={m} className="px-2 py-1.5 text-right text-xs tabular-nums">
+              {gridMonths.map((m) => (
+                <td key={m} className={cx('px-2 py-1.5 text-right text-xs tabular-nums', m === beyondFrom && 'border-l-2 border-l-indigo-200')}>
                   {formatYen(String(monthTotal('revenue', m) - monthTotal('expense', m)))}
                 </td>
               ))}
               <td className="px-2 text-right text-xs tabular-nums">{formatYen(String(v.months.reduce((s, m) => s + monthTotal('revenue', m) - monthTotal('expense', m), 0n)))}</td>
+              {beyondFrom && <td className="bg-indigo-50/40 px-2 text-right text-xs tabular-nums">{formatYen(String(v.beyond_months.reduce((s, m) => s + monthTotal('revenue', m) - monthTotal('expense', m), 0n)))}</td>}
             </tr>
           </Grid>
         )}
@@ -757,6 +767,11 @@ function describeCell(k: CellKey, v: ValuesView, amountRows: AmountRow[]) {
 }
 
 /** 入力中の金額を整数として足し合わせる（数値でない入力は 0 として扱う） */
+/** 表の月の名前。翌年度の月は「翌4月」のように付ける（セルの読み上げ・選択中のセルの表示用） */
+function gridMonthLabel(m: string, beyondFrom?: string): string {
+  return beyondFrom && m >= beyondFrom ? `翌${monthLabel(m)}` : monthLabel(m)
+}
+
 function toBigInt(raw: string): bigint {
   const v = normalize(raw)
   return /^-?\d+$/.test(v) ? BigInt(v) : 0n
@@ -766,6 +781,7 @@ function Grid({
   sheet,
   label,
   months,
+  beyondFrom,
   actualMonths,
   total,
   children,
@@ -773,6 +789,8 @@ function Grid({
   sheet: Sheet
   label: string
   months: string[]
+  /** 翌年度の最初の月（docs/plan.md「2.26」）。この月から右は翌年度で、合計の列も分ける */
+  beyondFrom?: string
   actualMonths: Set<string>
   total?: boolean
   children: ReactNode
@@ -783,12 +801,21 @@ function Grid({
         <tr>
           <th className="sticky left-0 z-10 min-w-44 border-b border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-500" />
           {months.map((m) => (
-            <th key={m} className="border-b border-slate-200 px-2 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500">
+            <th
+              key={m}
+              className={cx(
+                'border-b border-slate-200 px-2 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500',
+                beyondFrom && m >= beyondFrom && 'bg-indigo-50/40 text-indigo-700',
+                m === beyondFrom && 'border-l-2 border-l-indigo-200',
+              )}
+            >
               {monthLabel(m)}
               {actualMonths.has(m) && <span className="block text-[10px] font-normal text-slate-400">実績</span>}
+              {m === beyondFrom && <span className="block text-[10px] font-normal">翌年度（{m.slice(0, 4)}年度）</span>}
             </th>
           ))}
-          <th className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-xs font-semibold text-slate-500">{total ? '年計' : ''}</th>
+          <th className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-xs font-semibold text-slate-500">{total ? (beyondFrom ? '当期の年計' : '年計') : ''}</th>
+          {beyondFrom && <th className="border-b border-slate-200 bg-indigo-50/40 px-2 py-1.5 text-right text-xs font-semibold text-indigo-700">{total ? '翌年度の計' : ''}</th>}
         </tr>
       </thead>
       <tbody>{children}</tbody>
