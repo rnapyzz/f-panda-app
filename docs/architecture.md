@@ -219,7 +219,7 @@
 
 | API | 内容 |
 | --- | ---- |
-| `POST /api/scenarios/start-monthly` | 月次の見込を始める（`fiscal_year`（既定は今回の見込の年度）・`name`・`actual_through`・`update_deadline`、`reason` 任意）。その年度の作成中の版だけをロック・複製する |
+| `POST /api/scenarios/start-monthly` | 月次の見込を始める（`name`・`actual_through`・`update_deadline`、`reason` 任意）。年度は決算確定月で決まり、その年度の作成中の版だけをロック・複製する（ほかの年度の作成中の版はそのまま） |
 | `POST /api/scenarios/start-fiscal-year` | 新年度の期初計画を始める（`fiscal_year`・`name`・`update_deadline`・`source`: `empty` / `current`（今回の見込を元にする））。今回の見込はロックしない。その年度に作成中の版があれば 422 |
 
 - どちらも `dry_run: true` で保存せず、変わる内容（ロックする版、複製元、新しい版、付け替えるエイリアス、前回見込）と注意（`warnings`: 種類と件数・月）を返す。注意があっても実行できる

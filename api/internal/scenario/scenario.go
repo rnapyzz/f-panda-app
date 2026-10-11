@@ -26,6 +26,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
+	"github.com/rnapyzz/f-panda-app/api/internal/versions"
 )
 
 // planRoles はシナリオのエイリアス（期初計画・修正計画・最新見込）。年度ごとに1つのシナリオにだけ付けられる。
@@ -272,19 +273,42 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// active は GET /api/scenarios/active。作成中のシナリオを返す（未設定なら null）。
+// activeResponse は作成中のシナリオ（docs/plan.md「2.6」「2.25」）。
+type activeResponse struct {
+	Current  *Scenario  `json:"current"`   // 今回の見込
+	NextPlan *Scenario  `json:"next_plan"` // 翌期の計画
+	Others   []Scenario `json:"others"`    // そのほかの作成中（締める前の前年度の版など）
+}
+
+// active は GET /api/scenarios/active。作成中のシナリオを、今回の見込・翌期の計画・そのほかに分けて返す。
 func (h *Handler) active(w http.ResponseWriter, r *http.Request) error {
-	s, err := scanScenario(h.db.QueryRowContext(r.Context(), scenarioSelect+" WHERE is_active"))
-	if errors.Is(err, sql.ErrNoRows) {
-		// 未設定は null を返す（WriteJSON は nil のとき本文を書かないため、直接書く）
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, err := w.Write([]byte("null\n"))
-		return err
-	}
+	ctx := r.Context()
+	actives, err := versions.Load(ctx, h.db)
 	if err != nil {
 		return err
 	}
-	httpx.WriteJSON(w, http.StatusOK, s)
+	resp := activeResponse{Others: []Scenario{}}
+	load := func(v *versions.Version) (*Scenario, error) {
+		if v == nil {
+			return nil, nil
+		}
+		s, err := findScenario(ctx, h.db, v.ID, "")
+		return &s, err
+	}
+	if resp.Current, err = load(actives.Current); err != nil {
+		return err
+	}
+	if resp.NextPlan, err = load(actives.NextPlan); err != nil {
+		return err
+	}
+	for i := range actives.Others {
+		s, err := load(&actives.Others[i])
+		if err != nil {
+			return err
+		}
+		resp.Others = append(resp.Others, *s)
+	}
+	httpx.WriteJSON(w, http.StatusOK, resp)
 	return nil
 }
 
@@ -608,7 +632,7 @@ func (h *Handler) activate(w http.ResponseWriter, r *http.Request) error {
 		if before.IsActive {
 			return nil
 		}
-		if err := deactivateCurrent(ctx, tx, rec); err != nil {
+		if err := deactivateCurrent(ctx, tx, rec, before.FiscalYear); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE scenarios SET is_active = TRUE WHERE id = ?", id); err != nil {
@@ -630,9 +654,9 @@ func (h *Handler) activate(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// deactivateCurrent は作成中のシナリオの指定を外す。
-func deactivateCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder) error {
-	cur, err := scanScenario(tx.QueryRowContext(ctx, scenarioSelect+" WHERE is_active FOR UPDATE"))
+// deactivateCurrent は、その年度の作成中のシナリオの指定を外す（作成中は年度ごとに1つ。ほかの年度はそのまま）。
+func deactivateCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, fiscalYear int) error {
+	cur, err := scanScenario(tx.QueryRowContext(ctx, scenarioSelect+" WHERE is_active AND fiscal_year = ? FOR UPDATE", fiscalYear))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -674,6 +698,16 @@ func lockScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, before S
 		Scenario
 		FrozenActuals int64 `json:"frozen_actuals"`
 	}{updated, actuals})
+}
+
+// LockActiveOfYear は、その年度の作成中の版をロックする（なければ何もしない）。年度を締めるときに使う（docs/plan.md「2.14」）。
+func LockActiveOfYear(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, fiscalYear int) error {
+	cur, err := activeOf(ctx, tx, fiscalYear)
+	if err != nil || cur == nil || cur.IsLocked {
+		return err
+	}
+	_, err = lockScenario(ctx, tx, rec, *cur)
+	return err
 }
 
 // lock は POST /api/scenarios/{id}/lock。ロックしたシナリオの数値は変更できなくなる。

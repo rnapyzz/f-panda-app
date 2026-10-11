@@ -169,20 +169,30 @@ func (s *Service) RunDue(ctx context.Context) error {
 	if isWeekend(today) {
 		return nil
 	}
-	sc, err := s.activeScenario(ctx)
-	if err != nil || sc == nil {
+	// 今回の見込と翌期の計画（docs/plan.md「2.25」）で、それぞれの締切に合わせて送る
+	scenarios, err := s.activeScenarios(ctx)
+	if err != nil {
 		return err
 	}
+	for _, sc := range scenarios {
+		if err := s.runDueFor(ctx, st, sc, today); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) runDueFor(ctx context.Context, st settings, sc scenarioInfo, today time.Time) error {
 	deadline := *sc.deadline
 	switch {
 	case today.After(deadline):
 		if st.EnabledKinds[KindDeadlineOverdue] {
-			return s.deadlineOverdue(ctx, *sc, today)
+			return s.deadlineOverdue(ctx, sc, today)
 		}
 	case st.EnabledKinds[KindDeadlineReminder]:
 		for _, d := range st.ReminderDays {
 			if reminderDate(deadline, d).Equal(today) {
-				return s.deadlineReminder(ctx, *sc, today)
+				return s.deadlineReminder(ctx, sc, today)
 			}
 		}
 	}

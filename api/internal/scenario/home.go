@@ -14,6 +14,7 @@ import (
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 	"github.com/rnapyzz/f-panda-app/api/internal/target"
+	"github.com/rnapyzz/f-panda-app/api/internal/versions"
 	"github.com/rnapyzz/f-panda-app/api/internal/visibility"
 )
 
@@ -64,7 +65,9 @@ type activityStatus struct {
 	Initial        *plTotals  `json:"initial"` // 期初計画（マネージャーのサービスの状況）
 	Revised        *plTotals  `json:"revised"` // 修正計画
 	Previous       *plTotals  `json:"previous"`
-	Accuracy       *accuracy  `json:"accuracy"`
+	// CurrentYear は、翌期の計画のときの今回の見込（当期）の年間の収益・費用（docs/plan.md「2.25」）
+	CurrentYear *plTotals `json:"current_year"`
+	Accuracy    *accuracy `json:"accuracy"`
 }
 
 type activityStatusResponse struct {
@@ -74,6 +77,10 @@ type activityStatusResponse struct {
 	Initial  *scenarioRef `json:"initial"`
 	Revised  *scenarioRef `json:"revised"`
 	Previous *scenarioRef `json:"previous"`
+	// Kind は版の種類（current: 今回の見込 / next_plan: 翌期の計画 / other / 空: 作成中でない）
+	Kind string `json:"kind"`
+	// CurrentYear は、翌期の計画のときに比べる今回の見込（当期）。それ以外は null
+	CurrentYear *scenarioRef `json:"current_year"`
 	// NewActualMonths は、前回見込より新しく実績になった月（実績のお知らせ）
 	NewActualMonths []string         `json:"new_actual_months"`
 	Items           []activityStatus `json:"items"`
@@ -111,16 +118,30 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 	if resp.RestrictedHidden, err = visibility.Hidden(ctx, h.db, u); err != nil {
 		return err
 	}
-	if resp.Base, err = baseScenarioOf(ctx, h.db, s.FiscalYear); err != nil {
+	actives, err := versions.Load(ctx, h.db)
+	if err != nil {
 		return err
 	}
-	if resp.Initial, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "initial"); err != nil {
-		return err
+	resp.Kind = actives.Kind(s.ID)
+	if resp.Kind == "next_plan" {
+		// 翌期の計画は、期初計画そのものが目標になるため、目標・前回の見込の代わりに今回の見込（当期）の年間と比べる
+		cur, err := findScenario(ctx, h.db, actives.Current.ID, "")
+		if err != nil {
+			return err
+		}
+		resp.CurrentYear = &scenarioRef{ID: cur.ID, Name: cur.Name, PlanRole: cur.PlanRole, ActualThrough: cur.ActualThrough}
+	} else {
+		if resp.Base, err = baseScenarioOf(ctx, h.db, s.FiscalYear); err != nil {
+			return err
+		}
+		if resp.Initial, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "initial"); err != nil {
+			return err
+		}
+		if resp.Revised, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "revised"); err != nil {
+			return err
+		}
 	}
-	if resp.Revised, err = roleScenarioOf(ctx, h.db, s.FiscalYear, "revised"); err != nil {
-		return err
-	}
-	if s.PreviousScenarioID != nil {
+	if s.PreviousScenarioID != nil && resp.Kind != "next_plan" {
 		p, err := findScenario(ctx, h.db, *s.PreviousScenarioID, "")
 		if err != nil {
 			return err
@@ -212,6 +233,9 @@ func (h *Handler) activityStatuses(w http.ResponseWriter, r *http.Request) error
 	}
 	if resp.Previous != nil {
 		targets = append(targets, fillTarget{resp.Previous.ID, func(it *activityStatus, t plTotals) { it.Previous = &t }})
+	}
+	if resp.CurrentYear != nil {
+		targets = append(targets, fillTarget{resp.CurrentYear.ID, func(it *activityStatus, t plTotals) { it.CurrentYear = &t }})
 	}
 	results := make([]map[int64]plTotals, len(targets))
 	errs := make([]error, len(targets))

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AmountRow } from '../api/types.ts'
-import { isLargeVariance, summarizeVariance } from './variance.ts'
+import { isLargeVariance, shiftYears, summarizeVariance } from './variance.ts'
 
 const months = ['2026-04', '2026-05', '2026-06']
 const cell = (target_month: string, amount: number) => ({ target_month, amount, source: 'manual' as const, is_provisional: false, provisional_reason: '' })
@@ -45,4 +45,13 @@ test('isLargeVariance: 10% 以上かつ 10万円以上', () => {
   assert.equal(isLargeVariance(90000n, 100000n), false) // 10万円未満
   assert.equal(isLargeVariance(150000n, 2000000n), false) // 10% 未満
   assert.equal(isLargeVariance(150000n, 0n), true)
+})
+
+test('shiftYears: 金額の月を1年ずらす（内訳も）', () => {
+  const cell = (m: string, amount: number) => ({ target_month: m, amount, source: 'manual' as const, is_provisional: false, provisional_reason: '' })
+  const rows = [{ subject_id: 1, code: 'R', name: '売上', category: 'revenue' as const, values: [cell('2027-03', 100)], lines: [{ id: 1, name: 'A社', expression: '', formula_enabled: false, confidence_level: null, outlook: 'base' as const, values: [cell('2026-12', 5)] }] }]
+  const shifted = shiftYears(rows, 1)
+  assert.equal(shifted[0].values[0].target_month, '2028-03')
+  assert.equal(shifted[0].lines[0].values[0].target_month, '2027-12')
+  assert.equal(rows[0].values[0].target_month, '2027-03') // 元は変えない
 })

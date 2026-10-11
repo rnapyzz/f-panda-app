@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, makeCurrent } from './helpers'
 
 test('作成中のシナリオに締切を入れると、担当者にお知らせが届き、ベルから開ける。通知の設定を変えられる', async ({ page }) => {
   await login(page)
@@ -9,7 +9,7 @@ test('作成中のシナリオに締切を入れると、担当者にお知ら�
   await createActivity(page, f, { owner_user_id: me.id })
   const name = `E2E通知 ${f.run}`
   const scenario = await a.post('/scenarios', { name, fiscal_year: 2026 })
-  await a.post(`/scenarios/${scenario.id}/activate`, {})
+  await makeCurrent(page, scenario.id)
 
   // シナリオ管理の「設定」で締切を入れる
   await page.goto('/admin/scenarios')
@@ -24,7 +24,7 @@ test('作成中のシナリオに締切を入れると、担当者にお知ら�
   const bar = page.getByRole('status', { name: '今回の見込' })
   await page.reload()
   await expect(bar.getByLabel('更新の締切')).toContainText('締切 12/25')
-  const bell = bar.getByRole('button', { name: /お知らせ（未読 \d+ 件）/ })
+  const bell = page.getByRole('button', { name: /お知らせ（未読 \d+ 件）/ })
   await expect(bell).toBeVisible()
   await bell.click()
   const panel = page.getByRole('dialog', { name: 'お知らせ' })

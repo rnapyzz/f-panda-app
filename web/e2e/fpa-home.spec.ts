@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters } from './helpers'
+import { api, createActivity, login, seedMasters, makeCurrent } from './helpers'
 
 // ほかのテストと実績の月が重ならないよう、2036年度を使う
 test('FP&A のホームの「今月の作業」で、サイクルの進み具合と更新の状況を確認し、担当者に催促できる', async ({ page }) => {
@@ -13,7 +13,7 @@ test('FP&A のホームの「今月の作業」で、サイクルの進み具合
   expect(res.ok()).toBeTruthy()
   const name = `E2E月次 ${f.run}`
   const scenario = await a.post('/scenarios', { name, fiscal_year: 2036, actual_through: '2036-04' })
-  await a.post(`/scenarios/${scenario.id}/activate`, {})
+  await makeCurrent(page, scenario.id)
   await a.put(`/scenarios/${scenario.id}`, { name, actual_through: '2036-04', update_deadline: '2036-05-15', reason: 'E2E' })
 
   await page.goto('/')

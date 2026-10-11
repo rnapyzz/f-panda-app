@@ -12,6 +12,7 @@ const item = (code: string, status: NoteStatus, current: number, base: number | 
   status,
   has_explanation: false,
   comment_count: 0,
+  current_year: null,
   explanation: '',
   causes: [],
   is_priority: false,

@@ -25,6 +25,7 @@ import { useAmountUnit } from '../../lib/amountUnit'
 import { navigate } from '../../lib/router'
 import { currentFiscalYear, defaultScenarios, fiscalMonths, scenarioLabel, todayInTokyo } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
+import { useActiveScenario } from '../../lib/activeScenario'
 
 const diffFill: Record<DiffBucket, string> = { [-2]: diverging.strongDown, [-1]: diverging.down, 0: diverging.mid, 1: diverging.up, 2: diverging.strongUp }
 const diffLabels: Record<DiffBucket, string> = { [-2]: '−20% 以下', [-1]: '−20〜−5%', 0: '±5% 未満', 1: '+5〜+20%', 2: '+20% 以上' }
@@ -54,8 +55,10 @@ export function ActivityCharts({ view, activities }: { view: ChartView; activiti
   const segments = useApi<List<TreeNode>>('/segments')
   const [compareTo, setCompareTo] = useState<'target' | 'previous'>('target')
   const captureRef = useRef<HTMLDivElement>(null)
+  const { active } = useActiveScenario()
   const list = scenarios.data?.items ?? []
-  const scenario = list.find((s) => s.is_active) ?? defaultScenarios(list.filter((s) => s.fiscal_year === currentFiscalYear())).latest ?? list[0]
+  // 図は今回の見込（なければ今年度の最新見込）。翌期の計画は対象にしない（docs/plan.md「2.25」）
+  const scenario = list.find((s) => s.id === active?.id) ?? defaultScenarios(list.filter((s) => s.fiscal_year === currentFiscalYear())).latest ?? list[0]
   const target = scenario ? defaultScenarios(list.filter((s) => s.fiscal_year === scenario.fiscal_year)).base : undefined
   const previous = scenario?.previous_scenario_id ? list.find((s) => s.id === scenario.previous_scenario_id) : undefined
   // 比較: ツリーマップは目標、増減の内訳は目標か前回の見込

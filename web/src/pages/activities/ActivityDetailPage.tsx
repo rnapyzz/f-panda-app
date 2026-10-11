@@ -21,7 +21,7 @@ import {
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useReason } from '../../components/ReasonDialog'
 import { Badge, Button, Card, Empty, ErrorMessage, Loading, PageHeader, Select, Table, cx } from '../../components/ui'
-import { useActiveScenario } from '../../lib/activeScenario'
+import { activeLabel, useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
 import { confidenceLabel } from '../../lib/confidence'
 import { Link, navigate, useLocation } from '../../lib/router'
@@ -46,7 +46,7 @@ const milestoneTone = { not_started: 'slate', in_progress: 'indigo', completed: 
  */
 export function ActivityDetailPage({ id }: { id: string }) {
   const me = useCurrentUser()
-  const { active } = useActiveScenario()
+  const { active, nextPlan } = useActiveScenario()
   const { search } = useLocation()
   const levels = useApi<List<ConfidenceLevel>>('/confidence-levels')
   const activity = useApi<ActivityDetail>(`/activities/${id}`)
@@ -78,7 +78,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
 
   const a = activity.data
   const tab = initialTab(search.get('tab'), a.can_edit, active !== null)
-  const scenario = initialScenario(search.get('scenario'), scenarios.data.items)
+  const scenario = initialScenario(search.get('scenario'), scenarios.data.items, active?.id)
   if (tab === 'update' && !updateVisited) setUpdateVisited(true)
   /** タブ・シナリオを切り替える。シナリオを変えるときは、未保存の入力を捨ててよいか確認する */
   const go = (next: { tab?: ActivityTab; scenario?: number }) => {
@@ -173,7 +173,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
                       .map((s) => (
                         <option key={s.id} value={s.id}>
                           {scenarioLabel(s)}
-                          {s.is_active ? '（今回の見込）' : ''}
+                          {activeLabel(s, { active, nextPlan }) && `（${activeLabel(s, { active, nextPlan })}）`}
                         </option>
                       ))}
                   </optgroup>

@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test'
-import { api, login, seedMasters } from './helpers'
+import { api, login, seedMasters, makeCurrent } from './helpers'
 
 // ほかのテストとシナリオの年度が重ならないよう、2032・2033年度を使う
-test('月次の見込を始めると、前の版をロックして複製し、最新見込・前回見込・作成中をまとめて切り替える。新年度の期初計画も始められる', async ({ page }) => {
+test('月次の見込を始めると、前の版をロックして複製し、最新見込・前回見込・作成中をまとめて切り替える。新年度の期初計画は今回の見込と並行して始められる', async ({ page }) => {
   await login(page)
   const f = await seedMasters(page)
   const a = api(page)
   const first = `E2E期初 ${f.run}`
   const s = await a.post('/scenarios', { name: first, fiscal_year: 2032, plan_role: 'latest' })
-  await a.post(`/scenarios/${s.id}/activate`, {})
+  await makeCurrent(page, s.id)
 
   await page.goto('/admin/scenarios')
   await page.getByRole('button', { name: '月次の見込を始める' }).click()
@@ -29,15 +29,20 @@ test('月次の見込を始めると、前の版をロックして複製し、�
   await expect(bar).toContainText(`${name}（最新見込）`)
   await expect(page.getByRole('row', { name: new RegExp(`^${first}`) })).toContainText('ロック済み')
 
-  // 新年度の期初計画を始める
+  // 新年度の期初計画を始める（12〜3月）。今回の見込はロックせず、翌期の計画として並行して進める（docs/plan.md「2.25」）
   await page.getByRole('button', { name: '新年度の期初計画を始める' }).click()
   const fy = page.getByRole('dialog', { name: '新年度の期初計画を始める' })
   const next = `E2E2033期初 ${f.run}`
   await fy.getByLabel('新しい版の名前').fill(next)
-  await fy.getByLabel('年度').fill('2033')
+  await fy.getByRole('spinbutton', { name: /年度/ }).fill('2033')
+  await fy.getByLabel('今回の見込を元にする').check()
   await fy.getByRole('button', { name: '内容を確認' }).click()
-  await expect(fy.getByLabel('変わる内容')).toContainText(`「${name}」をロックします`)
+  const fyChanges = fy.getByLabel('変わる内容')
+  await expect(fyChanges).toContainText('今回の見込はロックしません')
+  await expect(fyChanges).toContainText(`「${name}」を元に、継続する施策の金額を入れます`)
   await fy.getByRole('button', { name: '始める' }).click()
   await expect(fy).toHaveCount(0)
-  await expect(bar).toContainText(`${next}（期初計画）`)
+  await expect(bar).toContainText(`${name}（最新見込）`)
+  await expect(page.getByRole('status', { name: '翌期の計画' })).toContainText(`${next}（期初計画）`)
+  await expect(page.getByRole('row', { name: new RegExp(`^${next}`) })).toContainText('作成中（翌期の計画）')
 })

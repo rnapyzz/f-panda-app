@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test'
-import { createActivity, login, seedMasters } from './helpers'
+import { clearActives, createActivity, login, seedMasters } from './helpers'
 
 test('シナリオ管理で、シナリオを作成して作成中にし、決算確定月を設定してロックできる', async ({ page }) => {
   await login(page)
   const f = await seedMasters(page)
   const activity = await createActivity(page, f)
   const name = `E2E見込 ${f.run}`
+  // ほかのテストが残した作成中を外す（作ったシナリオが今回の見込になるように）
+  await clearActives(page)
 
   // メニューから開く
   await page.goto('/activities')

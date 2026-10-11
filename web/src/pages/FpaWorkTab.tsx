@@ -24,13 +24,12 @@ const statusTone = { not_started: 'slate', in_progress: 'amber', completed: 'gre
  * FP&A のホームの「今月の作業」（docs/plan.md「2.20」）。
  * 月次のサイクルのチェックリスト（データから自動で判定）と、現場の更新の状況（ユニット別・担当者別、催促）。
  */
-export function FpaWorkTab({ active }: { active: Scenario | null }) {
+export function FpaWorkTab({ active, nextPlan }: { active: Scenario | null; nextPlan?: Scenario | null }) {
   const fy = active?.fiscal_year ?? currentFiscalYear()
   const months = useApi<{ months: string[] }>(`/actuals/months?fiscal_year=${fy}`)
   const unallocated = useApi<UnallocatedList>(`/actuals/unallocated?fiscal_year=${fy}`)
   const drift = useApi<List<ScenarioDrift>>('/scenarios/actual-drift')
   const report = useApi<ActivityProgressReport>(active ? `/scenarios/${active.id}/activity-status${query({ scope: 'all' })}` : null)
-  const reminded = useApi<{ user_ids: number[] }>(active ? `/scenarios/${active.id}/reminders` : null)
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
 
@@ -50,8 +49,6 @@ export function FpaWorkTab({ active }: { active: Scenario | null }) {
   })
   const unitById = new Map(units.data.items.map((u) => [u.id, u]))
   const userName = new Map(users.data.items.map((u) => [u.id, u.name]))
-  const rate = items.length === 0 ? null : Math.round((counts.completed / items.length) * 100)
-  const deadline = deadlineStatus(active?.update_deadline ?? null, today)
 
   return (
     <div className="space-y-4">
@@ -99,10 +96,31 @@ export function FpaWorkTab({ active }: { active: Scenario | null }) {
         {next && <p className="mt-3 text-sm text-emerald-800">✓ 今月の作業はすべて済みました。{next}</p>}
       </Card>
 
-      <Card title="更新の状況">
-        {!active ? (
+      {active ? (
+        <UpdateProgressCard scenario={active} title="更新の状況" unitById={unitById} userName={userName} />
+      ) : (
+        <Card title="更新の状況">
           <Empty>今回の見込がまだありません。月次の見込を始めると、現場の更新の状況がここに表示されます。</Empty>
-        ) : (
+        </Card>
+      )}
+      {nextPlan && <UpdateProgressCard scenario={nextPlan} title={`翌期の計画の更新の状況（${nextPlan.name}）`} unitById={unitById} userName={userName} />}
+    </div>
+  )
+}
+
+
+/** 版（今回の見込・翌期の計画）ごとの更新の状況（docs/plan.md「2.20」「2.25」）。全体・ユニット別の完了率と、未完了の担当者への催促 */
+function UpdateProgressCard({ scenario, title, unitById, userName }: { scenario: Scenario; title: string; unitById: Map<number, Unit>; userName: Map<number, string> }) {
+  const report = useApi<ActivityProgressReport>(`/scenarios/${scenario.id}/activity-status${query({ scope: 'all' })}`)
+  const reminded = useApi<{ user_ids: number[] }>(`/scenarios/${scenario.id}/reminders`)
+  if (report.error) return <ErrorMessage error={report.error} />
+  if (!report.data) return <Loading />
+  const items = report.data.items
+  const counts = countByStatus(items)
+  const rate = items.length === 0 ? null : Math.round((counts.completed / items.length) * 100)
+  const deadline = deadlineStatus(scenario.update_deadline, todayInTokyo())
+  return (
+      <Card title={title}>
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm" aria-label="全体の更新の状況">
               <span className="text-2xl font-semibold tabular-nums">{rate === null ? '—' : `${rate}%`}</span>
@@ -157,11 +175,9 @@ export function FpaWorkTab({ active }: { active: Scenario | null }) {
               </Table>
             </section>
 
-            <PendingOwners scenarioId={active.id} owners={pendingOwners(items)} userName={userName} reminded={new Set(reminded.data?.user_ids ?? [])} onSent={reminded.reload} />
+            <PendingOwners scenarioId={scenario.id} owners={pendingOwners(items)} userName={userName} reminded={new Set(reminded.data?.user_ids ?? [])} onSent={reminded.reload} />
           </div>
-        )}
       </Card>
-    </div>
   )
 }
 

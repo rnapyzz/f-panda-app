@@ -65,7 +65,9 @@ func NewHandler(d Deps) http.Handler {
 	}
 	orgChanges.Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	scenario.NewHandler(d.DB, notifier).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
-	actual.NewHandler(d.DB).Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
+	actuals := actual.NewHandler(d.DB)
+	actuals.OnClose = scenario.LockActiveOfYear
+	actuals.Register(mux, requireAuth, auth.RequireRole(auth.RoleFPAAdmin))
 	report.NewHandler(d.DB).Register(mux, requireAuth)
 	history.NewHandler(d.DB).Register(mux, requireAuth)
 

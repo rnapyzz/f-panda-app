@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, createActivity, login, seedMasters, showUnit } from './helpers'
+import { api, createActivity, login, seedMasters, showUnit, makeCurrent } from './helpers'
 
 test('ホームで、作成中のシナリオの施策の状態と差を確認し、実績のお知らせから施策を開ける', async ({ page }) => {
   await login(page)
@@ -18,7 +18,7 @@ test('ホームで、作成中のシナリオの施策の状態と差を確認�
   const res = await page.request.post('/api/actuals/import', { multipart: { file: { name: 'actuals.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) }, reason: 'E2E: 4月実績' } })
   expect(res.ok()).toBeTruthy()
   const current = await a.post('/scenarios', { name: `E2E今回 ${f.run}`, fiscal_year: 2026, base_scenario_id: previous.id, actual_through: '2026-04' })
-  await a.post(`/scenarios/${current.id}/activate`, {})
+  await makeCurrent(page, current.id)
   await a.post(`/activities/${activity.id}/milestones`, { name: `E2E要件定義 ${f.run}`, due_date: '2020-01-01' })
 
   // FP&A のホームは「今月の作業」から開く。これまでのホームは「数字の状況」

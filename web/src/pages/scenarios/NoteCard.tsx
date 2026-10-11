@@ -23,6 +23,7 @@ export function NoteCard({
   current,
   base,
   previous,
+  currentYear,
   onSaved,
 }: {
   path: string
@@ -34,6 +35,8 @@ export function NoteCard({
   current: AmountRow[]
   base?: AmountRow[]
   previous?: AmountRow[]
+  /** 翌期の計画のとき、今回の見込（当期）の金額（月を1年ずらしたもの）。目標・前回の見込の代わりに年間で比べる（docs/plan.md「2.25」） */
+  currentYear?: { label: string; rows?: AmountRow[] }
   onSaved: (v: ValuesView) => void
 }) {
   const note = view.note
@@ -53,6 +56,7 @@ export function NoteCard({
   const noteChanged = explanation.trim() !== note.explanation || causes.join(',') !== note.causes.join(',')
   const vsBase = base ? summarizeVariance(current, base, months) : null
   const vsPrevious = previous ? summarizeVariance(current, previous, months) : null
+  const vsCurrentYear = currentYear?.rows ? summarizeVariance(current, currentYear.rows, months) : null
   const completed = note.status === 'completed'
 
   const run = async (op: () => Promise<ValuesView>) => {
@@ -102,8 +106,14 @@ export function NoteCard({
     >
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4 text-sm">
-          <Summary title="目標との差（年間の利益）" summary={vsBase} empty="目標のシナリオがありません" />
-          <Summary title="前回の見込との差（年間の利益）" summary={vsPrevious} empty="前回の見込が指定されていません" />
+          {currentYear ? (
+            <Summary title={`今回の見込（当期）との差（年間の利益）・${currentYear.label}`} summary={vsCurrentYear} empty="今回の見込がありません" hideMonths />
+          ) : (
+            <>
+              <Summary title="目標との差（年間の利益）" summary={vsBase} empty="目標のシナリオがありません" />
+              <Summary title="前回の見込との差（年間の利益）" summary={vsPrevious} empty="前回の見込が指定されていません" />
+            </>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -189,7 +199,7 @@ export function NoteCard({
   )
 }
 
-function Summary({ title, summary, empty }: { title: string; summary: VarianceSummary | null; empty: string }) {
+function Summary({ title, summary, empty, hideMonths = false }: { title: string; summary: VarianceSummary | null; empty: string; hideMonths?: boolean }) {
   const signed = (x: bigint) => formatSignedYen(x)
   const tone = (x: bigint) => (x > 0n ? 'text-emerald-700' : x < 0n ? 'text-red-600' : 'text-slate-500')
   return (
@@ -216,7 +226,7 @@ function Summary({ title, summary, empty }: { title: string; summary: VarianceSu
               ))}
             </p>
           )}
-          {summary.months.length > 0 && (
+          {!hideMonths && summary.months.length > 0 && (
             <p className="mt-0.5 text-xs text-slate-600">
               差の大きい月（利益）:{' '}
               {summary.months.map((m, i) => (

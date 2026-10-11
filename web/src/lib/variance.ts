@@ -44,3 +44,12 @@ export function isLargeVariance(diff: bigint, compare: bigint): boolean {
   const abs = (x: bigint) => (x < 0n ? -x : x)
   return abs(diff) >= 100000n && abs(diff) * 10n >= abs(compare)
 }
+
+/**
+ * 金額の月を years 年ずらす（翌期の計画と今回の見込（当期）の年間を比べるため。docs/plan.md「2.25」）。
+ * 月をそろえるだけで、比べるのは年間の合計（月別の比較には使わない）
+ */
+export function shiftYears(rows: AmountRow[], years: number): AmountRow[] {
+  const shift = <T extends { target_month: string }>(v: T): T => ({ ...v, target_month: `${Number(v.target_month.slice(0, 4)) + years}${v.target_month.slice(4)}` })
+  return rows.map((r) => ({ ...r, values: r.values.map(shift), lines: r.lines.map((l) => ({ ...l, values: l.values.map(shift) })) }))
+}

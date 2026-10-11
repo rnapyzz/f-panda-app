@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/rnapyzz/f-panda-app/api/internal/target"
+	"github.com/rnapyzz/f-panda-app/api/internal/versions"
 	"sort"
 	"strings"
 	"time"
@@ -31,18 +32,27 @@ func (s *Service) findScenario(ctx context.Context, id int64) (scenarioInfo, err
 	return sc, err
 }
 
-// activeScenario は作成中で、締切があり、ロックされていないシナリオを返す（なければ nil）。
-func (s *Service) activeScenario(ctx context.Context) (*scenarioInfo, error) {
-	var id int64
-	err := s.db.QueryRowContext(ctx, "SELECT id FROM scenarios WHERE is_active AND NOT is_locked AND update_deadline IS NOT NULL").Scan(&id)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+// activeScenarios は、今回の見込と翌期の計画（docs/plan.md「2.25」）のうち、締切があり、ロックされていないシナリオを返す。
+// そのほかの作成中（締める前の前年度の版など）には送らない。
+func (s *Service) activeScenarios(ctx context.Context) ([]scenarioInfo, error) {
+	actives, err := versions.Load(ctx, s.db)
 	if err != nil {
 		return nil, err
 	}
-	sc, err := s.findScenario(ctx, id)
-	return &sc, err
+	var out []scenarioInfo
+	for _, v := range []*versions.Version{actives.Current, actives.NextPlan} {
+		if v == nil {
+			continue
+		}
+		sc, err := s.findScenario(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+		if sc.active && !sc.locked && sc.deadline != nil {
+			out = append(out, sc)
+		}
+	}
+	return out, nil
 }
 
 // activityItem は通知に載せる施策。

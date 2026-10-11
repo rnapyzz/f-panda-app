@@ -525,15 +525,26 @@ func TestScenarioRolesAndActive(t *testing.T) {
 		t.Errorf("PUT 後の修正計画B = %v, want なし", got)
 	}
 
-	// 作成中はアプリ全体で1つ
-	if got := f.viewer.mustGet("/api/scenarios/active")["id"]; got != float64(f.budget) {
-		t.Errorf("作成中 = %v, want 予算", got)
+	// 作成中は年度ごとに1つ（docs/plan.md「2.25」）
+	if got := f.viewer.mustGet("/api/scenarios/active")["current"].(map[string]any)["id"]; got != float64(f.budget) {
+		t.Errorf("今回の見込 = %v, want 予算", got)
 	}
+	// 別の年度を作成中にしても、2026年度の作成中は外れない
 	if status, body := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", next), nil); status != http.StatusOK || body["is_active"] != true {
 		t.Errorf("作成中に指定: status = %d, body = %v", status, body)
 	}
+	if got := scenario(f.budget)["is_active"]; got != true {
+		t.Errorf("別の年度の作成中 = %v, want true のまま", got)
+	}
+	if active := f.viewer.mustGet("/api/scenarios/active"); active["next_plan"].(map[string]any)["id"] != float64(next) {
+		t.Errorf("翌期の計画 = %v", active)
+	}
+	// 同じ年度で指定し直すと、前の作成中は外れる
+	if status, _ := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", r2), nil); status != http.StatusOK {
+		t.Errorf("同じ年度の指定: status = %d", status)
+	}
 	if got := scenario(f.budget)["is_active"]; got != false {
-		t.Errorf("前の作成中 = %v, want false", got)
+		t.Errorf("同じ年度の前の作成中 = %v, want false", got)
 	}
 	if status, _ := f.manager1.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", f.budget), nil); status != http.StatusForbidden {
 		t.Errorf("マネージャーの指定: status = %d, want 403", status)
@@ -542,8 +553,9 @@ func TestScenarioRolesAndActive(t *testing.T) {
 	if status, body := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", next), nil); status != http.StatusOK || body["is_active"] != false {
 		t.Errorf("作成中のロック: status = %d, body = %v", status, body)
 	}
-	if status, body := f.viewer.do("GET", "/api/scenarios/active", nil); status != http.StatusOK || body != nil {
-		t.Errorf("ロック後の作成中 = %v, want null", body)
+	f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/lock", r2), nil)
+	if active := f.viewer.mustGet("/api/scenarios/active"); active["current"] != nil || active["next_plan"] != nil {
+		t.Errorf("ロック後の作成中 = %v, want なし", active)
 	}
 	if status, _ := f.admin.do("POST", fmt.Sprintf("/api/scenarios/%d/activate", next), nil); status != http.StatusConflict {
 		t.Errorf("ロック済みを作成中に: status = %d, want 409", status)

@@ -21,6 +21,9 @@ import (
 // Handler は実績の取込・割当 API のハンドラー。
 type Handler struct {
 	db *sql.DB
+	// OnClose は年度を締めるときに、同じトランザクションの中で呼ぶ処理（その年度の作成中の版のロック。docs/plan.md「2.14」）。
+	// シナリオのパッケージがこのパッケージを使うため、関数で受け取る
+	OnClose func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, fiscalYear int) error
 }
 
 // NewHandler は Handler を作る。
