@@ -5,7 +5,7 @@ import { isFavorable, varianceRate } from '../../lib/aggregate'
 import { formatRate, type AmountUnit } from '../../lib/format'
 import { AmountUnitProvider, useAmountUnit } from '../../lib/amountUnit'
 import { AmountUnitSwitch } from '../../components/AmountUnitSwitch'
-import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain, type PlNode } from '../../lib/pl'
+import { buildPl, defaultFiscalYear, grainLabels, periodsOf, sumOver, type Grain, type PlNode, totalsOver } from '../../lib/pl'
 import { Link } from '../../lib/router'
 import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
@@ -149,10 +149,62 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
           ) : (
             <PlTable nodes={nodes} periods={periods} open={open} onToggle={toggle} />
           )}
+          {latestData && latestData.beyond_months.length > 0 && <WholeActivity view={latestData} />}
         </div>
       )}
     </Card>
     </AmountUnitProvider>
+  )
+}
+
+/** 施策全体（年度をまたいだ合計。docs/plan.md「2.26」）: 選んだ「最新」のシナリオの、当期の月と翌年度の月の合計 */
+function WholeActivity({ view }: { view: ValuesView }) {
+  const { fmt, label } = useAmountUnit()
+  const current = totalsOver(view.amounts, view.months)
+  const beyond = totalsOver(view.amounts, view.beyond_months)
+  const cols = [
+    { key: 'current', title: `当期（${view.scenario.fiscal_year}年度）`, t: current },
+    { key: 'beyond', title: `翌年度（${view.scenario.fiscal_year + 1}年度）`, t: beyond },
+    { key: 'total', title: '施策全体', t: { revenue: current.revenue + beyond.revenue, expense: current.expense + beyond.expense } },
+  ]
+  return (
+    <section aria-label="施策全体" className="border-t border-slate-100 pt-3">
+      <h3 className="mb-1 text-xs font-semibold text-slate-500">
+        施策全体（年度をまたいだ合計・{scenarioLabel(view.scenario)}・{label}）
+      </h3>
+      <table className="text-sm">
+        <thead>
+          <tr className="text-xs text-slate-500">
+            <th className="py-1 pr-6 text-left font-semibold" />
+            {cols.map((c) => (
+              <th key={c.key} className="px-3 py-1 text-right font-semibold">
+                {c.title}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {(
+            [
+              ['売上', (t: (typeof cols)[number]['t']) => t.revenue],
+              ['費用', (t: (typeof cols)[number]['t']) => t.expense],
+              ['利益', (t: (typeof cols)[number]['t']) => t.revenue - t.expense],
+            ] as const
+          ).map(([name, f]) => (
+            <tr key={name} className={name === '利益' ? 'font-semibold' : undefined}>
+              <th scope="row" className="py-1 pr-6 text-left text-xs font-medium text-slate-600">
+                {name}
+              </th>
+              {cols.map((c) => (
+                <td key={c.key} className={cx('px-3 py-1 text-right', c.key === 'total' && 'bg-slate-50')}>
+                  {fmt(f(c.t))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 

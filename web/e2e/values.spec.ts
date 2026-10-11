@@ -135,7 +135,8 @@ test('範囲の選択・右方向へのコピー・貼り付け・消去・元�
   await page.getByRole('button', { name: '保存', exact: true }).click()
   await expect(page.getByText('11 件を保存しました')).toBeVisible()
   // 1,000 × 9 か月 + 2,000 − 500
-  await expect(page.getByRole('row', { name: new RegExp(`^${rev}`) }).locator('td').last()).toHaveText('10,500')
+  // 当期の年計（終了日のない施策は右に「翌年度の計」も出る）
+  await expect(page.getByRole('row', { name: new RegExp(`^${rev}`) })).toContainText('10,500')
 })
 
 test('ドライバーの行をドラッグや矢印キーで並び替えられる', async ({ page }) => {

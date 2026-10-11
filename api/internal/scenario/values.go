@@ -89,6 +89,8 @@ type valuesView struct {
 	Scenario Scenario         `json:"scenario"`
 	Activity activity.Summary `json:"activity"`
 	Months   []string         `json:"months"`
+	// BeyondMonths は翌年度の月。施策の終了日が翌年度にかかるときだけ12か月、それ以外は空（docs/plan.md「2.26」）
+	BeyondMonths []string `json:"beyond_months"`
 	// ActualMonths は実績の月（決算確定月以前）。金額は実績で、入力できない
 	ActualMonths []string    `json:"actual_months"`
 	Editable     bool        `json:"editable"`
@@ -148,6 +150,9 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 		Drivers:      []driverRow{},
 		Amounts:      []amountRow{},
 	}
+	if v.BeyondMonths, err = beyondMonths(ctx, q, activityID, s.FiscalYear); err != nil {
+		return valuesView{}, err
+	}
 
 	// ドライバーと値
 	rows, err := q.QueryContext(ctx, `
@@ -186,7 +191,7 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 	}
 
 	// 金額: 内訳がある科目と、金額がある科目
-	if v.Amounts, err = loadAmounts(ctx, q, u, scenarioID, activityID); err != nil {
+	if v.Amounts, err = loadAmounts(ctx, q, u, scenarioID, activityID, s.FiscalYear); err != nil {
 		return valuesView{}, err
 	}
 	if v.RestrictedHidden, err = visibility.Hidden(ctx, q, u); err != nil {
@@ -220,7 +225,7 @@ func canEditScenario(ctx context.Context, q versions.Querier, u auth.User, s Sce
 // loadAmounts は科目ごとの金額（科目への直接入力と内訳）を返す。
 // 決算確定月以前の月は実績（scenario_amounts ビュー、source は actual）で、科目への直接入力として返す。
 // ユーザーが見られない科目（閲覧制限）は、内訳も金額も返さない。
-func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activityID int64) ([]amountRow, error) {
+func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activityID int64, fiscalYear int) ([]amountRow, error) {
 	rows := map[int64]*amountRow{}
 	lineOf := map[int64]*lineRow{}
 	get := func(subjectID int64) *amountRow {
@@ -261,9 +266,14 @@ func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activi
 		}
 	}
 
+	// 当期の月は scenario_amounts（実績の月は実績）、翌年度の月（docs/plan.md「2.26」）は計画値を直接読む
 	frows, err := q.QueryContext(ctx, `
+		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m') AS month, amount, source, is_provisional, COALESCE(provisional_reason, '')
+		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ?`+visibility.SubjectFilter(u, "subject_id")+`
+		UNION ALL
 		SELECT subject_id, line_id, DATE_FORMAT(target_month, '%Y-%m'), amount, source, is_provisional, COALESCE(provisional_reason, '')
-		FROM scenario_amounts WHERE scenario_id = ? AND activity_id = ?`+visibility.SubjectFilter(u, "subject_id")+` ORDER BY target_month`, scenarioID, activityID)
+		FROM budget_facts WHERE scenario_id = ? AND activity_id = ? AND target_month >= ?`+visibility.SubjectFilter(u, "subject_id")+`
+		ORDER BY month`, scenarioID, activityID, scenarioID, activityID, calc.BeyondMonths(fiscalYear)[0]+"-01")
 	if err != nil {
 		return nil, err
 	}
@@ -383,13 +393,34 @@ type cellInput struct {
 	ProvisionalReason string `json:"provisional_reason"`
 }
 
-// validateCell は月と「仮の値」の入力を検証する。入力できるのは計画値の月（決算確定月より後）だけ。仮の値には理由が必須。
-func validateCell(v httpx.Validator, prefix string, c *cellInput, s Scenario) {
+// beyondMonths は、施策が翌年度の月を持てるなら翌年度の12か月を返す（施策の終了日が翌年度の初日以降か未設定。docs/plan.md「2.26」）。
+func beyondMonths(ctx context.Context, q queryer, activityID int64, fiscalYear int) ([]string, error) {
+	months := calc.BeyondMonths(fiscalYear)
+	var spans bool
+	err := q.QueryRowContext(ctx, "SELECT end_date IS NULL OR end_date >= ? FROM activities WHERE id = ?", months[0]+"-01", activityID).Scan(&spans)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []string{}, nil
+	}
+	if err != nil || !spans {
+		return []string{}, err
+	}
+	return months, nil
+}
+
+// validateCell は月と「仮の値」の入力を検証する。入力できるのは計画値の月（決算確定月より後）と、
+// 翌年度にかかる施策の翌年度の月（beyond）だけ。仮の値には理由が必須。
+func validateCell(v httpx.Validator, prefix string, c *cellInput, s Scenario, beyond []string) {
 	c.TargetMonth = strings.TrimSpace(c.TargetMonth)
 	months := calc.FiscalMonths(s.FiscalYear)
 	switch {
+	case slices.Contains(beyond, c.TargetMonth):
+		// 翌年度の月はすべて計画値
 	case !slices.Contains(months, c.TargetMonth):
-		v.Add(prefix+".target_month", fmt.Sprintf("対象月は %s〜%s の YYYY-MM で指定してください", months[0], months[len(months)-1]))
+		last := months[len(months)-1]
+		if len(beyond) > 0 {
+			last = beyond[len(beyond)-1]
+		}
+		v.Add(prefix+".target_month", fmt.Sprintf("対象月は %s〜%s の YYYY-MM で指定してください（翌年度の月は、施策の終了日が翌年度にかかるときだけ入力できます）", months[0], last))
 	case !slices.Contains(s.PlanMonths(), c.TargetMonth):
 		v.Add(prefix+".target_month", fmt.Sprintf("%s は決算確定月（%s）以前の実績の月のため入力できません", c.TargetMonth, derefStr(s.ActualThrough)))
 	}
@@ -470,6 +501,10 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 		}
 		rows.Close()
 
+		beyond, err := beyondMonths(ctx, tx, activityID, s.FiscalYear)
+		if err != nil {
+			return err
+		}
 		v := httpx.Validator{}
 		seen := map[string]bool{}
 		parsed := make([]string, len(req.Values))
@@ -479,7 +514,7 @@ func (h *Handler) putDriverValues(w http.ResponseWriter, r *http.Request) error 
 			if !drivers[in.DriverID] {
 				v.Add(prefix+".driver_id", "この施策のドライバーを指定してください")
 			}
-			validateCell(v, prefix, &in.cellInput, s)
+			validateCell(v, prefix, &in.cellInput, s, beyond)
 			key := fmt.Sprintf("%d/%s", in.DriverID, in.TargetMonth)
 			if seen[key] {
 				v.Add(prefix, "同じドライバー・月が重複しています")
@@ -631,6 +666,10 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+		beyond, err := beyondMonths(ctx, tx, activityID, s.FiscalYear)
+		if err != nil {
+			return err
+		}
 
 		v := httpx.Validator{}
 		seen := map[string]bool{}
@@ -656,7 +695,7 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 					v.Add(prefix+".line_id", "内訳「"+l.Name+"」は計算式で反映するため直接入力できません")
 				}
 			}
-			validateCell(v, prefix, &in.cellInput, s)
+			validateCell(v, prefix, &in.cellInput, s, beyond)
 			key := fmt.Sprintf("%d/%d/%s", in.SubjectID, deref(in.LineID), in.TargetMonth)
 			if seen[key] {
 				v.Add(prefix, "同じ科目・内訳・月が重複しています")

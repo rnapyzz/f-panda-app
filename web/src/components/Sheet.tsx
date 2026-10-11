@@ -268,6 +268,7 @@ export function SheetCell({
   provisional,
   changed,
   error,
+  boundary = false,
 }: {
   sheet: Sheet
   r: number
@@ -278,6 +279,8 @@ export function SheetCell({
   provisional: boolean
   changed: boolean
   error?: string
+  /** 区切りの列（翌年度の最初の月など）。左に線を引く */
+  boundary?: boolean
 }) {
   const s = sheet.cell(r, c)
   return (
@@ -291,7 +294,7 @@ export function SheetCell({
       onMouseDown={s.onMouseDown}
       onMouseEnter={s.onMouseEnter}
       onDoubleClick={s.onDoubleClick}
-      className="relative border-r border-b border-slate-100 p-0"
+      className={`relative border-r border-b border-slate-100 p-0${boundary ? ' border-l-2 border-l-indigo-200' : ''}`}
     >
       {s.editing ? (
         <input

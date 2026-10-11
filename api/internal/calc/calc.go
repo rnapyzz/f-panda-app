@@ -73,6 +73,11 @@ func FiscalMonths(fiscalYear int) []string {
 	return months
 }
 
+// BeyondMonths は翌年度の12か月（当期のシナリオでも入力できる翌年度の月。docs/plan.md「2.26」）を返す。
+func BeyondMonths(fiscalYear int) []string {
+	return FiscalMonths(fiscalYear + 1)
+}
+
 // PlanMonths は年度の月のうち、決算確定月（YYYY-MM、空なら未設定）より後の月を返す。
 func PlanMonths(fiscalYear int, actualThrough string) []string {
 	months := FiscalMonths(fiscalYear)
@@ -157,8 +162,9 @@ func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioI
 	if locked {
 		return nil
 	}
-	// 計算するのは計画値の月（決算確定月より後の月）だけ。実績の月の金額は変えない
-	months := PlanMonths(fiscalYear, through.String)
+	// 計算するのは計画値の月（決算確定月より後の月）と翌年度の月（docs/plan.md「2.26」）。実績の月の金額は変えない。
+	// 翌年度の月は、ドライバー値を入れた施策（翌年度にかかる施策）だけに金額ができる
+	months := append(PlanMonths(fiscalYear, through.String), BeyondMonths(fiscalYear)...)
 
 	lines, err := loadComputedLines(ctx, tx, activityID)
 	if err != nil || len(lines) == 0 {
