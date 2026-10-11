@@ -607,8 +607,14 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 			{"SELECT COUNT(*) FROM driver_values v JOIN activity_drivers d ON d.id = v.activity_driver_id WHERE d.activity_id = ?", "ドライバー値が登録されているため削除できません"},
 			{"SELECT COUNT(*) FROM scenario_conditions WHERE activity_id = ?", "シナリオの想定条件が登録されているため削除できません"},
 			{"SELECT COUNT(*) FROM activity_scenario_notes WHERE activity_id = ? AND (explanation IS NOT NULL OR causes <> '' OR completed_at IS NOT NULL)", "差異の説明・更新の完了が記録されているため削除できません"},
+			{"SELECT (SELECT COUNT(*) FROM actual_facts WHERE activity_id = ?) + (SELECT COUNT(*) FROM actual_entries WHERE activity_id = ?) + (SELECT COUNT(*) FROM scenario_actuals WHERE activity_id = ?)", "実績が登録されているため削除できません。ステータスを「完了」「中止」にしてください"},
+			{"SELECT COUNT(*) FROM allocation_rules WHERE activity_id = ?", "割当ルールで実績の割当先になっているため削除できません。先に割当ルールを変更してください"},
 		} {
-			n, err := dbx.Count(ctx, tx, check.query, id)
+			args := make([]any, strings.Count(check.query, "?"))
+			for i := range args {
+				args[i] = id
+			}
+			n, err := dbx.Count(ctx, tx, check.query, args...)
 			if err != nil {
 				return err
 			}
@@ -660,6 +666,10 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM activities WHERE id = ?", id); err != nil {
+			// 上の確認で見ていない参照（今後のテーブルなど）も、500 ではなく 409 にする
+			if dbx.ErrNo(err) == dbx.ErrRowIsReferenced {
+				return httpx.Conflict("ほかのデータから参照されているため削除できません。ステータスを「完了」「中止」にしてください")
+			}
 			return err
 		}
 		return rec.Delete(ctx, "activities", id, before)

@@ -44,6 +44,15 @@ func (s *Service) mergeUnit(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
+	// パスのユニットがなければ 404、統合先がなければ入力の誤り（予約の適用では、どちらも「削除された可能性」の 409）
+	if err := requireUnit(ctx, s.db, id); err != nil {
+		return err
+	}
+	if n, err := dbx.Count(ctx, s.db, "SELECT COUNT(*) FROM units WHERE id = ?", req.TargetUnitID); err != nil {
+		return err
+	} else if n == 0 {
+		return httpx.Validation(map[string]string{"target_unit_id": "統合先のユニットが見つかりません"})
+	}
 	var moved int
 	err = audit.InTx(ctx, s.db, u.ID, nil, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
 		var err error
@@ -81,6 +90,9 @@ func (s *Service) setArchived(w http.ResponseWriter, r *http.Request, archived b
 		return err
 	}
 	ctx := r.Context()
+	if err := requireUnit(ctx, s.db, id); err != nil {
+		return err
+	}
 	err = audit.InTx(ctx, s.db, u.ID, nil, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
 		before, err := findUnit(ctx, tx, id)
 		if err != nil {
@@ -241,4 +253,16 @@ func idList(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]int64
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// requireUnit は、パスで指定したユニットがなければ 404 を返す。
+func requireUnit(ctx context.Context, q dbx.Querier, id int64) error {
+	n, err := dbx.Count(ctx, q, "SELECT COUNT(*) FROM units WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return httpx.NotFound("ユニットが見つかりません")
+	}
+	return nil
 }

@@ -6,6 +6,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,10 +82,15 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 
 // WriteError は err をエラーレスポンスとして書き出す。
 // *Error 以外のエラーは 500 とし、詳細はログにのみ出力する。
+// 利用者がリクエストを取りやめた（接続を切った）ときは、サーバーの誤りではないのでエラーとして記録しない。
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *Error
 	if !errors.As(err, &apiErr) {
-		slog.ErrorContext(r.Context(), "internal error", "method", r.Method, "path", r.URL.Path, "error", err)
+		if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+			slog.InfoContext(r.Context(), "request canceled", "method", r.Method, "path", r.URL.Path)
+		} else {
+			slog.ErrorContext(r.Context(), "internal error", "method", r.Method, "path", r.URL.Path, "error", err)
+		}
 		apiErr = &Error{Status: http.StatusInternalServerError, Code: "internal_error", Message: "サーバーでエラーが発生しました"}
 	}
 	WriteJSON(w, apiErr.Status, map[string]*Error{"error": apiErr})
@@ -93,12 +99,36 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 // HandlerFunc はエラーを返せる http.HandlerFunc。
 type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
 
+// startedWriter は、レスポンスを書き始めたかを覚える。
+type startedWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *startedWriter) WriteHeader(code int) {
+	w.started = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *startedWriter) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
+
 // Handle は HandlerFunc を http.HandlerFunc に変換し、返されたエラーを書き出す。
+// レスポンスを書き始めた後のエラー（CSV の書き出しの途中で接続が切れたなど）は、本文に JSON を付け足さずにログだけ残す。
 func Handle(h HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := h(w, r); err != nil {
-			WriteError(w, r, err)
+		sw := &startedWriter{ResponseWriter: w}
+		err := h(sw, r)
+		if err == nil {
+			return
 		}
+		if sw.started {
+			slog.WarnContext(r.Context(), "error after response started", "method", r.Method, "path", r.URL.Path, "error", err)
+			return
+		}
+		WriteError(w, r, err)
 	}
 }
 
@@ -115,12 +145,28 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 		if errors.As(err, &maxErr) {
 			return &Error{Status: http.StatusRequestEntityTooLarge, Code: "too_large", Message: "リクエストが大きすぎます"}
 		}
-		return BadRequest(fmt.Sprintf("リクエストの JSON が不正です: %v", err))
+		return BadRequest(jsonErrorMessage(err))
 	}
 	if dec.More() {
 		return BadRequest("リクエストの JSON が不正です: 複数の値が含まれています")
 	}
 	return nil
+}
+
+// jsonErrorMessage は JSON のデコードのエラーを、利用者に返せる文に直す（Go の型名などの内部の名前は出さない）。
+func jsonErrorMessage(err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		return fmt.Sprintf("リクエストの JSON が不正です: 項目 %s の形式が正しくありません", typeErr.Field)
+	}
+	if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return fmt.Sprintf("リクエストの JSON が不正です: 項目 %s は使えません", field)
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "リクエストの JSON が不正です: JSON として読み取れません"
+	}
+	return "リクエストの JSON が不正です"
 }
 
 // PathID はパスパラメーター name を正の整数として取り出す。
