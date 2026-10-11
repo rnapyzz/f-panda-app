@@ -193,7 +193,7 @@
 | `POST /api/scenarios/{id}/lock`、`/unlock`                    | ロック（決算確定月以前の実績を `scenario_actuals` に保存し、作成中なら外す）・ロック解除（理由必須。保存した実績を外す） | FP&A           |
 | `GET /api/scenarios/actual-drift`                             | ロック済みのシナリオごとに、保存した実績と今の実績が食い違う月（月・収益の差・費用の差）。食い違いのないシナリオは返さない（docs/plan.md「2.14」） | FP&A           |
 | `POST /api/scenarios/{id}/refresh-actuals`                    | ロック済みのシナリオに保存した実績を、今の実績に入れ替える（理由必須。`dry_run: true` で月ごとの差だけを返す）。ロックは外れない | FP&A           |
-| `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件     | 全員           |
+| `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件。`months` は当期の12か月、`beyond_months` は翌年度の月（施策の終了日が翌年度にかかるときだけ12か月、それ以外は空。docs/plan.md「2.26」）。値は両方の月を返す | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
 | `PUT .../activities/{aid}/condition`                          | 廃止（想定条件は今回の見込の説明に統合。docs/plan.md「2.18」）。410 を返す | － |
@@ -310,6 +310,13 @@
 - レスポンス: 系列（`series`）と、ユニット（または施策）× 科目 × 月の金額（`rows[].values` に系列ごとの金額を文字列で）
 - すべての系列は同じ年度のシナリオであること
 - セグメント・組織の階層での集計、収益・費用・利益の計算（利益 = 収益 − 費用）、差異の計算は画面側（`web/src/lib/aggregate.ts`、BigInt で計算）で行う
+
+## 翌年度の月（docs/plan.md「2.26」）
+
+- 計画値（`budget_facts`・`driver_values`）は、シナリオの年度の12か月に加えて、翌年度の12か月を持てる。数値入力の API（金額・ドライバー値）は、施策の終了日が翌年度にかかるとき、翌年度の月も受け付ける。それ以外の月は 422
+- `scenario_amounts` ビューはシナリオの年度の月だけを返す。年度の集計（予実比較・リスク・ホーム・報告資料・計画値の CSV）はこのビューを使うので、翌年度の月は含まれない
+- 翌年度の月を読むのは、数値入力（`GET .../activities/{aid}`）・施策全体の P/L・新年度の期初計画の「今回の見込を元にする」だけで、`budget_facts` から直接読む
+- 計算式の再計算（`internal/calc`）は、計画値の月（決算確定月より後の当期の月）と翌年度の月を計算する
 
 ## 報告資料 API（docs/plan.md「2.23」）
 
