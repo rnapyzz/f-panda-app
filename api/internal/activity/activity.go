@@ -153,6 +153,8 @@ type activityRequest struct {
 	ConfidenceLevel string `json:"confidence_level"`
 	Assumptions     string `json:"assumptions"`
 	Reason          string `json:"reason"`
+	// CopyFromActivityID は作成のときだけ使う。指定した施策の内訳・ドライバーを写して作る（docs/plan.md「2.27」）
+	CopyFromActivityID *int64 `json:"copy_from_activity_id"`
 }
 
 type reasonRequest struct {
@@ -429,7 +431,20 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 
 	ctx := r.Context()
 	var created activity
+	skipped := 0
 	err = inTx(r, h.db, u, req.Reason, func(tx *sql.Tx, rec *audit.Recorder) error {
+		// コピー元（施策を見られる人はだれでもコピー元にできる。作成の権限は作る先のユニットで判定する）
+		var source *activity
+		if req.CopyFromActivityID != nil {
+			src, err := findActivity(ctx, tx, *req.CopyFromActivityID, "")
+			if httpx.IsNotFound(err) {
+				return httpx.Validation(map[string]string{"copy_from_activity_id": "コピー元の施策が見つかりません"})
+			}
+			if err != nil {
+				return err
+			}
+			source = &src
+		}
 		fnOwner, err := lockUnit(ctx, tx, in.UnitID)
 		if err != nil {
 			return err
@@ -483,13 +498,86 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if created, err = findActivity(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		return rec.Insert(ctx, "activities", id, created)
+		if err := rec.Insert(ctx, "activities", id, created); err != nil {
+			return err
+		}
+		if source != nil {
+			if skipped, err = copyDefinitions(ctx, tx, rec, u, source.ID, id); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
+	if req.CopyFromActivityID != nil {
+		httpx.WriteJSON(w, http.StatusCreated, struct {
+			activityView
+			// SkippedRestrictedLines は、閲覧制限のある科目のため写さなかった内訳の数（FP&A 以外）
+			SkippedRestrictedLines int `json:"skipped_restricted_lines"`
+		}{viewOf(u, created, false), skipped})
+		return nil
+	}
 	httpx.WriteJSON(w, http.StatusCreated, viewOf(u, created, false))
 	return nil
+}
+
+// copyDefinitions は、施策 from のドライバーと内訳の定義を施策 to に写す（docs/plan.md「2.27」）。金額・ドライバー値は写さない。
+// 閲覧制限のある科目の内訳は FP&A だけが写せる（それ以外は写さず、その数を返す）。
+func copyDefinitions(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, u auth.User, from, to int64) (skipped int, err error) {
+	drivers, err := listDrivers(ctx, tx, from)
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range drivers {
+		res, err := tx.ExecContext(ctx, "INSERT INTO activity_drivers (activity_id, code, name, driver_kind, unit, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+			to, d.Code, d.Name, d.DriverKind, dbx.NullString(d.Unit), d.SortOrder)
+		if err != nil {
+			return 0, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, err
+		}
+		created := d
+		created.ID, created.ActivityID = id, to
+		if err := rec.Insert(ctx, "activity_drivers", id, created); err != nil {
+			return 0, err
+		}
+	}
+	lines, err := listLines(ctx, tx, from, "")
+	if err != nil {
+		return 0, err
+	}
+	for _, l := range lines {
+		if u.Role != auth.RoleFPAAdmin {
+			restricted, err := visibility.IsRestricted(ctx, tx, l.SubjectID)
+			if err != nil {
+				return 0, err
+			}
+			if restricted {
+				skipped++
+				continue
+			}
+		}
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			to, l.SubjectID, l.Name, dbx.NullString(l.Expression), l.FormulaEnabled, l.ConfidenceLevel, l.Outlook, l.SortOrder)
+		if err != nil {
+			return 0, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, err
+		}
+		created := l
+		created.ID, created.ActivityID = id, to
+		if err := rec.Insert(ctx, "activity_lines", id, created); err != nil {
+			return 0, err
+		}
+	}
+	return skipped, nil
 }
 
 // update は PUT /api/activities/{id}。

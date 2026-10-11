@@ -201,6 +201,11 @@ export function ActivityDetailPage({ id }: { id: string }) {
           <ErrorMessage error={actionError} />
         </div>
       ) : null}
+      {Number(search.get('skipped_lines')) > 0 && (
+        <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900" role="status">
+          コピー元の施策のうち、閲覧制限のある科目の内訳 {search.get('skipped_lines')} 件は写していません（FP&A のみがコピーできます）。
+        </p>
+      )}
 
       <div role="tablist" aria-label="施策の画面" className="mb-4 flex gap-1 border-b border-slate-200">
         {(Object.keys(activityTabLabels) as ActivityTab[]).map((t) => (

@@ -15,7 +15,7 @@ import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError }
 import { ratePercent } from '../../lib/confidence'
 import { useApi } from '../../lib/useApi'
 
-const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'confidence_level', 'assumptions']
+const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'confidence_level', 'assumptions', 'copy_from_activity_id']
 
 /** 確度の段階を選ばなかったときの既定（サーバーと同じ: プロジェクト型は C、それ以外は A） */
 function defaultLevel(type: ActivityType): string {
@@ -53,6 +53,20 @@ export function ActivityFormDialog({
   const level = pickedLevel || defaultLevel(activityType)
   const selectedLevel = levels.data?.items.find((l) => l.code === level)
   const [assumptions, setAssumptions] = useState(initial?.assumptions ?? '')
+  // 既存の施策をコピーして作る（作成のときだけ。docs/plan.md「2.27」）
+  const sources = useApi<List<Activity>>(initial ? null : '/activities')
+  const [copyFrom, setCopyFrom] = useState('')
+  const pickSource = (id: string) => {
+    setCopyFrom(id)
+    const src = sources.data?.items.find((a) => String(a.id) === id)
+    if (!src) return
+    // 定義は入力欄の初期値として写す（作成の前に変えられる）。担当者・日付・ステータスは写さない
+    if (units.some((u) => u.id === src.unit_id)) setUnitId(String(src.unit_id))
+    setActivityType(src.activity_type)
+    setPickedLevel(src.confidence_level)
+    setAssumptions(src.assumptions)
+    setName(`${src.name}（コピー）`)
+  }
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
 
@@ -72,6 +86,7 @@ export function ActivityFormDialog({
         owner_user_id: ownerId ? Number(ownerId) : null,
         confidence_level: level,
         assumptions,
+        ...(copyFrom ? { copy_from_activity_id: Number(copyFrom) } : {}),
       })
     } catch (err) {
       setError(err)
@@ -96,6 +111,28 @@ export function ActivityFormDialog({
       }
     >
       <form id="activity-form" onSubmit={submit} className="grid grid-cols-2 gap-4">
+        {!initial && (
+          <Field
+            label="既存の施策をコピー（任意）"
+            error={fieldError(error, 'copy_from_activity_id')}
+            hint="選ぶと、内訳（計算式を含む）とドライバーの定義を写して作ります。金額・担当者・日付・マイルストーン・外部コードは写しません"
+            className="col-span-2"
+          >
+            {(p) => (
+              <Select {...p} value={copyFrom} onChange={(e) => pickSource(e.target.value)}>
+                <option value="">コピーしない（新しく作る）</option>
+                {(sources.data?.items ?? [])
+                  .slice()
+                  .sort((a, b) => a.code.localeCompare(b.code))
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+              </Select>
+            )}
+          </Field>
+        )}
         <Field label="施策名" required error={fieldError(error, 'name')} className="col-span-2">
           {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
@@ -190,6 +227,7 @@ export function ActivityFormDialog({
 }
 
 /** 施策を作成する（作成は変更理由不要） */
-export async function createActivity(body: Record<string, unknown>): Promise<Activity> {
-  return api.post<Activity>('/activities', body)
+/** 施策を作る。コピーして作ったときは、閲覧制限のため写さなかった内訳の数（skipped_restricted_lines）が付く */
+export async function createActivity(body: Record<string, unknown>): Promise<Activity & { skipped_restricted_lines?: number }> {
+  return api.post<Activity & { skipped_restricted_lines?: number }>('/activities', body)
 }
