@@ -29,13 +29,21 @@ test('説明にコメントを書くと担当者にお知らせが届き、返�
   const mthread = mp.getByRole('region', { name: 'コメント' })
   await expect(mthread).toContainText('受注の時期の根拠を教えてください')
   await expect(mthread.getByRole('button', { name: '削除' })).toHaveCount(0) // 他人のコメントは消せない
+  await expect(mthread.getByRole('button', { name: '編集' })).toHaveCount(0) // 他人のコメントは編集できない
   await mthread.getByLabel('コメントを書く').fill('先方の稟議が11月のためです')
   await mthread.getByRole('button', { name: 'コメントする' }).click()
   await expect(mthread.getByText('先方の稟議が11月のためです')).toBeVisible()
   await ctx.close()
 
-  // FP&A: 自分のコメントを消すと「削除されました」と表示され、返信は残る
+  // FP&A: 自分のコメントを編集すると「編集済み」と表示される
   await page.reload()
+  await thread.getByRole('button', { name: '編集' }).click()
+  await thread.getByLabel('コメントを編集').fill('受注の時期の根拠と、先方の決裁の予定を教えてください')
+  await thread.getByRole('button', { name: '保存' }).click()
+  await expect(thread.getByText('受注の時期の根拠と、先方の決裁の予定を教えてください')).toBeVisible()
+  await expect(thread.getByText('（編集済み）')).toBeVisible()
+
+  // FP&A: 自分のコメントを消すと「削除されました」と表示され、返信は残る
   await thread.getByRole('button', { name: '削除' }).click()
   await expect(thread.getByText('このコメントは削除されました')).toBeVisible()
   await expect(thread.getByText('先方の稟議が11月のためです')).toBeVisible()

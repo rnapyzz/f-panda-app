@@ -72,9 +72,34 @@ func TestComments(t *testing.T) {
 		}
 	}
 
-	// 消せるのは書いた本人だけ。消したものは本文を返さない
+	// 編集できるのは書いた本人だけ。編集した日時を残し、お知らせは送らない
 	first := items[0].(map[string]any)
 	cid := int64(first["id"].(float64))
+	if first["can_edit"] != false || first["edited_at"] != nil {
+		t.Errorf("閲覧者から見たマネージャーのコメント = %v", first)
+	}
+	editPath := fmt.Sprintf("%s/%d", path, cid)
+	if status, _ := f.member.do("PUT", editPath, map[string]any{"body": "書き換え"}); status != http.StatusForbidden {
+		t.Errorf("他人のコメントの編集: status = %d, want 403", status)
+	}
+	if status, body := f.manager1.do("PUT", editPath, map[string]any{"body": " "}); status != http.StatusUnprocessableEntity || detail(body, "body") == "" {
+		t.Errorf("空の本文への編集: %d %v", status, body)
+	}
+	before := len(commentNotices(f.member))
+	// 同じ本文なら編集済みにしない
+	status, body = f.manager1.do("PUT", editPath, map[string]any{"body": "単価を据え置いた理由も書いてください"})
+	if c := body["items"].([]any)[0].(map[string]any); status != http.StatusOK || c["edited_at"] != nil || c["can_edit"] != true {
+		t.Errorf("同じ本文の編集: %d %v", status, c)
+	}
+	status, body = f.manager1.do("PUT", editPath, map[string]any{"body": "単価を据え置いた理由と、値上げの時期も書いてください"})
+	if c := body["items"].([]any)[0].(map[string]any); status != http.StatusOK || c["body"] != "単価を据え置いた理由と、値上げの時期も書いてください" || c["edited_at"] == nil {
+		t.Errorf("編集: %d %v", status, c)
+	}
+	if n := len(commentNotices(f.member)); n != before {
+		t.Errorf("編集でお知らせが増えた: %d → %d", before, n)
+	}
+
+	// 消せるのは書いた本人だけ。消したものは本文を返さない
 	if status, _ := f.member.do("DELETE", fmt.Sprintf("%s/%d", path, cid), nil); status != http.StatusForbidden {
 		t.Errorf("他人のコメントの削除: status = %d, want 403", status)
 	}
@@ -84,6 +109,9 @@ func TestComments(t *testing.T) {
 	}
 	if c := body["items"].([]any)[0].(map[string]any); c["deleted"] != true || c["body"] != "" || c["can_delete"] != false {
 		t.Errorf("消したコメント = %v", c)
+	}
+	if status, _ := f.manager1.do("PUT", editPath, map[string]any{"body": "復活"}); status != http.StatusConflict {
+		t.Errorf("消したコメントの編集: status = %d, want 409", status)
 	}
 
 	// 件数（消したものを除く）: ホームとリスク
@@ -108,6 +136,9 @@ func TestComments(t *testing.T) {
 	second := items[1].(map[string]any)
 	if status, _ := f.member.do("DELETE", fmt.Sprintf("%s/%v", path, second["id"]), nil); status != http.StatusConflict {
 		t.Errorf("ロック後の削除: status = %d, want 409", status)
+	}
+	if status, _ := f.member.do("PUT", fmt.Sprintf("%s/%v", path, second["id"]), map[string]any{"body": "追記"}); status != http.StatusConflict {
+		t.Errorf("ロック後の編集: status = %d, want 409", status)
 	}
 	if body := f.member.mustGet(path); body["can_post"] != false || len(body["items"].([]any)) != 3 {
 		t.Errorf("ロック後の一覧 = %v", body)
