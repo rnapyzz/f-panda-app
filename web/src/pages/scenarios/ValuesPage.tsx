@@ -5,7 +5,9 @@ import { SheetCell, SheetFrame, useSheet, type Sheet } from '../../components/Sh
 import { Badge, Button, Card, ErrorMessage, Loading, Select, Textarea, cx } from '../../components/ui'
 import { cleanNumber } from '../../lib/sheet'
 import { formatNumber, formatYen, monthLabel, yearMonthLabel } from '../../lib/format'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { shiftYears } from '../../lib/variance'
+import { carryOver, type CarryOver } from '../../lib/carryover'
 import { useActiveScenario } from '../../lib/activeScenario'
 import { useCurrentUser } from '../../lib/auth'
 import { Link } from '../../lib/router'
@@ -112,6 +114,10 @@ function ValuesEditor({
   const baseScenario = isPlan ? undefined : defaultScenarios(scenarios.filter((s) => s.fiscal_year === v.scenario.fiscal_year)).base
   const previousScenario = isPlan ? undefined : scenarios.find((s) => s.id === v.scenario.previous_scenario_id)
   const currentYearView = useApi<ValuesView>(isPlan && active ? `/scenarios/${active.id}/activities/${v.activity.id}` : null)
+  // 今回の見込から引き継ぐ値（docs/plan.md「2.27」）。表に未保存の入力として入れる
+  const carry = isPlan && currentYearView.data ? carryOver(currentYearView.data, v.months) : null
+  const [confirmCarry, setConfirmCarry] = useState(false)
+  const [carried, setCarried] = useState<CarryOver['source'] | null>(null)
   const baseView = useApi<ValuesView>(baseScenario ? `/scenarios/${baseScenario.id}/activities/${v.activity.id}` : null)
   const previousView = useApi<ValuesView>(previousScenario ? `/scenarios/${previousScenario.id}/activities/${v.activity.id}` : null)
   const [edits, setEdits] = useState<Map<CellKey, CellEdit>>(new Map())
@@ -226,6 +232,22 @@ function ValuesEditor({
     future.current = []
     setEdits(next)
     setSavedMessage('')
+  }
+  // 今回の見込から引き継ぐ: 入力済みの値を置き換えるときは確認する
+  const applyCarry = () => {
+    if (!carry || carry.source === 'none') return
+    setExtraSubjects((prev) => [...prev, ...carry.subjects.filter((id) => !prev.includes(id) && !v.amounts.some((a) => a.subject_id === id))])
+    setValues([...carry.cells.entries()] as [CellKey, string][])
+    setCarried(carry.source)
+  }
+  const requestCarry = () => {
+    if (!carry) return
+    const overwrites = [...carry.cells.entries()].some(([k, value]) => {
+      const now = normalize(cell(k as CellKey).value)
+      return now !== '' && now !== value
+    })
+    if (overwrites) setConfirmCarry(true)
+    else applyCarry()
   }
   const undo = () => {
     const prev = past.current.pop()
@@ -432,15 +454,40 @@ function ValuesEditor({
     <>
       {!editable && <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">{readonlyReason(v)}</p>}
       {isPlan && (
-        <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
-          翌期の計画（{v.scenario.fiscal_year}年度）を入力しています。比較は今回の見込（当期）の年間です。
-          {active && (
-            <Link to={`/activities/${v.activity.id}?tab=update&scenario=${active.id}`} className="ml-1 font-medium underline">
-              今回の見込「{active.name}」で開く →
-            </Link>
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
+          <span className="flex-1">
+            翌期の計画（{v.scenario.fiscal_year}年度）を入力しています。比較は今回の見込（当期）の年間です。
+            {active && (
+              <Link to={`/activities/${v.activity.id}?tab=update&scenario=${active.id}`} className="ml-1 font-medium underline">
+                今回の見込「{active.name}」で開く →
+              </Link>
+            )}
+          </span>
+          {editable && (
+            <span className="flex items-center gap-2">
+              {carry?.source === 'none' && <span className="text-xs text-emerald-800">今回の見込に値がありません</span>}
+              <Button size="sm" disabled={!carry || carry.source === 'none'} onClick={requestCarry}>
+                今回の見込から引き継ぐ
+              </Button>
+            </span>
           )}
+        </div>
+      )}
+      {carried && (
+        <p className="mb-4 rounded-md bg-indigo-50 px-4 py-2 text-sm text-indigo-900" role="status">
+          今回の見込から{carried === 'beyond' ? '翌年度の月の値をそのまま' : '3月の値を12か月に'}入れました（まだ保存していません）。確かめて直し、保存してください。
         </p>
       )}
+      <ConfirmDialog
+        open={confirmCarry}
+        title="今回の見込から引き継ぐ"
+        message="入力済みの値も、今回の見込の値で置き換えます。よろしいですか？（保存するまでは元に戻せます）"
+        confirmLabel="置き換える"
+        onClose={() => setConfirmCarry(false)}
+        onConfirm={async () => {
+          applyCarry()
+        }}
+      />
       {active && active.id !== v.scenario.id && !isPlan && (
         <p className="mb-4 rounded-md border border-emerald-100 bg-emerald-50/70 px-4 py-2 text-sm text-emerald-900">
           このシナリオは今回の見込ではありません。

@@ -241,7 +241,9 @@ export function ActivityListPage() {
           onClose={() => setCreating(false)}
           save={async (body) => {
             const created = await createActivity(body)
-            navigate(`/activities/${created.id}`)
+            // コピーして作ったときは、写した内訳・ドライバーを確かめられる「設定」を開く
+            const skipped = created.skipped_restricted_lines ?? 0
+            navigate(body.copy_from_activity_id ? `/activities/${created.id}?tab=settings${skipped > 0 ? `&skipped_lines=${skipped}` : ''}` : `/activities/${created.id}`)
           }}
         />
       )}
