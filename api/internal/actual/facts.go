@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -219,7 +220,14 @@ func syncFacts(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, months []st
 	c.Deleted += len(deletes)
 	c.Inserted += len(inserts)
 	c.Updated += len(updates)
-	return rec.Many(ctx, changes)
+	if err := rec.Many(ctx, changes); err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	// 計上月の仕掛残高は実績の振替を含むので、検収月に一括の施策の振替を計算し直す（docs/plan.md「2.28」）
+	return calc.RecalculateWipAll(ctx, tx, rec)
 }
 
 // monthTotals は月ごとの実績の合計（会計システムとの突合用）。未割当を含む。

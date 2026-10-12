@@ -3,8 +3,9 @@ import { api } from '../e2e/helpers'
 
 // 研修・試用（make demo、docs/demo.md）と手引きの画像（make manual-screenshots）で使うデモのデータ。
 // 2026年度の想定で、10月見込（今回の見込）を現場が更新している途中の状態を作る。日付は固定（締切 2026-10-16）。
-// 4つのユニットに施策 40 件。実績は施策コード・外部コード（案件番号）・割当ルール（会計科目 × 部門）で割り当て、未割当も少し残す。
+// 4つのユニットに施策 41 件。実績は施策コード・外部コード（案件番号）・割当ルール（会計科目 × 部門）で割り当て、未割当も少し残す。
 // 「新規開拓（受託）」は枠の施策（docs/plan.md「2.5」）の例で、内訳に α社・β社・γ社・未確定分を持ち、受注した案件の番号を外部コードに登録している。
+// 「S社 システム開発（1月検収）」は検収月に一括の施策（docs/plan.md「2.28」）の例で、外注費を仕掛品に積み、1月に売上と売上原価を計上する。
 // FP&A でログインした page を受け取り、API でデータを入れる。施策が1件でもある環境には入れない（本番などに誤って入れないため）。
 
 /** デモのアカウント（ローカルの研修用の値。本番では使わない） */
@@ -25,7 +26,7 @@ function lastDay(ym: string): string {
 }
 
 /** 画像の撮影で使う ID */
-export type DemoData = { activityId: number; scenarioId: number }
+export type DemoData = { activityId: number; scenarioId: number; wipActivityId: number }
 
 export async function seedDemo(page: Page): Promise<DemoData> {
   const existing = await page.request.get('/api/activities')
@@ -49,8 +50,8 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   const dev = await post('/units', { name: '受託開発ユニット', segment_id: seg2.id, organization_id: org.id, owner_user_id: manager.id })
   const glOf = new Map<string, number>()
   const subjectCode = new Map<number, string>()
-  const subject = async (code: string, name: string, category: string) => {
-    const s = await post('/subjects', { code, name, category })
+  const subject = async (code: string, name: string, category: string, extra: Record<string, unknown> = {}) => {
+    const s = await post('/subjects', { code, name, category, ...extra })
     const gl = await post('/gl-accounts', { code, name, subject_id: s.id })
     glOf.set(code, gl.id)
     subjectCode.set(s.id, code)
@@ -58,10 +59,12 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   }
   const subscription = await subject('4110', 'サブスクリプション売上', 'revenue')
   const contract = await subject('4120', '受託売上', 'revenue')
-  const outsourcing = await subject('5110', '外注費', 'expense')
+  // 外注費は原価の科目（検収月に一括の施策で仕掛品に積む）
+  const outsourcing = await subject('5110', '外注費', 'expense', { is_project_cost: true })
   const ads = await subject('5210', '広告宣伝費', 'expense')
   const consulting = await subject('4130', 'コンサルティング売上', 'revenue')
   const rent = await subject('5310', '地代家賃', 'expense')
+  await subject('5900', '仕掛品振替', 'expense', { role: 'wip_transfer' })
   const seg3 = await post('/segments', { name: 'コンサルティング事業' })
   const seg4 = await post('/segments', { name: '全社共通' })
   const org2 = await post('/organizations', { name: '管理本部' })
@@ -151,6 +154,12 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   await externalCode(frame.id, 'PJ-2026-0131', 'α社 受注（新規開拓の枠で受ける）')
   await externalCode(frame.id, 'PJ-2026-0144', 'β社 受注（新規開拓の枠で受ける）')
 
+  // 検収月に一括の施策: 8月着手・1月検収。外注費は発生した月に入れ、1月に売上 750 万を計上する
+  const delivery = await post('/activities', {
+    code: 'DEV-015', name: 'S社 システム開発（1月検収）', unit_id: dev.id, owner_user_id: suzuki.id, activity_type: 'project', status: 'in_progress',
+    confidence_level: 'B', start_date: '2026-08-01', end_date: '2027-01-31', recognition: 'on_delivery',
+  })
+
   // シナリオ: 期初計画 → 9月見込 → 10月見込（今回）
   const initial = await post('/scenarios', { name: '2026年度 期初計画', fiscal_year: 2026, plan_role: 'initial' })
   const fill = async (sid: number, f: (m: string, i: number) => { aid: number; subject: number; line?: number; amount: number }[]) => {
@@ -188,7 +197,10 @@ export async function seedDemo(page: Page): Promise<DemoData> {
     ...extras.filter((x) => i >= (x.from ?? 0) && i <= (x.to ?? 11)).map((x) => ({ aid: extraIds.get(x.code)!, subject: x.subject, amount: x.amount })),
     // 新規開拓は期初では枠だけ（未確定分）。相手先は期中に内訳で分ける
     { aid: frame.id, subject: contract, line: unknown.id, amount: i >= 3 ? 3_000_000 : 0 },
+    ...(i >= 4 && i <= 9 ? [{ aid: delivery.id, subject: outsourcing, amount: 1_000_000 }] : []),
+    ...(i === 9 ? [{ aid: delivery.id, subject: contract, amount: 7_500_000 }] : []),
   ])
+  await a.put(`/scenarios/${initial.id}/activities/${delivery.id}/recognition`, { recognition_month: '2027-01', reason: '検収月の設定' })
   const sep = await post('/scenarios', { name: '2026年度 9月見込', fiscal_year: 2026, base_scenario_id: initial.id, actual_through: '2026-08' })
   const oct = await post('/scenarios', { name: '2026年度 10月見込', fiscal_year: 2026, base_scenario_id: sep.id, plan_role: 'latest', actual_through: '2026-09' })
 
@@ -216,6 +228,8 @@ export async function seedDemo(page: Page): Promise<DemoData> {
       [m, 'POOL-001', '5110', 520_000, '開発基盤 クラウド利用料'],
       ...(i >= 3 ? [[m, 'SAAS-003', '4110', 1_500_000, 'エンタープライズプラン 利用料'] as Row] : []),
       ...(i >= 1 ? [[m, 'DEV-005', '4120', 600_000, 'E社 PoC'] as Row] : []),
+      // 検収月に一括の施策: 外注費を会計で月末に仕掛品へ振り替えている
+      ...(i >= 4 ? [[m, 'DEV-015', '5110', 1_000_000, 'S社 システム開発 協力会社'] as Row, [m, 'DEV-015', '5900', -1_000_000, 'S社 システム開発 期末仕掛品振替'] as Row] : []),
       ...extraRows,
       // 割当ルール（会計科目 × 部門）で入る行。箱の ID はない
       [m, '', '5310', 1_800_000, '本社 家賃', 'D900'],
@@ -280,5 +294,5 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   // 説明へのコメント（docs/plan.md「2.24」）: FP&A が A社の後ろ倒しについて聞いている
   await a.post(`/scenarios/${oct.id}/activities/${bigA.id}/comments`, { body: '10〜12月の売上が後ろ倒しになっています。理由と、年度内に戻る見込みを説明に書いてください。' })
 
-  return { activityId: bigA.id, scenarioId: oct.id }
+  return { activityId: bigA.id, scenarioId: oct.id, wipActivityId: delivery.id }
 }

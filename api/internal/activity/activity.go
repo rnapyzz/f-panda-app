@@ -21,6 +21,7 @@ import (
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
 	"github.com/rnapyzz/f-panda-app/api/internal/auth"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/codes"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
@@ -104,6 +105,8 @@ type activity struct {
 	Assumptions     string `json:"assumptions"`
 	// IsPriority は重点施策（共有の印）
 	IsPriority bool `json:"is_priority"`
+	// Recognition は計上の仕方。as_incurred（発生した月に計上）か on_delivery（検収月に一括。docs/plan.md「2.28」）
+	Recognition string `json:"recognition"`
 	timestamps
 
 	// unitOwnerID は所属するユニットの担当者。権限判定に使う。
@@ -153,6 +156,8 @@ type activityRequest struct {
 	ConfidenceLevel string `json:"confidence_level"`
 	Assumptions     string `json:"assumptions"`
 	Reason          string `json:"reason"`
+	// Recognition は計上の仕方。空なら作成では as_incurred、更新では今のまま。プロジェクト型以外は as_incurred にする
+	Recognition string `json:"recognition"`
 	// CopyFromActivityID は作成のときだけ使う。指定した施策の内訳・ドライバーを写して作る（docs/plan.md「2.27」）
 	CopyFromActivityID *int64 `json:"copy_from_activity_id"`
 }
@@ -163,7 +168,7 @@ type reasonRequest struct {
 
 const activitySelect = `
 	SELECT a.id, a.unit_id, a.code, a.name, a.activity_type, a.status, a.start_date, a.end_date,
-	       a.owner_user_id, a.confidence_level, COALESCE(a.assumptions, ''), a.is_priority, a.created_at, a.updated_at,
+	       a.owner_user_id, a.confidence_level, COALESCE(a.assumptions, ''), a.is_priority, a.recognition, a.created_at, a.updated_at,
 	       un.owner_user_id
 	FROM activities a JOIN units un ON un.id = a.unit_id`
 
@@ -172,7 +177,7 @@ func scanActivity(row interface{ Scan(...any) error }) (activity, error) {
 	var start, end sql.NullTime
 	var owner, fnOwner sql.NullInt64
 	err := row.Scan(&a.ID, &a.UnitID, &a.Code, &a.Name, &a.ActivityType, &a.Status, &start, &end,
-		&owner, &a.ConfidenceLevel, &a.Assumptions, &a.IsPriority, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
+		&owner, &a.ConfidenceLevel, &a.Assumptions, &a.IsPriority, &a.Recognition, &a.CreatedAt, &a.UpdatedAt, &fnOwner)
 	if err != nil {
 		return a, err
 	}
@@ -254,11 +259,15 @@ type Summary struct {
 	Code            string `json:"code"`
 	Name            string `json:"name"`
 	ConfidenceLevel string `json:"confidence_level"`
-	CanEdit         bool   `json:"can_edit"`
+	ActivityType    string `json:"activity_type"`
+	// Recognition は計上の仕方（as_incurred / on_delivery。docs/plan.md「2.28」）
+	Recognition string `json:"recognition"`
+	CanEdit     bool   `json:"can_edit"`
 }
 
 func summarize(u auth.User, a activity) Summary {
-	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, ConfidenceLevel: a.ConfidenceLevel, CanEdit: canEdit(u, a)}
+	return Summary{ID: a.ID, Code: a.Code, Name: a.Name, ConfidenceLevel: a.ConfidenceLevel,
+		ActivityType: a.ActivityType, Recognition: a.Recognition, CanEdit: canEdit(u, a)}
 }
 
 // Load は施策の要約を返す。存在しなければ 404。
@@ -458,13 +467,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		if err := checkConfidenceLevel(ctx, tx, in.ConfidenceLevel); err != nil {
 			return err
 		}
+		if in.Recognition == "" {
+			in.Recognition = "as_incurred"
+		}
+		if err := checkRecognition(ctx, tx, in.Recognition); err != nil {
+			return err
+		}
 		insert := func() (sql.Result, error) {
 			return tx.ExecContext(ctx, `
 				INSERT INTO activities (unit_id, code, name, activity_type, status, start_date, end_date,
-				                        owner_user_id, confidence_level, assumptions)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				                        owner_user_id, confidence_level, assumptions, recognition)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-				dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions),
+				dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions), in.Recognition,
 			)
 		}
 		var res sql.Result
@@ -621,6 +636,14 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
+		if in.Recognition == "" {
+			in.Recognition = before.Recognition
+		}
+		if in.Recognition != before.Recognition {
+			if err := checkRecognition(ctx, tx, in.Recognition); err != nil {
+				return err
+			}
+		}
 		if needsReason(before, in) {
 			if err := requireReason(req.Reason); err != nil {
 				return err
@@ -634,10 +657,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		}
 		_, err = tx.ExecContext(ctx, `
 			UPDATE activities SET unit_id = ?, code = ?, name = ?, activity_type = ?, status = ?,
-			       start_date = ?, end_date = ?, owner_user_id = ?, confidence_level = ?, assumptions = ?
+			       start_date = ?, end_date = ?, owner_user_id = ?, confidence_level = ?, assumptions = ?, recognition = ?
 			WHERE id = ?`,
 			in.UnitID, in.Code, in.Name, in.ActivityType, in.Status, in.StartDate, in.EndDate,
-			dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions), id,
+			dbx.NullInt64(in.OwnerUserID), in.ConfidenceLevel, dbx.NullString(in.Assumptions), in.Recognition, id,
 		)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"code": "この施策コードは既に使われています"})
@@ -648,7 +671,14 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		if updated, err = findActivity(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		return rec.Update(ctx, "activities", id, before, updated)
+		if err := rec.Update(ctx, "activities", id, before, updated); err != nil {
+			return err
+		}
+		if updated.Recognition != before.Recognition {
+			// 計上の仕方を変えたら仕掛品振替を計算し直す（docs/plan.md「2.28」）
+			return calc.RecalculateActivity(ctx, tx, rec, id)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -747,8 +777,8 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		// 残っている施策 × シナリオの記録は、変更した日時だけ（説明・完了なし）なので一緒に消す
-		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones", "activity_scenario_notes", "activity_watches"} {
+		// 残っている施策 × シナリオの記録は、変更した日時（説明・完了なし）と計上月だけなので一緒に消す
+		for _, table := range []string{"activity_external_codes", "activity_lines", "activity_drivers", "activity_milestones", "activity_scenario_notes", "activity_recognitions", "activity_watches"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE activity_id = ?", id); err != nil {
 				return err
 			}
@@ -781,6 +811,8 @@ type activityInput struct {
 	OwnerUserID     *int64
 	ConfidenceLevel string
 	Assumptions     string
+	// Recognition は空なら「指定なし」（作成では as_incurred、更新では今のまま）
+	Recognition string
 }
 
 // validateActivity は施策の入力を検証する。allowEmptyCode なら施策コードの空欄を許す（自動採番する）。
@@ -824,6 +856,14 @@ func validateActivity(req activityRequest, allowEmptyCode bool) (activityInput, 
 		}
 	}
 
+	in.Recognition = strings.TrimSpace(req.Recognition)
+	switch {
+	case in.Recognition != "" && in.Recognition != "as_incurred" && in.Recognition != "on_delivery":
+		v.Add("recognition", "計上の仕方は as_incurred（発生した月に計上）か on_delivery（検収月に一括）を指定してください")
+	case in.ActivityType != "project" && in.ActivityType != "":
+		in.Recognition = "as_incurred" // 検収月に一括はプロジェクト型だけ
+	}
+
 	if in.ConfidenceLevel == "" {
 		in.ConfidenceLevel = DefaultConfidenceLevel(in.ActivityType)
 	}
@@ -853,6 +893,7 @@ func checkConfidenceLevel(ctx context.Context, tx *sql.Tx, code string) error {
 // needsReason は変更理由が必須になる項目（確度の段階・前提条件・期間）が変わるかを返す。
 func needsReason(before activity, in activityInput) bool {
 	return before.ConfidenceLevel != in.ConfidenceLevel ||
+		before.Recognition != in.Recognition ||
 		before.Assumptions != in.Assumptions ||
 		!sameDate(before.StartDate, in.StartDate) ||
 		!sameDate(before.EndDate, in.EndDate)
@@ -863,6 +904,21 @@ func sameDate(before *string, after sql.NullString) bool {
 		return before == nil && !after.Valid
 	}
 	return *before == after.String
+}
+
+// checkRecognition は、検収月に一括にするとき仕掛品振替の科目が指定されているかを確かめる（docs/plan.md「2.28」）。
+func checkRecognition(ctx context.Context, tx *sql.Tx, recognition string) error {
+	if recognition != "on_delivery" {
+		return nil
+	}
+	n, err := dbx.Count(ctx, tx, "SELECT COUNT(*) FROM subjects WHERE role = 'wip_transfer'")
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return httpx.Validation(map[string]string{"recognition": "仕掛品振替の科目が指定されていないため、検収月に一括にはできません。FP&A に科目の設定を依頼してください"})
+	}
+	return nil
 }
 
 func checkOwner(ctx context.Context, tx *sql.Tx, ownerID *int64) error {

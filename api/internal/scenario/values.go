@@ -100,6 +100,19 @@ type valuesView struct {
 	Note note `json:"note"`
 	// RestrictedHidden は、閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」）
 	RestrictedHidden bool `json:"restricted_hidden"`
+	// Wip は検収月に一括の施策の仕掛の情報（docs/plan.md「2.28」）。それ以外の施策は null
+	Wip *wipView `json:"wip"`
+}
+
+// wipView は検収月に一括の施策の、仕掛の計算に使う情報。
+type wipView struct {
+	// TransferSubjectID は仕掛品振替の科目（未指定なら null）、CostSubjectIDs は原価の科目
+	TransferSubjectID *int64  `json:"transfer_subject_id"`
+	CostSubjectIDs    []int64 `json:"cost_subject_ids"`
+	// RecognitionMonth は計上月（YYYY-MM、未設定は null）
+	RecognitionMonth *string `json:"recognition_month"`
+	// Opening は年度の最初の月の前月末の仕掛残高（前の年度までの振替から求める）
+	Opening json.Number `json:"opening"`
 }
 
 // getValues は GET /api/scenarios/{id}/activities/{aid}。
@@ -122,10 +135,7 @@ func (h *Handler) getValues(w http.ResponseWriter, r *http.Request) error {
 }
 
 // queryer は *sql.DB と *sql.Tx の共通部分。
-type queryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
+type queryer = calc.Queryer
 
 // loadValues は数値入力画面のデータを読み込む。q はトランザクション（試算）でもよい。
 func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenarioID, activityID int64) (valuesView, error) {
@@ -201,7 +211,39 @@ func (h *Handler) loadValues(ctx context.Context, q queryer, u auth.User, scenar
 	if v.Note, _, err = loadNote(ctx, q, scenarioID, activityID, ""); err != nil {
 		return valuesView{}, err
 	}
+	if a.Recognition == "on_delivery" {
+		if v.Wip, err = loadWip(ctx, q, s, activityID); err != nil {
+			return valuesView{}, err
+		}
+	}
 	return v, nil
+}
+
+// loadWip は検収月に一括の施策の仕掛の情報を読む（docs/plan.md「2.28」）。
+func loadWip(ctx context.Context, q queryer, s Scenario, activityID int64) (*wipView, error) {
+	settings, err := calc.LoadWipSettings(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	w := &wipView{CostSubjectIDs: settings.CostSubjectIDs, Opening: "0"}
+	month, err := calc.RecognitionMonth(ctx, q, s.ID, activityID)
+	if err != nil {
+		return nil, err
+	}
+	if month != "" {
+		w.RecognitionMonth = &month
+	}
+	if settings.TransferSubjectID == 0 {
+		return w, nil
+	}
+	w.TransferSubjectID = &settings.TransferSubjectID
+	opening, err := calc.OpeningWip(ctx, q, s.ID, activityID, s.FiscalYear, derefStr(s.ActualThrough),
+		calc.FiscalMonths(s.FiscalYear)[0], settings.TransferSubjectID)
+	if err != nil {
+		return nil, err
+	}
+	w.Opening = json.Number(opening.String())
+	return w, nil
 }
 
 // canEditScenario は、ユーザーがシナリオの数値を入力できるか（ロックと施策の権限は別に判定する）。
@@ -666,6 +708,10 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+		wip, err := calc.LoadWipSettings(ctx, tx)
+		if err != nil {
+			return err
+		}
 		beyond, err := beyondMonths(ctx, tx, activityID, s.FiscalYear)
 		if err != nil {
 			return err
@@ -686,6 +732,9 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 				if err := checkRestrictedInput(ctx, tx, u, in.SubjectID); err != nil {
 					return err
 				}
+			}
+			if a.Recognition == "on_delivery" && wip.TransferSubjectID != 0 && in.SubjectID == wip.TransferSubjectID && in.LineID == nil {
+				v.Add(prefix+".subject_id", "仕掛品振替は計上月から自動で計算するため入力できません")
 			}
 			if in.LineID != nil {
 				switch l, ok := lines[*in.LineID]; {
@@ -751,7 +800,101 @@ func (h *Handler) putAmounts(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 		}
-		return nil
+		// 原価の金額が変わったら仕掛品振替を計算し直す（docs/plan.md「2.28」）
+		return calc.RecalculateWip(ctx, tx, rec, scenarioID, activityID)
+	})
+	if err != nil {
+		return err
+	}
+	return h.respondValues(w, r, scenarioID, activityID)
+}
+
+// --- 計上月（docs/plan.md「2.28」） ---
+
+// recognitionRecord は監査ログに記録する計上月。
+type recognitionRecord struct {
+	ID               int64  `json:"id"`
+	ScenarioID       int64  `json:"scenario_id"`
+	ActivityID       int64  `json:"activity_id"`
+	RecognitionMonth string `json:"recognition_month"`
+}
+
+// putRecognition は PUT /api/scenarios/{id}/activities/{aid}/recognition。
+// 検収月に一括の施策の計上月を設定し（null で解除）、仕掛品振替を計算し直す。権限・変更理由は金額の入力と同じ。
+func (h *Handler) putRecognition(w http.ResponseWriter, r *http.Request) error {
+	scenarioID, activityID, err := pathIDs(r)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		RecognitionMonth *string `json:"recognition_month"`
+		Reason           string  `json:"reason"`
+	}
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+	if req.Reason, err = h.defaultReason(r.Context(), scenarioID, req.Reason); err != nil {
+		return err
+	}
+	if err := activity.RequireReason(req.Reason); err != nil {
+		return err
+	}
+	err = h.editTx(r, scenarioID, activityID, req.Reason, func(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, s Scenario, a activity.Summary) error {
+		if a.Recognition != "on_delivery" {
+			return httpx.Validation(map[string]string{"recognition_month": "計上月は、計上の仕方が「検収月に一括」の施策だけに設定できます"})
+		}
+		var month string
+		if req.RecognitionMonth != nil {
+			beyond, err := beyondMonths(ctx, tx, activityID, s.FiscalYear)
+			if err != nil {
+				return err
+			}
+			c := cellInput{TargetMonth: *req.RecognitionMonth}
+			v := httpx.Validator{}
+			validateCell(v, "recognition", &c, s, beyond)
+			if msg, ok := v["recognition.target_month"]; ok {
+				return httpx.Validation(map[string]string{"recognition_month": msg})
+			}
+			month = c.TargetMonth
+		}
+
+		var before recognitionRecord
+		err := tx.QueryRowContext(ctx, `
+			SELECT id, DATE_FORMAT(recognition_month, '%Y-%m') FROM activity_recognitions
+			WHERE scenario_id = ? AND activity_id = ? FOR UPDATE`, scenarioID, activityID).Scan(&before.ID, &before.RecognitionMonth)
+		found := err == nil
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		before.ScenarioID, before.ActivityID = scenarioID, activityID
+		after := recognitionRecord{ID: before.ID, ScenarioID: scenarioID, ActivityID: activityID, RecognitionMonth: month}
+		switch {
+		case month == "" && found:
+			if _, err := tx.ExecContext(ctx, "DELETE FROM activity_recognitions WHERE id = ?", before.ID); err != nil {
+				return err
+			}
+			if err := rec.Delete(ctx, "activity_recognitions", before.ID, before); err != nil {
+				return err
+			}
+		case month != "" && found && before.RecognitionMonth != month:
+			if _, err := tx.ExecContext(ctx, "UPDATE activity_recognitions SET recognition_month = ? WHERE id = ?", month+"-01", before.ID); err != nil {
+				return err
+			}
+			if err := rec.Update(ctx, "activity_recognitions", before.ID, before, after); err != nil {
+				return err
+			}
+		case month != "" && !found:
+			res, err := tx.ExecContext(ctx, "INSERT INTO activity_recognitions (scenario_id, activity_id, recognition_month) VALUES (?, ?, ?)",
+				scenarioID, activityID, month+"-01")
+			if err != nil {
+				return err
+			}
+			after.ID, _ = res.LastInsertId()
+			if err := rec.Insert(ctx, "activity_recognitions", after.ID, after); err != nil {
+				return err
+			}
+		}
+		return calc.RecalculateWip(ctx, tx, rec, scenarioID, activityID)
 	})
 	if err != nil {
 		return err

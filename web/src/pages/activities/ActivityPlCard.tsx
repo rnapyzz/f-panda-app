@@ -10,6 +10,7 @@ import { Link } from '../../lib/router'
 import { actualThroughLabel, defaultScenarios, scenarioLabel } from '../../lib/scenario'
 import { useApi } from '../../lib/useApi'
 import { RestrictedNote } from '../../components/RestrictedNote'
+import { buildWip, monthLabel } from '../../lib/wip'
 
 const grains: Grain[] = ['month', 'quarter', 'half', 'year']
 
@@ -149,11 +150,81 @@ function PlView({ activityId, scenarios }: { activityId: number; scenarios: Scen
           ) : (
             <PlTable nodes={nodes} periods={periods} open={open} onToggle={toggle} />
           )}
+          {latestData?.wip && <WipSection view={latestData} />}
           {latestData && latestData.beyond_months.length > 0 && <WholeActivity view={latestData} />}
         </div>
       )}
     </Card>
     </AmountUnitProvider>
+  )
+}
+
+/**
+ * 原価と仕掛（検収月に一括の施策。docs/plan.md「2.28」）: 選んだ「最新」のシナリオの、月ごとの発生原価・仕掛品振替・売上原価・月末仕掛残高。
+ * 実績の月は会計の実績（仕掛品振替の実績を含む）。
+ */
+function WipSection({ view }: { view: ValuesView }) {
+  const { fmt, label } = useAmountUnit()
+  const table = buildWip(view)
+  if (!table) return null
+  const recognition = view.wip?.recognition_month ?? null
+  const actual = new Set(view.actual_months)
+  const rows: { key: string; name: string; values: Map<string, bigint>; total: boolean; strong?: boolean; indent?: boolean }[] = [
+    ...table.costs.map((c) => ({ key: `c${c.subjectId}`, name: c.name, values: c.values, total: true, indent: true })),
+    { key: 'incurred', name: '発生原価', values: table.incurred, total: true, strong: true },
+    { key: 'transfer', name: '仕掛品振替', values: table.transfer, total: true },
+    { key: 'cogs', name: '売上原価（P/L）', values: table.cogs, total: true, strong: true },
+    { key: 'balance', name: '月末仕掛残高', values: table.balance, total: false, strong: true },
+  ]
+  return (
+    <section aria-label="原価と仕掛" className="border-t border-slate-100 pt-3">
+      <h3 className="mb-1 text-xs font-semibold text-slate-500">
+        原価と仕掛（{scenarioLabel(view.scenario)}・計上月 {recognition ? monthLabel(recognition) : '未設定'}・{label}）
+      </h3>
+      {view.wip?.transfer_subject_id == null && <p className="mb-2 text-xs text-amber-700">仕掛品振替の科目が指定されていません。FP&A が「勘定科目」で指定すると、振替を計算します。</p>}
+      <div className="-mx-4 overflow-x-auto">
+        <table aria-label="原価と仕掛" className="min-w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 min-w-36 border-b border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-500">項目</th>
+              {table.months.map((m) => (
+                <th
+                  key={m}
+                  className={cx(
+                    'min-w-20 border-b border-slate-200 px-3 py-1.5 text-right text-xs font-semibold whitespace-nowrap text-slate-500',
+                    m === recognition && 'bg-indigo-50 text-indigo-700',
+                  )}
+                >
+                  {view.beyond_months.includes(m) ? `翌${Number(m.slice(5, 7))}月` : `${Number(m.slice(5, 7))}月`}
+                  {actual.has(m) && <span className="ml-0.5 font-normal">（実績）</span>}
+                  {m === recognition && <span className="block text-[10px] font-normal">計上月</span>}
+                </th>
+              ))}
+              <th className="min-w-24 border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-right text-xs font-semibold text-slate-500">合計</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {rows.map((r) => (
+              <tr key={r.key} className={cx(r.strong && 'font-semibold', r.key === 'balance' && 'bg-slate-50')}>
+                <th scope="row" className={cx('sticky left-0 z-10 border-b border-slate-100 bg-white py-1 pr-3 text-left text-xs whitespace-nowrap text-slate-700', r.indent ? 'pl-7 font-normal' : 'pl-3', r.key === 'balance' && 'bg-slate-50')}>
+                  {r.name}
+                </th>
+                {table.months.map((m) => {
+                  const v = r.values.get(m) ?? 0n
+                  return (
+                    <td key={m} className={cx('border-b border-slate-100 px-3 py-1 text-right whitespace-nowrap', v === 0n && 'text-slate-300', m === recognition && 'bg-indigo-50/60')}>
+                      {fmt(v)}
+                    </td>
+                  )
+                })}
+                <td className="border-b border-slate-100 bg-slate-50 px-3 py-1 text-right whitespace-nowrap">{r.total ? fmt(table.months.reduce((s, m) => s + (r.values.get(m) ?? 0n), 0n)) : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">売上原価 = 発生原価 + 仕掛品振替。月末仕掛残高は、前の年度からの残高に、振替の累計を反映したものです。</p>
+    </section>
   )
 }
 
