@@ -8,8 +8,11 @@ import { api } from '../e2e/helpers'
 // 「S社 システム開発（1月検収）」は検収月に一括の施策（docs/plan.md「2.28」）の例で、外注費を仕掛品に積み、1月に売上と売上原価を計上する。
 // FP&A でログインした page を受け取り、API でデータを入れる。施策が1件でもある環境には入れない（本番などに誤って入れないため）。
 
-/** デモのアカウント（ローカルの研修用の値。本番では使わない） */
-export const demoPassword = 'demo-member-password'
+/**
+ * デモのアカウントのパスワード。既定はローカルの研修用の値（リポジトリで公開されている）。
+ * インターネットに公開している環境に入れるときは、DEMO_MEMBER_PASSWORD で別の値を指定する（docs/demo.md）
+ */
+export const demoPassword = process.env.DEMO_MEMBER_PASSWORD || 'demo-member-password'
 export const demoAccounts = [
   { role: 'マネージャー', name: '佐藤 健', email: 'sato@example.com' },
   { role: '担当者', name: '鈴木 花子', email: 'suzuki@example.com' },
