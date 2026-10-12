@@ -1,40 +1,50 @@
 AWSTemplateFormatVersion: "2010-09-09"
+# F-Panda の本番環境（docs/deploy.md）。EC2 1台に docker compose（caddy・web・api・MySQL）を載せる低コストの構成。
+# GitHub Actions は OIDC で入り、ECR にイメージを置いて SSM でデプロイを指示する。
+# AWS の画面に出る説明（Description）は日本語が文字化けするため、英語で書く。
 Description: >-
-  F-Panda の本番環境（docs/deploy.md）。EC2 1台に docker compose（caddy・web・api・MySQL）を載せる低コストの構成。
-  GitHub Actions は OIDC で入り、ECR にイメージを置いて SSM でデプロイを指示する。
+  F-Panda production (docs/deploy.md). A single EC2 instance running docker compose (caddy, web, api, MySQL).
+  GitHub Actions deploys via OIDC, ECR and SSM Run Command.
 
 Parameters:
   DomainName:
     Type: String
-    Description: アプリの URL のホスト名（例 fpanda.example.com）。Route 53 のホストゾーンの中の名前
+    Description: Host name of the app URL (e.g. fpanda.example.com), inside the Route 53 hosted zone
   HostedZoneId:
     Type: AWS::Route53::HostedZone::Id
-    Description: DomainName を入れる Route 53 のホストゾーン
+    Description: Route 53 hosted zone for DomainName
   InstanceType:
     Type: String
     Default: t4g.micro
     AllowedValues: [t4g.micro, t4g.small, t4g.medium]
-    Description: t4g.micro（1GB）で始め、遅ければ t4g.small（2GB）に変える
+    Description: Start with t4g.micro (1GB). Change to t4g.small (2GB) if it is slow
   VolumeSize:
     Type: Number
     Default: 20
     MinValue: 10
-    Description: ディスクの大きさ（GB）
+    Description: Disk size (GB)
   AlertEmail:
     Type: String
-    Description: サーバーの異常を知らせるメールアドレス（届いた確認メールのリンクを開いて有効にする）
+    Description: Email address for server alerts (open the link in the confirmation email to enable it)
   GitHubRepository:
     Type: String
     Default: rnapyzz/f-panda-app
-    Description: デプロイを許す GitHub のリポジトリ（owner/name）。main ブランチからだけ使える
+    Description: GitHub repository (owner/name) allowed to deploy, from the main branch only
+  GitHubSubjectPrefix:
+    Type: String
+    Default: ""
+    Description: >-
+      Only for repositories using ID-based OIDC subjects: sub_claim_prefix from
+      gh api repos/OWNER/REPO/actions/oidc/customization/sub (e.g. repo:owner@123/name@456). Empty means repo:GitHubRepository
   CreateGitHubOidcProvider:
     Type: String
     Default: "true"
     AllowedValues: ["true", "false"]
-    Description: GitHub Actions の OIDC プロバイダーを作るか（アカウントにすでにあるなら false）
+    Description: Create the GitHub Actions OIDC provider (false if the account already has one)
 
 Conditions:
   CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+  DefaultSubject: !Equals [!Ref GitHubSubjectPrefix, ""]
 
 Resources:
   # --- ネットワーク（パブリック サブネット 1つ。NAT ゲートウェイは使わない） ---
@@ -263,7 +273,7 @@ Resources:
   SystemCheckAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: fpanda のサーバー（ハードウェア側）の異常。自動で復旧する
+      AlarmDescription: fpanda server system check failed (hardware side). Recovering automatically
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed_System
       Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
@@ -278,7 +288,7 @@ Resources:
   InstanceCheckAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: fpanda のサーバー（OS 側）の異常。自動で再起動する
+      AlarmDescription: fpanda server instance check failed (OS side). Rebooting automatically
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed_Instance
       Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
@@ -319,7 +329,10 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/heads/main
+                token.actions.githubusercontent.com:sub: !If
+                  - DefaultSubject
+                  - !Sub repo:${GitHubRepository}:ref:refs/heads/main
+                  - !Sub ${GitHubSubjectPrefix}:ref:refs/heads/main
       Policies:
         - PolicyName: deploy
           PolicyDocument:
@@ -356,14 +369,14 @@ Outputs:
   PublicIp:
     Value: !Ref ElasticIp
   InstanceId:
-    Description: GitHub の Variables の AWS_INSTANCE_ID
+    Description: GitHub Variables AWS_INSTANCE_ID
     Value: !Ref Instance
   DeployRoleArn:
-    Description: GitHub の Variables の AWS_DEPLOY_ROLE_ARN
+    Description: GitHub Variables AWS_DEPLOY_ROLE_ARN
     Value: !GetAtt DeployRole.Arn
   DeployBucket:
-    Description: GitHub の Variables の DEPLOY_BUCKET
+    Description: GitHub Variables DEPLOY_BUCKET
     Value: !Ref BundleBucket
   EcrRegistry:
-    Description: GitHub の Variables の ECR_REGISTRY
+    Description: GitHub Variables ECR_REGISTRY
     Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
