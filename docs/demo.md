@@ -61,10 +61,15 @@ FORCE=1 make dev-demo  # 確認しない
 
 ## 別の環境に入れるとき
 
-研修用にサーバーを用意したときは、FP&A のアカウントを作ってから、デモのデータだけを入れられる。
+研修用にサーバーを用意したときや、本番（docs/deploy.md）をデモとして使うときは、FP&A のアカウントを作ってから、デモのデータだけを入れられる。
+
+インターネットに公開している環境では、**デモのアカウント（佐藤・鈴木・田中・山田）のパスワードを `DEMO_MEMBER_PASSWORD` で必ず指定する**。既定の `demo-member-password` はリポジトリで公開されているため、だれでもログインできてしまう。パスワードは画面に出さずに入力する:
 
 ```bash
-DEMO_URL=https://training.example.com DEMO_ADMIN_EMAIL=... DEMO_ADMIN_PASSWORD=... scripts/demo.sh seed
+read -rs -p "FP&A のパスワード: " DEMO_ADMIN_PASSWORD; echo
+read -rs -p "デモのアカウントのパスワード（12文字以上）: " DEMO_MEMBER_PASSWORD; echo
+export DEMO_ADMIN_PASSWORD DEMO_MEMBER_PASSWORD
+DEMO_URL=https://training.example.com DEMO_ADMIN_EMAIL=you@example.com scripts/demo.sh seed
 ```
 
 - 施策が1件でもある環境には入れない（本番に誤って入れないため）。
