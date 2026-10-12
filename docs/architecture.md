@@ -55,7 +55,7 @@
 - CSRF: Go 1.25 の `http.CrossOriginProtection` で、別オリジンからの更新系リクエストを拒否する
 - 権限: `auth.RequireAuth`（ログイン必須）と `auth.RequireRole(...)`（ロール制限）のミドルウェアで制御する。施策のようにデータごとに権限が変わるものはハンドラー内で判定する
 - 無効化（`users.is_active = false`）したユーザーはログインできず、既存のセッションも使えなくなる
-- 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`、本番は ECS の単発のタスク）
+- 最初の FP&A 管理者は `createuser` コマンドで作成する（`make create-user`、本番はサーバーで `docker compose run`）
 
 ### SSO（OIDC）
 
@@ -74,7 +74,7 @@
 
 - SSO が有効な環境では、パスワードでログインできるのは FP&A（`fpa_admin`）だけ（IdP の障害に備えた非常用）。ログイン画面の「非常用のログイン」から入る。ほかのロールは 403
 - ログイン失敗の制限: 同じメールアドレス、または同じ IP からの失敗が15分に5回に達したら、15分間ログインを止める（429）。失敗は `login_attempts` に記録し、成功したらそのメールアドレスの記録を消す。古い記録は1日で消す
-- IP は、`TRUST_PROXY=true` のとき `X-Forwarded-For` の最後の値（ALB が付けたもの）、それ以外は接続元のアドレスを使う
+- IP は、`TRUST_PROXY=true` のとき `X-Forwarded-For` の最後の値（本番の前段の caddy が付けたもの）、それ以外は接続元のアドレスを使う
 
 | API                      | 内容                     |
 | ------------------------ | ------------------------ |
@@ -84,38 +84,37 @@
 
 ## 本番環境（AWS）
 
-手順は docs/deploy.md。
+手順は docs/deploy.md。趣味・小規模の利用を前提に、費用を抑えた構成（月 2,000〜3,500 円程度）にする。
 
 ```
-  browser ──HTTPS──▶ ALB（ACM の証明書。HTTP は HTTPS へ転送）
-                       │
-                       ▼
-            ECS Fargate のタスク（1台以上）
-            ┌───────────────────────────────┐
-            │ nginx（ビルドした画面、/api を転送）│
-            │ api（Go）                      │──▶ RDS for MySQL 8
-            └───────────────────────────────┘
-                 │ ログ                     秘密情報
-                 ▼                          ▲
-            CloudWatch Logs           Secrets Manager
+  browser ──HTTPS──▶ EC2（1台。Elastic IP、Route 53 の A レコード）
+                     ┌──────────────────────────────────────┐
+                     │ caddy（HTTPS の終端。Let's Encrypt を自動で更新） │
+                     │  └▶ web（nginx。ビルドした画面、/api を転送）    │
+                     │       └▶ api（Go）──▶ db（MySQL 8.4、EBS）       │
+                     └──────────────────────────────────────┘
+  GitHub Actions ──OIDC──▶ ECR（イメージ）・SSM Run Command（デプロイの指示）
 ```
 
 | 項目 | 内容 |
 | ---- | ---- |
-| イメージ | `web`（本番用のステージで画面をビルドし nginx に入れる）・`api`。ECR に置く |
-| マイグレーション | リリースの前に、`api` イメージの `migrate up` を ECS の単発のタスクとして実行する |
-| 自動の処理 | 通知・組織変更の予約は API 内のゴルーチンで動く。複数台でも DB の一意制約・行ロックで二重に動かない |
-| 秘密情報 | `DB_PASSWORD`・`SLACK_WEBHOOK_URL`・`OIDC_CLIENT_SECRET` は Secrets Manager からタスクの環境変数に渡す |
-| 環境変数 | `COOKIE_SECURE=true`・`TRUST_PROXY=true`・`TZ=Asia/Tokyo`・`APP_BASE_URL`・OIDC の設定 |
-| ヘルスチェック | ALB のターゲットのヘルスチェックは `GET /api/health`（DB に接続できなければ 503） |
-| バックアップ | RDS の自動バックアップを 30日に設定する（毎日のスナップショットと、30日以内の任意の時点への復元）。復旧は新しい DB への復元と接続先の切り替え。四半期に1回、復旧を練習する |
-| 監視 | CloudWatch のアラーム: ALB の 5xx の増加、ヘルスチェックの失敗、RDS の CPU・空き容量・接続数 |
-| 監査ログ | 消さない。テーブルの大きさを監視する |
-| リリースの自動化 | 今は手順書で行う。GitHub Actions などでの自動化は将来の課題 |
+| サーバー | EC2 1台（`t4g.micro` ＋スワップ、遅ければ `t4g.small`）。docker compose（`deploy/server/compose.prod.yaml`）で caddy・web・api・db を動かす。受けるのは 80・443 だけで、SSH は開けない（操作は Session Manager） |
+| 構成のコード | `deploy/aws/fpanda.yaml`（CloudFormation）。EC2・Elastic IP・セキュリティ グループ・ロール・ECR・スナップショットの自動作成・GitHub の OIDC とデプロイ用のロール・Route 53 のレコード・状態のアラーム |
+| イメージ | `web`（本番用のステージで画面をビルドし nginx に入れる）・`api`。`linux/arm64` で作り、コミットのハッシュをタグにして ECR に置く（新しい 10 個を残す） |
+| リリース | main へのマージで GitHub Actions（`.github/workflows/deploy.yml`）が、テスト → イメージ → SSM でサーバーの `deploy.sh` を実行する。`deploy.sh` はマイグレーション → 入れ替え → `/api/health` の確認を行い、失敗したら前のイメージに戻す。AWS の鍵は GitHub に置かず、OIDC で一時的な権限を受け取る |
+| マイグレーション | 入れ替えの前に `migrate up` を実行する。追加だけで作るので、前のイメージに戻しても動く |
+| 自動の処理 | 通知・組織変更の予約は API 内のゴルーチンで動く |
+| 秘密情報 | DB のパスワード・`SLACK_WEBHOOK_URL`・`OIDC_CLIENT_SECRET` はサーバーの `/opt/fpanda/.env`（権限 600）にだけ置く |
+| 環境変数 | `COOKIE_SECURE=true`・`TRUST_PROXY=true`・`TZ=Asia/Tokyo`・`APP_BASE_URL`。SSO を使うときは OIDC の設定 |
+| ヘルスチェック | `GET /api/health`（DB に接続できなければ 503）。デプロイの確認に使う |
+| バックアップ | EBS の毎日のスナップショット（7日分）と、DB の毎日のダンプ（7日分、サーバー内）。大きな変更の前は手動のスナップショット |
+| 監視 | EC2 のステータスチェックの失敗で自動復旧し、メールで知らせる。費用は予算のアラート |
+| 監査ログ | 消さない。テーブルの大きさを確かめる |
+| 大きくするとき | DB を RDS に、前段を ALB ＋ ECS Fargate に移す（アプリの変更は要らない。docs/deploy.md「7」） |
 
 ### HTTP のヘッダー（nginx）
 
-本番用の nginx の設定は `web/nginx.prod.conf`（`web/Dockerfile` の `prod` ステージで画面と一緒にイメージにする）。HSTS は ALB から HTTPS で来たとき（`X-Forwarded-Proto: https`）だけ付ける。
+本番用の nginx の設定は `web/nginx.prod.conf`（`web/Dockerfile` の `prod` ステージで画面と一緒にイメージにする）。HSTS は caddy から HTTPS で来たとき（`X-Forwarded-Proto: https`）だけ付ける。
 
 
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains`（HTTPS のときだけ）

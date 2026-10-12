@@ -1,132 +1,160 @@
 # 本番環境の構築・リリース・復旧の手順（AWS）
 
-構成と方針は [architecture.md](architecture.md) の「本番環境（AWS）」と「認証」を参照。この手順書では、AWS のコンソール（または CLI）で行う作業を順に書く。構成をコードで管理する仕組み（Terraform など）とリリースの自動化（GitHub Actions など）は将来の課題とする。
+構成と方針は [architecture.md](architecture.md) の「本番環境（AWS）」と「認証」を参照。趣味・小規模の利用を前提に、**月 2,000〜3,500 円程度**で動かす。**EC2 を1台**だけ使い、開発環境と同じ docker compose の構成（画面・API・MySQL）を載せる。**main にマージすると、GitHub Actions が自動でデプロイする**。
 
-以降の例では、リージョンを `ap-northeast-1`、アプリの URL を `https://fpanda.example.com`、会社のドメインを `example.com` とする。
+以降の例では、リージョンを `ap-northeast-1`（東京）、アプリの URL を `https://fpanda.example.com` とする。
 
-## 1. 事前の準備
+## 1. 構成と費用
 
-### Google Workspace（SSO）
+```
+  ブラウザ ──HTTPS──▶ EC2（1台、Amazon Linux 2023、Arm）
+                     ┌───────────────────────────────────────────┐
+                     │ caddy（HTTPS の終端。Let's Encrypt の証明書を自動で取得・更新） │
+                     │   └▶ web（nginx。ビルドした画面、/api を転送）                │
+                     │        └▶ api（Go）──▶ db（MySQL 8.4、EBS のボリューム）      │
+                     └───────────────────────────────────────────┘
+  GitHub Actions ──(OIDC)──▶ ECR にイメージを置き、SSM で EC2 にデプロイを指示
+  毎日: EBS のスナップショット（7日分）と、DB のダンプ（サーバー内、スナップショットに含まれる）
+```
 
-1. Google Cloud のコンソールでプロジェクトを作り、「OAuth 同意画面」をユーザーの種類「内部」で設定する（会社のアカウントだけが使える）。
-2. 「認証情報」で OAuth クライアント ID（種類: ウェブ アプリケーション）を作る。
-   - 承認済みのリダイレクト URI: `https://fpanda.example.com/api/auth/oidc/callback`
-3. クライアント ID とクライアント シークレットを控える（シークレットは Secrets Manager に入れる）。
+| リソース | 設定 | 費用の目安（月） |
+| -------- | ---- | ---------------- |
+| EC2 | `t4g.micro`（Arm、メモリ 1GB）＋スワップ 2GB で始める。遅ければ `t4g.small`（2GB）に変える（停止 → 種類の変更 → 起動の数分） | micro 約 $6〜7 / small 約 $13〜16 |
+| パブリック IPv4（Elastic IP） | 固定の IP。DNS をこれに向ける | 約 $3.6 |
+| EBS（gp3 20GB） | OS・Docker のイメージ・DB のデータ | 約 $2 |
+| EBS のスナップショット | 毎日、7日分（増分だけ課金） | 約 $0.5〜1 |
+| ECR | `fpanda-api`・`fpanda-web`。新しい 10 個だけを残す | 約 $0.1 |
+| Route 53 | ホストゾーン | $0.5 |
+| ドメイン | Route 53 で取る（`.com` など。年払い） | 年 $15 前後 |
+| 合計 | | **micro で約 $14（2,000 円台）、small で約 $23（3,500 円前後）** |
 
-### ドメインと証明書
+- 価格は目安。作る前に [AWS の料金計算ツール](https://calculator.aws/) で確かめる。円安・価格改定で変わる。
+- ロードバランサー（ALB）・NAT ゲートウェイ・RDS は使わない。どれも月に数千円かかるため。
+- 割り切ること: サーバーは1台なので、デプロイの間は数秒〜十数秒つながらない。サーバーが壊れたら、スナップショットからの復元になる（最大で1日分のデータが戻る）。利用者が増えて止められなくなったら「7. 構成を大きくするとき」を参照。
 
-1. 本番のドメイン（例: `fpanda.example.com`）を決める。
-2. ACM で証明書を発行する（DNS 検証）。
+### 構成のコード（CloudFormation）
 
-## 2. AWS の構成
+AWS のリソースは `deploy/aws/fpanda.yaml`（CloudFormation のテンプレート）にまとめる。CloudFormation のコンソールでこのファイルを読み込むだけで作れる（手元にツールを入れなくてよい）。テンプレートで作るもの:
 
-| リソース | 設定 |
+- セキュリティ グループ（受けるのは 80・443 だけ。SSH は開けない。サーバーの操作は Session Manager で行う）
+- EC2 と Elastic IP。初回の起動時に Docker・docker compose を入れ、スワップを作る（ユーザーデータ）
+- EC2 のロール: Session Manager（SSM）と ECR からの取得だけ
+- ECR のリポジトリ 2 つ（ライフサイクル: 新しい 10 個を残す）
+- EBS のスナップショットの自動作成（Data Lifecycle Manager。毎日、7日分）
+- GitHub Actions の OIDC プロバイダーとデプロイ用のロール（このリポジトリの main ブランチからだけ使える。ECR への push と、この EC2 への SSM のコマンドだけ）
+- Route 53 の A レコード（`fpanda.example.com` → Elastic IP）
+- EC2 の状態のアラーム（ステータスチェックの失敗で自動復旧し、メールで知らせる）
+
+### サーバーの中（`deploy/server/`）
+
+| ファイル | 内容 |
 | -------- | ---- |
-| VPC | パブリック サブネット（ALB）とプライベート サブネット（ECS・RDS）を2つの AZ に作る。ECS から外（Google・Slack）へ出るため NAT ゲートウェイを置く |
-| RDS for MySQL 8.4 | プライベート サブネット。文字コードはパラメータ グループで `character_set_server = utf8mb4`・`collation_server = utf8mb4_0900_ai_ci`・`time_zone = Asia/Tokyo`。**自動バックアップの保持期間 30日**。削除保護を有効にする。マルチ AZ は可用性の要件に合わせる |
-| ECR | `fpanda-api`・`fpanda-web` のリポジトリ |
-| Secrets Manager | `DB_PASSWORD`・`OIDC_CLIENT_SECRET`・`SLACK_WEBHOOK_URL`（使う場合） |
-| ECS（Fargate） | クラスター、タスク定義（下記）、サービス（タスク 1台以上、プライベート サブネット） |
-| ALB | HTTPS（443、ACM の証明書）のリスナーでターゲット グループ（タスクの nginx、80番）へ転送する。HTTP（80）のリスナーは HTTPS へリダイレクトする。ヘルスチェックのパスは `/api/health` |
-| CloudWatch Logs | ロググループ `/ecs/fpanda`（保持期間は運用に合わせる。監査ログは DB にあるので、ここは障害調査用） |
-| Route 53 | `fpanda.example.com` を ALB に向ける |
+| `compose.prod.yaml` | caddy・web・api・db・migrate。イメージは ECR のタグ（コミットのハッシュ）を `.env` の `IMAGE_TAG` で指定する |
+| `Caddyfile` | `fpanda.example.com` で HTTPS を受け、`web` に転送する。HTTP は HTTPS へ転送する |
+| `my.cnf` | 小さいメモリ向けの MySQL の設定（`innodb_buffer_pool_size = 128M`、`performance_schema = OFF` など） |
+| `deploy.sh` | デプロイの手順（下の「3. リリース」）。前のタグに戻す `rollback` もできる |
+| `backup.sh` | DB のダンプ（毎日 3:00、cron。7日分を残す） |
 
-### セキュリティ グループ
+サーバーでは `/opt/fpanda/` に置く。秘密情報は `/opt/fpanda/.env`（権限 600）にだけ置き、リポジトリと GitHub には入れない。
 
-- ALB: インターネットから 443・80 を受ける
-- ECS: ALB から 80 だけを受ける
-- RDS: ECS から 3306 だけを受ける
+| `.env` の名前 | 値 |
+| ------------- | -- |
+| `APP_DOMAIN` | `fpanda.example.com` |
+| `ACME_EMAIL` | 証明書の期限の連絡先のメールアドレス |
+| `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` | 長いランダムな文字列（`openssl rand -base64 32`） |
+| `IMAGE_TAG` | デプロイしたイメージのタグ（`deploy.sh` が書き換える） |
+| `SLACK_WEBHOOK_URL` | 使う場合だけ |
+| `OIDC_*` | Google の SSO を使う場合だけ（「6. SSO を使う場合」） |
 
-### タスク定義
+`api` には、このほか `COOKIE_SECURE=true`・`TRUST_PROXY=true`（caddy の後ろで動かすため）・`TZ=Asia/Tokyo`・`APP_BASE_URL=https://${APP_DOMAIN}` を `compose.prod.yaml` で渡す。
 
-1つのタスクに2つのコンテナを置く（ネットワーク モード `awsvpc`。nginx は `127.0.0.1:8080` で API に転送する）。
+## 2. 最初の構築（1回だけ）
 
-| コンテナ | イメージ | ポート | 設定 |
-| -------- | -------- | ------ | ---- |
-| `web` | `fpanda-web`（`web/Dockerfile` の `prod` ステージ） | 80 | なし。ALB のターゲット |
-| `api` | `fpanda-api`（`api/Dockerfile`） | 8080 | 下の環境変数 |
+AWS のアカウントの作成・支払いの設定・ドメインの購入は、本人が行う（パスワード・カード番号を扱うため）。
 
-`api` コンテナの環境変数:
+1. **AWS のアカウント**を作り、ルート ユーザーに MFA を付ける。日々の作業用に IAM Identity Center（または IAM ユーザー）を作り、ルート ユーザーは使わない。
+2. **予算のアラート**: Billing の「Budgets」で月 $30 の予算を作り、80% でメールが届くようにする（想定外の課金に気づくため）。
+3. **ドメイン**: Route 53 の「ドメインの登録」で取る（例: `example.com`）。ホストゾーンは自動で作られる。
+4. **CloudFormation**: コンソールで「スタックの作成」→ `deploy/aws/fpanda.yaml` を読み込み、パラメータ（ドメイン名・ホストゾーン・インスタンスの種類・通知のメールアドレス・GitHub のリポジトリ名）を入れて作る。10 分ほどで終わる。出力（Outputs）に、デプロイ用のロールの ARN・インスタンス ID・ECR のリポジトリが出る。
+5. **GitHub**: リポジトリの Settings → Secrets and variables → Actions の **Variables**（秘密情報ではない）に、`AWS_REGION`・`AWS_DEPLOY_ROLE_ARN`・`AWS_INSTANCE_ID`・`ECR_REGISTRY` を入れる。AWS の鍵は GitHub に置かない（OIDC で一時的な権限を受け取る）。
+6. **サーバーの `.env`**: EC2 のコンソールでインスタンスを選び「接続」→ Session Manager で入り、`/opt/fpanda/.env` を作る（上の表。パスワードはその場で生成する）。
+7. **最初のデプロイ**: GitHub の Actions で「Deploy」のワークフローを手動で実行する（`workflow_dispatch`）。以後は main へのマージで自動で動く。
+8. **FP&A の管理者を作る**: Session Manager で入り、`cd /opt/fpanda && docker compose -f compose.prod.yaml run --rm api createuser -email <メールアドレス> -name <氏名> -role fpa_admin` を実行する（パスワードは標準入力から読む）。
+9. `https://fpanda.example.com` を開き、ログインできることを確かめる。
 
-| 名前 | 値 |
-| ---- | -- |
-| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_NAME` | RDS のエンドポイントなど |
-| `DB_PASSWORD` | Secrets Manager から |
-| `TZ` | `Asia/Tokyo` |
-| `COOKIE_SECURE` | `true` |
-| `TRUST_PROXY` | `true`（ALB の後ろで動かすため） |
-| `APP_BASE_URL` | `https://fpanda.example.com` |
-| `OIDC_ISSUER` | `https://accounts.google.com` |
-| `OIDC_CLIENT_ID` | Google の OAuth クライアント ID |
-| `OIDC_CLIENT_SECRET` | Secrets Manager から |
-| `OIDC_REDIRECT_URL` | `https://fpanda.example.com/api/auth/oidc/callback` |
-| `OIDC_ALLOWED_DOMAINS` | `example.com`（複数ならカンマ区切り） |
-| `SLACK_WEBHOOK_URL` | Secrets Manager から（使わなければ設定しない） |
+## 3. リリース（自動）
 
-`OIDC_CLIENT_ID` を設定すると SSO が有効になり、パスワードでログインできるのは FP&A だけになる。
+`.github/workflows/deploy.yml`。main への push（PR のマージ）で、CI と同じテストが通った後に動く。手動でも実行できる。同時に2つは動かさない（後のものは前のものが終わるのを待つ）。
 
-## 3. リリース
+1. **イメージを作る**: `api`・`web`（`prod` ステージ）を `linux/arm64` で作り、タグをコミットのハッシュにして ECR に置く。ビルドは GitHub のランナー（x86）で行い、Go はクロス コンパイル、画面のビルド結果は CPU に依存しないので、Arm のエミュレーションは最後の段だけで済む。
+2. **デプロイを指示する**: SSM の Run Command で、EC2 の `deploy.sh <タグ>` を実行する。`compose.prod.yaml`・`Caddyfile`・`my.cnf`・スクリプトも、そのコミットのものに置き換える。
+3. **`deploy.sh` の中**:
+   1. ECR にログインし、新しいイメージを取得する
+   2. `migrate up` を実行する。失敗したら、入れ替えずに終わる（前のイメージのまま動き続ける）
+   3. `IMAGE_TAG` を書き換えて、`api`・`web` を入れ替える（`docker compose up -d`）
+   4. `/api/health` が 200 を返すまで最大 60 秒待つ。返らなければ前のタグに戻して、失敗として終わる
+   5. 古いイメージを消す（ディスクの節約）
+4. **結果**: ワークフローの画面に `deploy.sh` の出力が出る。失敗したら GitHub からメールが届く。
 
-1. イメージを作って ECR に置く（`<タグ>` はコミットのハッシュなど）。
+マイグレーションは追加だけで作る（CLAUDE.md）ので、前のイメージに戻しても DB はそのままで動く。
 
-   ```bash
-   docker build -t <アカウント>.dkr.ecr.ap-northeast-1.amazonaws.com/fpanda-api:<タグ> api
-   docker build --target prod -t <アカウント>.dkr.ecr.ap-northeast-1.amazonaws.com/fpanda-web:<タグ> web
-   docker push <アカウント>.dkr.ecr.ap-northeast-1.amazonaws.com/fpanda-api:<タグ>
-   docker push <アカウント>.dkr.ecr.ap-northeast-1.amazonaws.com/fpanda-web:<タグ>
-   ```
+### 手で戻すとき
 
-2. **マイグレーション**: 新しい `fpanda-api` のイメージで、コマンドを `migrate up` にした単発のタスクを実行し、正常に終わったことを CloudWatch Logs で確かめる。マイグレーションは追加のみで作っているので、適用後に古いタスクが動いていても壊れない。
-3. タスク定義の新しいリビジョンを作り（イメージのタグを差し替え）、サービスを更新する。ローリング更新で入れ替わる。
-4. アプリにログインし、ホーム・シナリオ・予実比較が開けることを確かめる。
-
-### 最初だけ: FP&A の管理者を作る
-
-`fpanda-api` のイメージで、コマンドを `createuser -email <メールアドレス> -name <氏名> -role fpa_admin` にした単発のタスクを実行する。パスワードは標準入力から読むので、ECS Exec でタスクに入って実行する。
-
-SSO が有効でも、FP&A はこのパスワードで「非常用のログイン」から入れる。ほかのユーザーは FP&A がアプリで登録する（パスワードは不要。会社の Google アカウントのメールアドレスで登録する）。
+Session Manager で入り、`/opt/fpanda/deploy.sh rollback`（直前のタグに戻す）か `/opt/fpanda/deploy.sh <タグ>` を実行する。
 
 ## 4. 監視
 
-CloudWatch のアラームを作り、通知先（メール・Slack）に送る。
-
-| 対象 | 条件の例 |
-| ---- | -------- |
-| ALB の 5xx（`HTTPCode_Target_5XX_Count`） | 5分間に10件以上 |
-| ALB のヘルスチェック（`UnHealthyHostCount`） | 1以上が5分続く |
-| RDS の CPU（`CPUUtilization`） | 80% 以上が15分続く |
-| RDS の空き容量（`FreeStorageSpace`） | 10GB 未満 |
-| RDS の接続数（`DatabaseConnections`） | タスク数 × 20 に近づいた |
-
-監査ログ（`audit_logs`）は消さない。四半期ごとにテーブルの大きさを確認する。
+- **EC2 のステータスチェック**: 失敗したら自動で復旧し（同じ IP・ディスクで起動し直す）、メールで知らせる（テンプレートで作る）。
+- **アプリのログ**: `docker compose -f compose.prod.yaml logs api`（Session Manager で入って見る）。ログは Docker の設定で 1 コンテナ 10MB × 3 ファイルまでにする。CloudWatch Logs には送らない（費用を抑えるため）。
+- **ディスク**: 四半期に1回、`df -h` と DB の大きさを確かめる。監査ログ（`audit_logs`）は消さない。
 
 ```sql
 SELECT table_name, ROUND((data_length + index_length) / 1024 / 1024) AS mb
 FROM information_schema.tables WHERE table_schema = 'fpanda' ORDER BY mb DESC LIMIT 10;
 ```
 
+- **費用**: 予算のアラート（「2. 最初の構築」）。
+
 ## 5. バックアップと復旧
 
-- RDS の自動バックアップ（保持期間 30日）で、毎日のスナップショットと、30日以内の任意の時点への復元ができる。
-- 大きな変更（年度の締め、組織変更など）の前には、手動のスナップショットを取っておくとよい（手動のスナップショットは期限なく残る）。
+- **EBS のスナップショット**: 毎日、7日分を残す（Data Lifecycle Manager）。ディスク全体（DB のデータとダンプを含む）を戻せる。
+- **DB のダンプ**: 毎日 3:00 に `mysqldump --single-transaction` を `/opt/fpanda/backup/` に取る（7日分）。スナップショットは動いている DB をそのまま写すので、ダンプも残しておくと確実に戻せる。
+- **大きな変更の前**（年度の締め・組織変更など）: EC2 のコンソールで、手動でスナップショットを取る（手動のものは消えない）。
 
 ### 復旧の手順
 
-1. RDS のコンソールで「特定時点への復元」（または スナップショットから復元）を選び、**新しい DB インスタンス**として復元する（元のインスタンスは調査のため残す）。
-2. 復元したインスタンスに、元と同じパラメータ グループ・セキュリティ グループを付ける。
-3. タスク定義の `DB_HOST` を新しいエンドポイントに変え、サービスを更新する。
-4. アプリにログインし、復元した時点のデータになっていることを確かめる。復元した時点より後の変更は失われるので、利用者に知らせ、変更履歴をもとに入力し直してもらう。
+- **データだけを戻す**（誤操作など）: Session Manager で入り、`/opt/fpanda/backup/` のダンプを `docker compose exec -T db mysql ...` で読み込む。戻した時点より後の変更は失われるので、変更履歴をもとに入力し直す。
+- **サーバーごと戻す**（壊れた・消した）: スナップショットからボリュームを作ってインスタンスに付け替える。または、スナップショットから作った AMI で起動し、Elastic IP を付け替える。
 
 ### 復旧の練習
 
-四半期に1回、本番のスナップショットを別のインスタンスに復元し、検証用のタスクから接続して開けることを確かめる。かかった時間を記録する。終わったら、復元したインスタンスを削除する。
+年に1回、スナップショットから別のインスタンスを起動し、ダンプを読み込んでアプリが開けることを確かめる。終わったら、そのインスタンスとボリュームを消す。
 
-## 6. 開発環境との違い
+## 6. SSO を使う場合
+
+既定では、パスワードでログインする（ユーザーは FP&A がアプリで登録し、パスワードを設定する）。Google Workspace の SSO を使う場合:
+
+1. Google Cloud のコンソールでプロジェクトを作り、「OAuth 同意画面」をユーザーの種類「内部」で設定する。
+2. 「認証情報」で OAuth クライアント ID（ウェブ アプリケーション）を作る。承認済みのリダイレクト URI は `https://fpanda.example.com/api/auth/oidc/callback`。
+3. `.env` に `OIDC_ISSUER=https://accounts.google.com`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`・`OIDC_ALLOWED_DOMAINS` を入れ、`/opt/fpanda/deploy.sh <今のタグ>` で入れ替える。
+
+SSO を有効にすると、パスワードでログインできるのは FP&A の非常用だけになる（architecture.md「認証」）。
+
+## 7. 構成を大きくするとき
+
+利用者が増え、止められない・データを失えない運用になったら、次の順で置き換える（アプリの変更は要らない）。
+
+1. DB を RDS for MySQL に移す（自動バックアップ・時点復元）。`.env` の接続先を変える
+2. ALB と ACM の証明書を置き、EC2 を2台以上にする（ECS Fargate に移す）
+3. 証明書は ACM に、ログは CloudWatch Logs に移す
+
+## 8. 開発環境との違い
 
 | 項目 | 開発環境（`make up`） | 本番環境 |
 | ---- | --------------------- | -------- |
 | 画面 | Vite の開発サーバー | ビルドした画面を nginx で配信（`web/nginx.prod.conf`） |
-| HTTPS | なし | ALB で終端。HSTS などのヘッダーを nginx で付ける |
-| ログイン | パスワード | Google の SSO（パスワードは FP&A の非常用だけ） |
-| DB | compose の MySQL（ボリューム） | RDS（自動バックアップ 30日） |
-| マイグレーション | compose の `migrate` サービス | ECS の単発のタスク |
+| HTTPS | なし | caddy で終端（Let's Encrypt）。HSTS などのヘッダーは nginx で付ける |
+| ログイン | パスワード | パスワード（SSO を設定すれば Google の SSO） |
+| DB | compose の MySQL（ボリューム） | compose の MySQL（EBS。小さいメモリ向けの設定）。毎日のスナップショットとダンプ |
+| マイグレーション | compose の `migrate` サービス | `deploy.sh` が入れ替えの前に実行 |
+| リリース | — | main へのマージで GitHub Actions が自動でデプロイ |
