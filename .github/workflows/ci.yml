@@ -112,6 +112,32 @@ jobs:
       - name: 単体テスト（node:test）
         run: npm test
 
+  deploy-files:
+    name: Deploy files (docs/deploy.md)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: スクリプトの構文
+        run: bash -n deploy/server/*.sh
+      - name: 本番の compose の設定
+        run: docker compose -f deploy/server/compose.prod.yaml config -q
+        env:
+          APP_DOMAIN: fpanda.example.com
+          ACME_EMAIL: ci@example.com
+          MYSQL_ROOT_PASSWORD: ci
+          MYSQL_PASSWORD: ci
+          ECR_REGISTRY: 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com
+          IMAGE_TAG: ci
+      # 本番のイメージを arm64 で作れること（push はしない）
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+      - name: api のイメージ（arm64）
+        run: docker buildx build --platform linux/arm64 api
+      - name: web のイメージ（arm64）
+        run: docker buildx build --platform linux/arm64 --target prod web
+
   e2e:
     name: E2E (Docker Compose + Playwright)
     runs-on: ubuntu-latest

@@ -1,0 +1,369 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  F-Panda の本番環境（docs/deploy.md）。EC2 1台に docker compose（caddy・web・api・MySQL）を載せる低コストの構成。
+  GitHub Actions は OIDC で入り、ECR にイメージを置いて SSM でデプロイを指示する。
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: アプリの URL のホスト名（例 fpanda.example.com）。Route 53 のホストゾーンの中の名前
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: DomainName を入れる Route 53 のホストゾーン
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    AllowedValues: [t4g.micro, t4g.small, t4g.medium]
+    Description: t4g.micro（1GB）で始め、遅ければ t4g.small（2GB）に変える
+  VolumeSize:
+    Type: Number
+    Default: 20
+    MinValue: 10
+    Description: ディスクの大きさ（GB）
+  AlertEmail:
+    Type: String
+    Description: サーバーの異常を知らせるメールアドレス（届いた確認メールのリンクを開いて有効にする）
+  GitHubRepository:
+    Type: String
+    Default: rnapyzz/f-panda-app
+    Description: デプロイを許す GitHub のリポジトリ（owner/name）。main ブランチからだけ使える
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: GitHub Actions の OIDC プロバイダーを作るか（アカウントにすでにあるなら false）
+
+Conditions:
+  CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # --- ネットワーク（パブリック サブネット 1つ。NAT ゲートウェイは使わない） ---
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: fpanda }]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: fpanda }]
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: fpanda-public }]
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: fpanda }]
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  SubnetRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  # 受けるのは HTTP・HTTPS だけ。SSH は開けない（操作は Session Manager）
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: fpanda web (80/443 only)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+      Tags: [{ Key: Name, Value: fpanda }]
+
+  # --- サーバー ---
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: read-deploy-bundle
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub ${BundleBucket.Arn}/*
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: GatewayAttachment
+    Properties:
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}"
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: [!Ref SecurityGroup]
+      MetadataOptions:
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref VolumeSize
+            Encrypted: true
+            DeleteOnTermination: false
+      Tags:
+        - { Key: Name, Value: fpanda }
+        - { Key: fpanda-backup, Value: daily }
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # 初回の起動時の準備（docs/deploy.md）: Docker と docker compose、スワップ、バックアップのタイマー
+          set -euxo pipefail
+          dnf install -y docker
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+            https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-aarch64
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker
+
+          if [ ! -f /swapfile ]; then
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+          swapon -a
+          echo 'vm.swappiness=10' > /etc/sysctl.d/90-fpanda.conf
+          sysctl --system
+
+          mkdir -p /opt/fpanda
+          chmod 700 /opt/fpanda
+          cat > /etc/systemd/system/fpanda-backup.service <<'EOF'
+          [Unit]
+          Description=F-Panda の DB のダンプ
+          [Service]
+          Type=oneshot
+          ExecStart=/opt/fpanda/backup.sh
+          EOF
+          cat > /etc/systemd/system/fpanda-backup.timer <<'EOF'
+          [Unit]
+          Description=F-Panda の DB のダンプ（毎日 3:00 JST）
+          [Timer]
+          OnCalendar=*-*-* 18:00:00 UTC
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          EOF
+          systemctl daemon-reload
+          systemctl enable --now fpanda-backup.timer
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+      Tags: [{ Key: Name, Value: fpanda }]
+
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: "300"
+      ResourceRecords: [!Ref ElasticIp]
+
+  # --- イメージ置き場（新しい 10 個だけを残す） ---
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: fpanda-api
+      ImageScanningConfiguration: { ScanOnPush: true }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep 10","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}'
+  WebRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: fpanda-web
+      ImageScanningConfiguration: { ScanOnPush: true }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep 10","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}'
+
+  # デプロイのたびに GitHub Actions が置く、サーバーのファイル（deploy/server/）のまとめ。30日で消す
+  BundleBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules: [{ Id: expire, Status: Enabled, ExpirationInDays: 30 }]
+
+  # --- バックアップ: 毎日 4:00 JST にディスクのスナップショット（7日分） ---
+  SnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: dlm.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole
+  SnapshotPolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: fpanda daily snapshots (7 days)
+      State: ENABLED
+      ExecutionRoleArn: !GetAtt SnapshotRole.Arn
+      PolicyDetails:
+        ResourceTypes: [INSTANCE]
+        TargetTags: [{ Key: fpanda-backup, Value: daily }]
+        Schedules:
+          - Name: daily
+            CopyTags: true
+            CreateRule: { Interval: 24, IntervalUnit: HOURS, Times: ["19:00"] }
+            RetainRule: { Count: 7 }
+
+  # --- 異常の知らせと自動復旧 ---
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription: [{ Protocol: email, Endpoint: !Ref AlertEmail }]
+  SystemCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: fpanda のサーバー（ハードウェア側）の異常。自動で復旧する
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Sub arn:aws:automate:${AWS::Region}:ec2:recover
+        - !Ref AlertTopic
+  InstanceCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: fpanda のサーバー（OS 側）の異常。自動で再起動する
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Sub arn:aws:automate:${AWS::Region}:ec2:reboot
+        - !Ref AlertTopic
+
+  # --- GitHub Actions のデプロイ（OIDC。AWS の鍵を GitHub に置かない） ---
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Deploy fpanda from GitHub Actions (main branch)
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidc
+                - !Ref GitHubOidcProvider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/heads/main
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: [!GetAtt ApiRepository.Arn, !GetAtt WebRepository.Arn]
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub ${BundleBucket.Arn}/*
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}
+                  - !Sub arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Effect: Allow
+                Action: ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
+                Resource: "*"
+
+Outputs:
+  AppUrl:
+    Value: !Sub https://${DomainName}
+  PublicIp:
+    Value: !Ref ElasticIp
+  InstanceId:
+    Description: GitHub の Variables の AWS_INSTANCE_ID
+    Value: !Ref Instance
+  DeployRoleArn:
+    Description: GitHub の Variables の AWS_DEPLOY_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn
+  DeployBucket:
+    Description: GitHub の Variables の DEPLOY_BUCKET
+    Value: !Ref BundleBucket
+  EcrRegistry:
+    Description: GitHub の Variables の ECR_REGISTRY
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com

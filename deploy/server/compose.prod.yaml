@@ -1,0 +1,99 @@
+# 本番環境（docs/deploy.md）。EC2 の /opt/fpanda/ に置き、deploy.sh から使う。
+# 秘密情報と設定は同じディレクトリの .env（権限 600）から読む。イメージは ECR の ${ECR_REGISTRY}/fpanda-{api,web}:${IMAGE_TAG}。
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-db-env: &db-env
+  DB_HOST: db
+  DB_PORT: "3306"
+  DB_USER: fpanda
+  DB_PASSWORD: ${MYSQL_PASSWORD:?.env に MYSQL_PASSWORD を入れてください}
+  DB_NAME: fpanda
+  TZ: Asia/Tokyo
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?.env に APP_DOMAIN を入れてください}
+      ACME_EMAIL: ${ACME_EMAIL:?.env に ACME_EMAIL を入れてください}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    logging: *logging
+
+  web:
+    image: ${ECR_REGISTRY:?}/fpanda-web:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      - api
+    logging: *logging
+
+  api:
+    image: ${ECR_REGISTRY:?}/fpanda-api:${IMAGE_TAG:?}
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      HTTP_ADDR: ":8080"
+      COOKIE_SECURE: "true"
+      TRUST_PROXY: "true"
+      APP_BASE_URL: https://${APP_DOMAIN}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
+      OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  # deploy.sh が入れ替えの前に `docker compose run --rm migrate` で実行する（常駐しない）
+  migrate:
+    image: ${ECR_REGISTRY:?}/fpanda-api:${IMAGE_TAG:?}
+    command: ["migrate", "up"]
+    environment:
+      <<: *db-env
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["tools"]
+    logging: *logging
+
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?.env に MYSQL_ROOT_PASSWORD を入れてください}
+      MYSQL_DATABASE: fpanda
+      MYSQL_USER: fpanda
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+      TZ: Asia/Tokyo
+    volumes:
+      - ./my.cnf:/etc/mysql/conf.d/fpanda.cnf:ro
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    logging: *logging
+
+volumes:
+  caddy-data:
+  caddy-config:
+  db-data:
