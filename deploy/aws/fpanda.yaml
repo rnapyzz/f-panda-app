@@ -243,7 +243,7 @@ Resources:
   SnapshotPolicy:
     Type: AWS::DLM::LifecyclePolicy
     Properties:
-      Description: fpanda daily snapshots (7 days)
+      Description: fpanda daily snapshots 7 days
       State: ENABLED
       ExecutionRoleArn: !GetAtt SnapshotRole.Arn
       PolicyDetails:
