@@ -7,6 +7,7 @@ import {
   driverKindLabels,
   milestoneStatusLabels,
   outlookLabels,
+  recognitionLabels,
   type ActivityDetail,
   type ConfidenceLevel,
   type Driver,
@@ -314,6 +315,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
             >
               <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
                 <Info label="タイプ">{activityTypeLabels[a.activity_type]}</Info>
+                {a.activity_type === 'project' && <Info label="計上の仕方">{recognitionLabels[a.recognition]}</Info>}
                 <Info label="ユニット">{unitById.get(a.unit_id)?.name}</Info>
                 <Info label="担当者">{a.owner_user_id ? userName.get(a.owner_user_id) : '未設定'}</Info>
                 <Info label="期間">{a.start_date || a.end_date ? `${a.start_date ?? ''} 〜 ${a.end_date ?? ''}` : '—'}</Info>

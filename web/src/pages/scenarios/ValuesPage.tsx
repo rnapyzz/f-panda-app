@@ -18,6 +18,7 @@ import { RestrictedNote } from '../../components/RestrictedNote'
 import { Help } from '../../components/Help'
 import { ComparisonCard } from './ComparisonCard'
 import { NoteCard } from './NoteCard'
+import { RecognitionCard } from './RecognitionCard'
 
 /** 1セルの入力内容。value が '' なら削除 */
 type CellEdit = { value: string; is_provisional: boolean; provisional_reason: string }
@@ -27,7 +28,7 @@ type CellKey = `d:${number}:${string}` | `a:${number}:${number}:${string}`
 
 type ServerCell = CellEdit & { source?: string }
 
-const sourceLabels: Record<string, string> = { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' }
+const sourceLabels: Record<string, string> = { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績', wip: '仕掛品振替（自動）' }
 
 // 桁区切りを除き、▲・△・全角などの表記を半角の数値にそろえる（貼り付けと同じ）
 const normalize = cleanNumber
@@ -273,7 +274,7 @@ function ValuesEditor({
         return { subject_id: id, code: s.code, name: s.name, category: s.category, values: [], lines: [] }
       }),
   ].sort((a, b) => (a.category === b.category ? 0 : a.category === 'revenue' ? -1 : 1))
-  const addableSubjects = inputSubjects(subjects, me.role).filter((s) => !amountRows.some((r) => r.subject_id === s.id))
+  const addableSubjects = inputSubjects(subjects, me.role).filter((s) => !amountRows.some((r) => r.subject_id === s.id) && s.id !== v.wip?.transfer_subject_id)
   const hasFormulaLines = amountRows.some((r) => r.lines.some((l) => l.formula_enabled))
 
   /** 科目の月の金額（内訳と科目への直接入力の合計） */
@@ -292,8 +293,11 @@ function ValuesEditor({
   const subjectTotal = (r: AmountRow, months = v.months) => months.reduce((sum, m) => sum + subjectMonth(r, m), 0n)
 
   // スプレッドシートの行。内訳のない科目は直接入力の1行、内訳のある科目は内訳の行と「その他」の行
+  // 検収月に一括の施策の仕掛品振替は、計上月から自動で計算するので入力できない（docs/plan.md「2.28」）
+  const wipSubject = v.wip?.transfer_subject_id ?? null
   const sheetLines: SheetLine[] = amountRows.flatMap((r): SheetLine[] => {
     const sub = `${r.code} ${categoryLabels[r.category]}`
+    if (r.subject_id === wipSubject) return [{ row: r, lineId: 0, label: r.name, title: r.name, sub: '計上月から自動で計算（保存すると計算し直します）', editable: false, indent: false }]
     if (r.lines.length === 0) return [{ row: r, lineId: 0, label: r.name, title: r.name, sub, editable: true, indent: false }]
     return [
       ...r.lines.map((l) => ({
@@ -510,6 +514,7 @@ function ValuesEditor({
         </details>
       )}
 
+      <RecognitionCard path={path} v={v} editable={editable} dirty={dirty} currentYearMonth={currentYearView.data?.wip?.recognition_month} onSaved={setData} />
       <Card
         title="ドライバー・KPI"
         className="mb-4"
@@ -808,7 +813,7 @@ function describeCell(k: CellKey, v: ValuesView, amountRows: AmountRow[]) {
   }
   const row = amountRows.find((r) => r.subject_id === Number(parts[1]))
   const lineId = Number(parts[2])
-  if (!row || lineId === 0) return { label: row ? (row.lines.length > 0 ? `${row.name} その他` : row.name) : '', month, editable: true }
+  if (!row || lineId === 0) return { label: row ? (row.lines.length > 0 ? `${row.name} その他` : row.name) : '', month, editable: row?.subject_id !== v.wip?.transfer_subject_id }
   const line = row.lines.find((l) => l.id === lineId)
   return { label: `${row.name} ${line?.name ?? ''}`, month, editable: !line?.formula_enabled }
 }

@@ -281,7 +281,7 @@ func (h *Handler) startFiscalYear(w http.ResponseWriter, r *http.Request) error 
 
 // seedFromCurrent は、今回の見込から新しい年度の版に金額を入れ、計算式を計算し直す（docs/plan.md「2.16」「2.26」）。
 //
-//  1. 今回の見込に入れてある翌年度の月の金額・ドライバー値を、施策の種類にかかわらずそのまま入れる
+//  1. 今回の見込に入れてある翌年度の月の金額・ドライバー値と、翌年度以降の計上月（docs/plan.md「2.28」）を、施策の種類にかかわらずそのまま入れる
 //  2. 翌年度の月に金額もドライバー値もない、翌年度も続く施策（運用型・コストプール型で、完了・中止でなく、
 //     終了日が翌年度の初日以降か未設定）は、今回の見込の最後の月（3月）の金額とドライバー値を12か月に入れる。3月が実績の月なら実績の金額
 //
@@ -304,6 +304,14 @@ func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from,
 		INSERT INTO driver_values (scenario_id, activity_driver_id, target_month, value, is_provisional, provisional_reason)
 		SELECT ?, activity_driver_id, target_month, value, is_provisional, provisional_reason
 		FROM driver_values WHERE scenario_id = ? AND target_month BETWEEN ? AND ?`, to.ID, from.ID, start, end)
+	if err != nil {
+		return err
+	}
+
+	// 検収月に一括の施策の計上月（docs/plan.md「2.28」）。新しい年度以降の計上月だけを写す
+	resRecognitions, err := tx.ExecContext(ctx, `
+		INSERT INTO activity_recognitions (scenario_id, activity_id, recognition_month)
+		SELECT ?, activity_id, recognition_month FROM activity_recognitions WHERE scenario_id = ? AND recognition_month >= ?`, to.ID, from.ID, start)
 	if err != nil {
 		return err
 	}
@@ -356,6 +364,7 @@ func seedFromCurrent(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, from,
 	}{to, from.ID, map[string]int64{
 		"budget_facts_beyond": count(resBeyond), "driver_values_beyond": count(resBeyondDrivers),
 		"budget_facts": count(resAmounts), "driver_values": count(resDrivers),
+		"activity_recognitions": count(resRecognitions),
 	}})
 }
 

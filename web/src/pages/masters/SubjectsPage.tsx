@@ -75,6 +75,16 @@ export function SubjectsPage() {
                         <Badge tone="red">閲覧制限</Badge>
                       </span>
                     )}
+                    {s.is_project_cost && (
+                      <span className="ml-2">
+                        <Badge tone="indigo">原価</Badge>
+                      </span>
+                    )}
+                    {s.role === 'wip_transfer' && (
+                      <span className="ml-2">
+                        <Badge tone="indigo">仕掛品振替</Badge>
+                      </span>
+                    )}
                   </td>
                   <td>
                     <Badge tone={s.category === 'revenue' ? 'green' : 'amber'}>{categoryLabels[s.category]}</Badge>
@@ -124,6 +134,8 @@ export function SubjectsPage() {
   )
 }
 
+type WipUse = 'normal' | 'cost' | 'wip_transfer'
+
 function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subject | null; subjects: Subject[]; onClose: () => void; onSaved: () => void }) {
   const [code, setCode] = useState(initial?.code ?? '')
   const [name, setName] = useState(initial?.name ?? '')
@@ -131,6 +143,9 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
   const [parentId, setParentId] = useState(initial?.parent_id ? String(initial.parent_id) : '')
   const [sortOrder, setSortOrder] = useState(String(initial?.sort_order ?? 0))
   const [restricted, setRestricted] = useState(initial?.is_restricted ?? false)
+  // 仕掛の扱い（docs/plan.md「2.28」）: 通常・原価の科目・仕掛品振替の科目
+  const [wipUse, setWipUse] = useState<WipUse>(initial?.role === 'wip_transfer' ? 'wip_transfer' : initial?.is_project_cost ? 'cost' : 'normal')
+  const wipHolder = subjects.find((s) => s.role === 'wip_transfer' && s.id !== initial?.id)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -139,7 +154,18 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const body = { code, name, category, parent_id: parentId ? Number(parentId) : null, sort_order: Number(sortOrder) || 0, is_restricted: restricted, reason }
+    const use = category === 'expense' ? wipUse : 'normal'
+    const body = {
+      code,
+      name,
+      category,
+      parent_id: parentId ? Number(parentId) : null,
+      sort_order: Number(sortOrder) || 0,
+      is_restricted: restricted,
+      is_project_cost: use === 'cost',
+      role: use === 'wip_transfer' ? 'wip_transfer' : 'normal',
+      reason,
+    }
     try {
       if (initial) await api.put(`/subjects/${initial.id}`, body)
       else await api.post('/subjects', body)
@@ -213,10 +239,27 @@ function SubjectDialog({ initial, subjects, onClose, onSaved }: { initial: Subje
             <span className="block text-xs text-slate-500">人件費など、金額から個人の情報が推測できる科目に使います。現場マネージャー・現場担当には、金額を合計からも除いて表示し、入力もできなくします。</span>
           </span>
         </label>
+        {category === 'expense' && (
+          <Field
+            label="プロジェクトの原価と仕掛"
+            error={fieldError(error, 'role') ?? fieldError(error, 'is_project_cost')}
+            hint="「検収月に一括」の施策で使います。原価の科目は計上月まで仕掛品に積み、仕掛品振替の科目の金額はアプリが計算します"
+          >
+            {(p) => (
+              <Select {...p} value={wipUse} onChange={(e) => setWipUse(e.target.value as WipUse)}>
+                <option value="normal">使わない</option>
+                <option value="cost">原価の科目（仕掛品に積む）</option>
+                <option value="wip_transfer" disabled={!!wipHolder}>
+                  仕掛品振替の科目{wipHolder ? `（「${wipHolder.name}」に指定済み）` : ''}
+                </option>
+              </Select>
+            )}
+          </Field>
+        )}
         <Field label="変更理由（任意）" error={fieldError(error, 'reason')}>
           {(p) => <Textarea {...p} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-12" />}
         </Field>
-        <FormError error={error} fields={['code', 'name', 'category', 'parent_id', 'sort_order', 'is_restricted', 'reason']} />
+        <FormError error={error} fields={['code', 'name', 'category', 'parent_id', 'sort_order', 'is_restricted', 'is_project_cost', 'role', 'reason']} />
       </form>
     </Dialog>
   )

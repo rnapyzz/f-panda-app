@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/rnapyzz/f-panda-app/api/internal/audit"
+	"github.com/rnapyzz/f-panda-app/api/internal/calc"
 	"github.com/rnapyzz/f-panda-app/api/internal/dbx"
 	"github.com/rnapyzz/f-panda-app/api/internal/httpx"
 )
@@ -21,6 +23,9 @@ type subject struct {
 	SortOrder int    `json:"sort_order"`
 	// IsRestricted は閲覧制限（docs/plan.md「2.17」）。金額は FP&A と経営陣だけが見られる
 	IsRestricted bool `json:"is_restricted"`
+	// IsProjectCost は原価の科目、Role は科目の役割（wip_transfer は仕掛品振替の科目。docs/plan.md「2.28」）
+	IsProjectCost bool   `json:"is_project_cost"`
+	Role          string `json:"role"`
 	timestamps
 }
 
@@ -31,15 +36,18 @@ type subjectRequest struct {
 	Category     string `json:"category"`
 	SortOrder    int    `json:"sort_order"`
 	IsRestricted bool   `json:"is_restricted"`
+	// IsProjectCost・Role は省略すると、作成では false・normal、更新では今のまま
+	IsProjectCost *bool   `json:"is_project_cost"`
+	Role          *string `json:"role"`
 	reasonRequest
 }
 
-const subjectSelect = "SELECT id, parent_id, code, name, category, sort_order, is_restricted, created_at, updated_at FROM subjects"
+const subjectSelect = "SELECT id, parent_id, code, name, category, sort_order, is_restricted, is_project_cost, role, created_at, updated_at FROM subjects"
 
 func scanSubject(row interface{ Scan(...any) error }) (subject, error) {
 	var s subject
 	var parent sql.NullInt64
-	err := row.Scan(&s.ID, &parent, &s.Code, &s.Name, &s.Category, &s.SortOrder, &s.IsRestricted, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &parent, &s.Code, &s.Name, &s.Category, &s.SortOrder, &s.IsRestricted, &s.IsProjectCost, &s.Role, &s.CreatedAt, &s.UpdatedAt)
 	s.ParentID = dbx.PtrInt64(parent)
 	return s, err
 }
@@ -106,12 +114,16 @@ func (h *Handler) createSubject(w http.ResponseWriter, r *http.Request) error {
 		if err := checkSubjectParent(ctx, tx, 0, req); err != nil {
 			return err
 		}
+		cost, role := wipFlags(req, subject{Role: "normal"})
+		if err := validateWipFlags(req.Category, cost, role); err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO subjects (parent_id, code, name, category, sort_order, is_restricted) VALUES (?, ?, ?, ?, ?, ?)",
-			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted,
+			"INSERT INTO subjects (parent_id, code, name, category, sort_order, is_restricted, is_project_cost, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted, cost, role,
 		)
-		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
-			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
+		if err := subjectDuplicate(err); err != nil {
+			return err
 		}
 		if err != nil {
 			return err
@@ -166,20 +178,28 @@ func (h *Handler) updateSubject(w http.ResponseWriter, r *http.Request) error {
 				return httpx.Validation(map[string]string{"category": "子科目がある科目の区分は変更できません"})
 			}
 		}
-		_, err = tx.ExecContext(ctx,
-			"UPDATE subjects SET parent_id = ?, code = ?, name = ?, category = ?, sort_order = ?, is_restricted = ? WHERE id = ?",
-			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted, id,
-		)
-		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
-			return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
+		cost, role := wipFlags(req, before)
+		if err := validateWipFlags(req.Category, cost, role); err != nil {
+			return err
 		}
-		if err != nil {
+		_, err = tx.ExecContext(ctx,
+			"UPDATE subjects SET parent_id = ?, code = ?, name = ?, category = ?, sort_order = ?, is_restricted = ?, is_project_cost = ?, role = ? WHERE id = ?",
+			dbx.NullInt64(req.ParentID), code, name, req.Category, req.SortOrder, req.IsRestricted, cost, role, id,
+		)
+		if err := subjectDuplicate(err); err != nil {
 			return err
 		}
 		if updated, err = findSubject(ctx, tx, id, ""); err != nil {
 			return err
 		}
-		return rec.Update(ctx, "subjects", id, before, updated)
+		if err := rec.Update(ctx, "subjects", id, before, updated); err != nil {
+			return err
+		}
+		if before.IsProjectCost != updated.IsProjectCost || before.Role != updated.Role {
+			// 原価の科目・仕掛品振替の科目を変えたら、検収月に一括の施策の振替を計算し直す（docs/plan.md「2.28」）
+			return calc.RecalculateWipAll(ctx, tx, rec)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -222,6 +242,46 @@ func (h *Handler) deleteSubject(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// wipFlags は、原価の科目・役割の入力（省略なら before のまま）を返す。
+func wipFlags(req subjectRequest, before subject) (cost bool, role string) {
+	cost, role = before.IsProjectCost, before.Role
+	if req.IsProjectCost != nil {
+		cost = *req.IsProjectCost
+	}
+	if req.Role != nil {
+		role = *req.Role
+	}
+	return cost, role
+}
+
+// validateWipFlags は原価の科目・仕掛品振替の科目の設定を検証する。どちらも費用の科目だけで、両方にはできない。
+func validateWipFlags(category string, cost bool, role string) error {
+	v := httpx.Validator{}
+	switch {
+	case role != "normal" && role != "wip_transfer":
+		v.Add("role", "科目の役割は normal か wip_transfer（仕掛品振替）を指定してください")
+	case role == "wip_transfer" && category != "expense":
+		v.Add("role", "仕掛品振替の科目は費用の科目にしてください")
+	case role == "wip_transfer" && cost:
+		v.Add("is_project_cost", "仕掛品振替の科目は原価の科目にできません")
+	}
+	if cost && category != "expense" {
+		v.Add("is_project_cost", "原価の科目は費用の科目にしてください")
+	}
+	return v.Err()
+}
+
+// subjectDuplicate は一意制約の違反を、どの項目かが分かる入力エラーにする。
+func subjectDuplicate(err error) error {
+	if dbx.ErrNo(err) != dbx.ErrDuplicateEntry {
+		return err
+	}
+	if strings.Contains(err.Error(), "uq_subjects_wip_transfer") {
+		return httpx.Validation(map[string]string{"role": "仕掛品振替の科目はすでにほかの科目に指定されています（1つだけ指定できます）"})
+	}
+	return httpx.Validation(map[string]string{"code": "この科目コードは既に使われています"})
 }
 
 func validateSubjectRequest(req *subjectRequest) (code, name string, err error) {

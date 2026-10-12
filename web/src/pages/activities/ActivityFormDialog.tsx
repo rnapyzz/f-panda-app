@@ -3,11 +3,13 @@ import { api } from '../../api/client'
 import {
   activityStatusLabels,
   activityTypeLabels,
+  recognitionLabels,
   type Activity,
   type ActivityStatus,
   type ActivityType,
   type ConfidenceLevel,
   type List,
+  type Recognition,
   type Unit,
   type User,
 } from '../../api/types'
@@ -15,7 +17,7 @@ import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError }
 import { ratePercent } from '../../lib/confidence'
 import { useApi } from '../../lib/useApi'
 
-const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'confidence_level', 'assumptions', 'copy_from_activity_id']
+const fields = ['unit_id', 'code', 'name', 'activity_type', 'status', 'start_date', 'end_date', 'owner_user_id', 'confidence_level', 'assumptions', 'recognition', 'copy_from_activity_id']
 
 /** 確度の段階を選ばなかったときの既定（サーバーと同じ: プロジェクト型は C、それ以外は A） */
 function defaultLevel(type: ActivityType): string {
@@ -53,6 +55,8 @@ export function ActivityFormDialog({
   const level = pickedLevel || defaultLevel(activityType)
   const selectedLevel = levels.data?.items.find((l) => l.code === level)
   const [assumptions, setAssumptions] = useState(initial?.assumptions ?? '')
+  // 計上の仕方（プロジェクト型だけ。docs/plan.md「2.28」）
+  const [recognition, setRecognition] = useState<Recognition>(initial?.recognition ?? 'as_incurred')
   // 既存の施策をコピーして作る（作成のときだけ。docs/plan.md「2.27」）
   const sources = useApi<List<Activity>>(initial ? null : '/activities')
   const [copyFrom, setCopyFrom] = useState('')
@@ -65,6 +69,7 @@ export function ActivityFormDialog({
     setActivityType(src.activity_type)
     setPickedLevel(src.confidence_level)
     setAssumptions(src.assumptions)
+    setRecognition(src.recognition)
     setName(`${src.name}（コピー）`)
   }
   const [error, setError] = useState<unknown>(null)
@@ -86,6 +91,7 @@ export function ActivityFormDialog({
         owner_user_id: ownerId ? Number(ownerId) : null,
         confidence_level: level,
         assumptions,
+        recognition: activityType === 'project' ? recognition : 'as_incurred',
         ...(copyFrom ? { copy_from_activity_id: Number(copyFrom) } : {}),
       })
     } catch (err) {
@@ -215,6 +221,29 @@ export function ActivityFormDialog({
             </Select>
           )}
         </Field>
+        {activityType === 'project' && (
+          <Field
+            label="計上の仕方"
+            required
+            error={fieldError(error, 'recognition')}
+            hint={
+              recognition === 'on_delivery'
+                ? '原価は発生した月に入れ、計上月（検収月）までは仕掛品に積みます。計上月は数値入力の画面で見込ごとに入れます'
+                : '売上・費用を発生した月の P/L に計上します'
+            }
+            className="col-span-2"
+          >
+            {(p) => (
+              <Select {...p} value={recognition} onChange={(e) => setRecognition(e.target.value as Recognition)}>
+                {Object.entries(recognitionLabels).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        )}
         <Field label="前提条件" error={fieldError(error, 'assumptions')} className="col-span-2">
           {(p) => <Textarea {...p} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} placeholder="例: A社の年間契約更新が前提。単価は2026年度の改定後価格" />}
         </Field>

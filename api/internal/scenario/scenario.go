@@ -76,6 +76,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/scenarios/{id}/activities/{aid}", read(h.getValues))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/driver-values", read(h.putDriverValues))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/amounts", read(h.putAmounts))
+	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/recognition", read(h.putRecognition))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/condition", read(h.putCondition))
 	mux.Handle("GET /api/scenarios/{id}/activities/{aid}/note", read(h.getNote))
 	mux.Handle("PUT /api/scenarios/{id}/activities/{aid}/note", read(h.putNote))
@@ -408,6 +409,7 @@ func insertScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, in sce
 		for _, c := range []struct{ table, columns string }{
 			{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
 			{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
+			{"activity_recognitions", "activity_id, recognition_month"},
 		} {
 			res, err := tx.ExecContext(ctx,
 				"INSERT INTO "+c.table+" (scenario_id, "+c.columns+") SELECT ?, "+c.columns+" FROM "+c.table+" WHERE scenario_id = ?",

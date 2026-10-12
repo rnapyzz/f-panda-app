@@ -294,7 +294,7 @@ type planImportActivity struct {
 }
 
 type planImportWarning struct {
-	// Kind は actual_month（実績の月の値）か formula_line（計算式で反映する内訳の値）
+	// Kind は actual_month（実績の月の値）、formula_line（計算式で反映する内訳の値）、wip_transfer（検収月に一括の施策の仕掛品振替の値）
 	Kind  string `json:"kind"`
 	Count int    `json:"count"`
 }
@@ -417,7 +417,7 @@ func (h *Handler) importPlanValues(w http.ResponseWriter, r *http.Request) error
 		if err := p.errs.Err(); err != nil {
 			return err
 		}
-		for _, k := range []string{"actual_month", "formula_line"} {
+		for _, k := range []string{"actual_month", "formula_line", "wip_transfer"} {
 			if n := p.warnings[k]; n > 0 {
 				result.Warnings = append(result.Warnings, planImportWarning{Kind: k, Count: n})
 			}
@@ -542,7 +542,7 @@ func changedCell(cur string, has bool, value *string) bool {
 }
 
 // collect は行の変更を集める。変わらないセルは「変更なし」、実績の月や計算式の内訳は取り込まずに注意として数える。
-func (p *planImport) collect(row csvio.Row, a activity.Summary, cells map[string]*string, current func(month string) (string, bool), formula bool, op func(month string, value *string) cellOp) {
+func (p *planImport) collect(row csvio.Row, a activity.Summary, cells map[string]*string, current func(month string) (string, bool), skip string, op func(month string, value *string) cellOp) {
 	actual := p.s.ActualMonths()
 	var ops []cellOp
 	for _, m := range p.months {
@@ -556,8 +556,8 @@ func (p *planImport) collect(row csvio.Row, a activity.Summary, cells map[string
 			p.result.Unchanged++
 		case slices.Contains(actual, m):
 			p.warnings["actual_month"]++
-		case formula:
-			p.warnings["formula_line"]++
+		case skip != "":
+			p.warnings[skip]++
 		default:
 			ops = append(ops, op(m, value))
 		}
@@ -599,6 +599,10 @@ func (p *planImport) planAmounts(rows []csvio.Row) error {
 		for code := range ids {
 			restricted[code] = true
 		}
+	}
+	wip, err := calc.LoadWipSettings(p.ctx, p.tx)
+	if err != nil {
+		return err
 	}
 	type lineInfo struct {
 		id      int64
@@ -689,12 +693,20 @@ func (p *planImport) planAmounts(rows []csvio.Row) error {
 			id := line.id
 			lineID = &id
 		}
+		// 計算式の内訳と、検収月に一括の施策の仕掛品振替（docs/plan.md「2.28」）は取り込まない
+		skipKind := ""
+		switch {
+		case line.formula:
+			skipKind = "formula_line"
+		case line.id == 0 && a.Recognition == "on_delivery" && wip.TransferSubjectID != 0 && subjectID == wip.TransferSubjectID:
+			skipKind = "wip_transfer"
+		}
 		p.collect(row, a, cells,
 			func(m string) (string, bool) {
 				v, has := current[amountKey{a.ID, subjectID, line.id, m}]
 				return v, has
 			},
-			line.formula,
+			skipKind,
 			func(m string, value *string) cellOp {
 				return cellOp{subjectID: subjectID, lineID: lineID, month: m, value: value}
 			})
@@ -746,7 +758,8 @@ func (p *planImport) applyAmounts(rec *audit.Recorder, activityID int64) error {
 		}
 		p.result.Inserted++
 	}
-	return nil
+	// 原価の金額が変わったら仕掛品振替を計算し直す（docs/plan.md「2.28」）
+	return calc.RecalculateWip(p.ctx, p.tx, rec, p.s.ID, activityID)
 }
 
 // --- ドライバー値 ---
@@ -828,7 +841,7 @@ func (p *planImport) planDriverValues(rows []csvio.Row) error {
 				v, has := current[valueKey{driverID, m}]
 				return v, has
 			},
-			false,
+			"",
 			func(m string, value *string) cellOp {
 				return cellOp{driverID: driverID, month: m, value: value}
 			})

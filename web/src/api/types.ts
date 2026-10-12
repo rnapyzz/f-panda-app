@@ -55,6 +55,20 @@ export type Subject = Timestamps & {
   sort_order: number
   /** 閲覧制限（金額は FP&A と経営陣だけが見られる。docs/plan.md「2.17」） */
   is_restricted: boolean
+  /** 原価の科目（検収月に一括の施策で仕掛品に積む。docs/plan.md「2.28」） */
+  is_project_cost: boolean
+  /** 科目の役割。wip_transfer は仕掛品振替の科目（全体で1つ） */
+  role: SubjectRole
+}
+
+export type SubjectRole = 'normal' | 'wip_transfer'
+
+/** 計上の仕方（docs/plan.md「2.28」） */
+export type Recognition = 'as_incurred' | 'on_delivery'
+
+export const recognitionLabels: Record<Recognition, string> = {
+  as_incurred: '発生した月に計上',
+  on_delivery: '検収月に一括',
 }
 
 export type User = Timestamps & {
@@ -101,6 +115,8 @@ export type Activity = Timestamps & {
   assumptions: string
   /** 重点施策（共有の印） */
   is_priority: boolean
+  /** 計上の仕方（docs/plan.md「2.28」） */
+  recognition: Recognition
   can_edit: boolean
   /** 施策の作成・削除・重点施策の設定ができるか */
   can_manage: boolean
@@ -261,7 +277,7 @@ export type DriverRow = {
 export type AmountCell = {
   target_month: string
   amount: number | string
-  source: 'manual' | 'formula' | 'import' | 'actual'
+  source: 'manual' | 'formula' | 'import' | 'actual' | 'wip'
   is_provisional: boolean
   provisional_reason: string
 }
@@ -292,7 +308,20 @@ export type ActivitySummary = {
   code: string
   name: string
   confidence_level: string
+  activity_type: ActivityType
+  recognition: Recognition
   can_edit: boolean
+}
+
+/** 検収月に一括の施策の仕掛の情報（docs/plan.md「2.28」） */
+export type WipInfo = {
+  /** 仕掛品振替の科目（未指定なら null） */
+  transfer_subject_id: number | null
+  cost_subject_ids: number[]
+  /** 計上月（YYYY-MM、未設定は null） */
+  recognition_month: string | null
+  /** 年度の最初の月の前月末の仕掛残高 */
+  opening: number | string
 }
 
 /** 差異の要因の分類 */
@@ -344,6 +373,8 @@ export type ValuesView = {
   note: ActivityNote
   /** 閲覧制限のある科目を除いた金額か（docs/plan.md「2.17」） */
   restricted_hidden: boolean
+  /** 検収月に一括の施策の仕掛の情報。それ以外の施策は null */
+  wip: WipInfo | null
 }
 
 export type ImportResult = {

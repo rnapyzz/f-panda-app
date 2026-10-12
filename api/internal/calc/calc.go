@@ -87,10 +87,14 @@ func PlanMonths(fiscalYear int, actualThrough string) []string {
 	return slices.DeleteFunc(months, func(m string) bool { return m <= actualThrough })
 }
 
-// RecalculateScenario は、シナリオの計算式で反映する内訳を持つすべての施策の金額を再計算する。
+// RecalculateScenario は、シナリオの計算式で反映する内訳を持つすべての施策と、検収月に一括の施策の金額を再計算する。
 // 決算確定月を変更したときに呼ぶ。
 func RecalculateScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID int64) error {
-	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT activity_id FROM activity_lines WHERE formula_enabled ORDER BY activity_id")
+	rows, err := tx.QueryContext(ctx, `
+		SELECT activity_id FROM activity_lines WHERE formula_enabled
+		UNION SELECT id FROM activities WHERE recognition = 'on_delivery'
+		UNION SELECT activity_id FROM budget_facts WHERE scenario_id = ? AND source = 'wip'
+		ORDER BY 1`, scenarioID)
 	if err != nil {
 		return err
 	}
@@ -150,7 +154,16 @@ type driverValue struct {
 }
 
 // Recalculate はシナリオ×施策の、計算式で反映する内訳の金額を再計算し、差分を budget_facts に反映して監査ログに記録する。
+// 続けて、検収月に一括の施策の仕掛品振替（docs/plan.md「2.28」）を計算し直す。
 func Recalculate(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID, activityID int64) error {
+	if err := recalculateFormulas(ctx, tx, rec, scenarioID, activityID); err != nil {
+		return err
+	}
+	return RecalculateWip(ctx, tx, rec, scenarioID, activityID)
+}
+
+// recalculateFormulas は計算式で反映する内訳の金額を再計算する。
+func recalculateFormulas(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, scenarioID, activityID int64) error {
 	var fiscalYear int
 	var locked bool
 	var through sql.NullString

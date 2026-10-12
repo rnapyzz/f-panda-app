@@ -49,5 +49,15 @@ test('手引きの画像', async ({ page, browser }) => {
   await mp.getByText('時期のずれ', { exact: true }).click()
   await note.scrollIntoViewIfNeeded()
   await note.screenshot({ path: out('activity-note') })
+  // 検収月に一括の施策の「原価と仕掛」（概要の P/L の下）
+  // 月の列（翌年の1月まで）が収まるよう、画面を広げて撮る。表は左右に余白がはみ出すので、少し広く切り取る
+  await mp.setViewportSize({ width: 1800, height: 900 })
+  await mp.goto(`/activities/${d.wipActivityId}?tab=overview`)
+  const wip = mp.getByRole('region', { name: '原価と仕掛' })
+  await expect(wip).toContainText('計上月 2027年1月')
+  await mp.waitForLoadState('networkidle')
+  await wip.scrollIntoViewIfNeeded()
+  const box = (await wip.boundingBox())!
+  await mp.screenshot({ path: out('activity-wip'), clip: { x: box.x - 24, y: box.y - 12, width: box.width + 48, height: box.height + 24 } })
   await context.close()
 })

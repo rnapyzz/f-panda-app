@@ -13,7 +13,7 @@ type PlanImportResult = {
   deleted: number
   unchanged: number
   activities: { activity_id: number; code: string; name: string; changed: number }[]
-  warnings: { kind: 'actual_month' | 'formula_line'; count: number }[]
+  warnings: { kind: 'actual_month' | 'formula_line' | 'wip_transfer'; count: number }[]
 }
 
 const kindLabels: Record<PlanImportResult['kind'], string> = { amounts: '金額', driver_values: 'ドライバー値' }
@@ -21,6 +21,7 @@ const kindLabels: Record<PlanImportResult['kind'], string> = { amounts: '金額'
 const warningLabels: Record<PlanImportResult['warnings'][number]['kind'], string> = {
   actual_month: '実績の月の値は取り込みませんでした',
   formula_line: '計算式で反映する内訳の値は取り込みませんでした（ドライバー値から計算します）',
+  wip_transfer: '検収月に一括の施策の仕掛品振替の値は取り込みませんでした（計上月から自動で計算します）',
 }
 
 /** 計画値の CSV（金額・ドライバー値）の出力と取込（docs/plan.md「6.3」） */

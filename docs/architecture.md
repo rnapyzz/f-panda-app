@@ -324,7 +324,7 @@
 
 - 施策の `recognition`（`as_incurred` / `on_delivery`）は施策の作成・更新 API で設定する（プロジェクト型だけ。`on_delivery` は仕掛品振替の科目が指定されていないと 422）
 - 計上月は `activity_recognitions`（`scenario_id`・`activity_id`・`recognition_month`）に持つ。`GET .../activities/{aid}` は `recognition`・`recognition_month`・振替の科目（`wip_subject_id`）・原価の科目（`project_cost_subject_ids`）を返す
-- 振替は `internal/calc` が計算し、`budget_facts` に `source = 'wip'`（`line_id` は NULL）で保存する。金額の保存・計算式の再計算・計上月・決算確定月・計上の仕方・科目の設定の変更のたびに計算し直し、同じ変更セットの監査ログに残す
+- 振替は `internal/calc` が計算し、`budget_facts` に `source = 'wip'`（`line_id` は NULL）で保存する。金額の保存・計算式の再計算・計画値の CSV の取込・計上月・決算確定月・計上の仕方・科目の設定の変更と、実績の変更（取込・未割当の割当・再割当）のたびに計算し直し、同じ変更セットの監査ログに残す
 - 計上月の仕掛残高は、`actual_facts`（実績の月。過去の年度を含む）と計画値の振替を施策の開始から累計して求める
 - 振替の科目への金額の直接入力は、検収月に一括の施策では 422
 
