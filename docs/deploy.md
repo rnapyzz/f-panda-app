@@ -88,6 +88,7 @@ AWS のアカウントの作成・支払いの設定・ドメインの購入は�
    | `AlertEmail` | サーバーの異常を知らせるメールアドレス |
    | `GitHubRepository` | `rnapyzz/f-panda-app`（既定） |
    | `CreateGitHubOidcProvider` | `true`（既定）。ほかの用途で GitHub の OIDC プロバイダーを作ってあれば `false` |
+   | `GitHubSubjectPrefix` | 空（既定）。リポジトリが ID 付きの OIDC の `sub` を使う場合だけ、`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` の `sub_claim_prefix`（例: `repo:rnapyzz@96988008/f-panda-app@1379719151`）を入れる。デプロイが「Not authorized to perform sts:AssumeRoleWithWebIdentity」で失敗したら、これを確かめる |
 
    「IAM リソースを作成する」ことの確認にチェックを入れて作る。10 分ほどで終わる。`AlertEmail` に届く確認メールのリンクを開く（開かないと知らせが届かない）。
 5. **GitHub**: リポジトリの Settings → Secrets and variables → Actions の **Variables**（秘密情報ではない）に、次を入れる。AWS の鍵は GitHub に置かない（OIDC で一時的な権限を受け取る）。
