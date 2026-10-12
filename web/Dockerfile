@@ -1,4 +1,5 @@
-FROM node:24-alpine AS base
+# base・build はビルドする側の CPU で動かす（画面のビルド結果は CPU に依存しない。本番は arm64。docs/deploy.md）
+FROM --platform=$BUILDPLATFORM node:24-alpine AS base
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

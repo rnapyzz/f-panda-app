@@ -41,7 +41,8 @@ AWS のリソースは `deploy/aws/fpanda.yaml`（CloudFormation のテンプレ
 - EC2 のロール: Session Manager（SSM）と ECR からの取得だけ
 - ECR のリポジトリ 2 つ（ライフサイクル: 新しい 10 個を残す）
 - EBS のスナップショットの自動作成（Data Lifecycle Manager。毎日、7日分）
-- GitHub Actions の OIDC プロバイダーとデプロイ用のロール（このリポジトリの main ブランチからだけ使える。ECR への push と、この EC2 への SSM のコマンドだけ）
+- GitHub Actions の OIDC プロバイダーとデプロイ用のロール（このリポジトリの main ブランチからだけ使える。ECR への push・デプロイ用の S3 バケットへの書き込み・この EC2 への SSM のコマンドだけ）
+- デプロイ用の S3 バケット（サーバーのファイルのまとめを置く。30日で消える。公開しない）
 - Route 53 の A レコード（`fpanda.example.com` → Elastic IP）
 - EC2 の状態のアラーム（ステータスチェックの失敗で自動復旧し、メールで知らせる）
 
@@ -53,16 +54,18 @@ AWS のリソースは `deploy/aws/fpanda.yaml`（CloudFormation のテンプレ
 | `Caddyfile` | `fpanda.example.com` で HTTPS を受け、`web` に転送する。HTTP は HTTPS へ転送する |
 | `my.cnf` | 小さいメモリ向けの MySQL の設定（`innodb_buffer_pool_size = 128M`、`performance_schema = OFF` など） |
 | `deploy.sh` | デプロイの手順（下の「3. リリース」）。前のタグに戻す `rollback` もできる |
-| `backup.sh` | DB のダンプ（毎日 3:00、cron。7日分を残す） |
+| `backup.sh` | DB のダンプ（毎日 3:00。systemd のタイマー `fpanda-backup.timer`。7日分を残す） |
+| `create-admin.sh` | FP&A の管理者を作る（パスワードは画面に出さずに入力） |
 
-サーバーでは `/opt/fpanda/` に置く。秘密情報は `/opt/fpanda/.env`（権限 600）にだけ置き、リポジトリと GitHub には入れない。
+サーバーでは `/opt/fpanda/` に置く（デプロイのたびに、そのコミットのものに置き換わる）。秘密情報は `/opt/fpanda/.env`（権限 600）にだけ置き、リポジトリと GitHub には入れない。`.env` は最初のデプロイで `deploy.sh` が作る（DB のパスワードはその場で生成する）。
 
 | `.env` の名前 | 値 |
 | ------------- | -- |
 | `APP_DOMAIN` | `fpanda.example.com` |
 | `ACME_EMAIL` | 証明書の期限の連絡先のメールアドレス |
-| `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` | 長いランダムな文字列（`openssl rand -base64 32`） |
-| `IMAGE_TAG` | デプロイしたイメージのタグ（`deploy.sh` が書き換える） |
+| `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` | 最初のデプロイで生成する長いランダムな文字列。変えない（DB のデータと合わなくなる） |
+| `ECR_REGISTRY` / `AWS_REGION` | イメージの取得先（`deploy.sh` が書く） |
+| `IMAGE_TAG` / `PREVIOUS_TAG` | 動いているイメージのタグと、その前のタグ（`deploy.sh` が書き換える） |
 | `SLACK_WEBHOOK_URL` | 使う場合だけ |
 | `OIDC_*` | Google の SSO を使う場合だけ（「6. SSO を使う場合」） |
 
@@ -75,19 +78,52 @@ AWS のアカウントの作成・支払いの設定・ドメインの購入は�
 1. **AWS のアカウント**を作り、ルート ユーザーに MFA を付ける。日々の作業用に IAM Identity Center（または IAM ユーザー）を作り、ルート ユーザーは使わない。
 2. **予算のアラート**: Billing の「Budgets」で月 $30 の予算を作り、80% でメールが届くようにする（想定外の課金に気づくため）。
 3. **ドメイン**: Route 53 の「ドメインの登録」で取る（例: `example.com`）。ホストゾーンは自動で作られる。
-4. **CloudFormation**: コンソールで「スタックの作成」→ `deploy/aws/fpanda.yaml` を読み込み、パラメータ（ドメイン名・ホストゾーン・インスタンスの種類・通知のメールアドレス・GitHub のリポジトリ名）を入れて作る。10 分ほどで終わる。出力（Outputs）に、デプロイ用のロールの ARN・インスタンス ID・ECR のリポジトリが出る。
-5. **GitHub**: リポジトリの Settings → Secrets and variables → Actions の **Variables**（秘密情報ではない）に、`AWS_REGION`・`AWS_DEPLOY_ROLE_ARN`・`AWS_INSTANCE_ID`・`ECR_REGISTRY` を入れる。AWS の鍵は GitHub に置かない（OIDC で一時的な権限を受け取る）。
-6. **サーバーの `.env`**: EC2 のコンソールでインスタンスを選び「接続」→ Session Manager で入り、`/opt/fpanda/.env` を作る（上の表。パスワードはその場で生成する）。
-7. **最初のデプロイ**: GitHub の Actions で「Deploy」のワークフローを手動で実行する（`workflow_dispatch`）。以後は main へのマージで自動で動く。
-8. **FP&A の管理者を作る**: Session Manager で入り、`cd /opt/fpanda && docker compose -f compose.prod.yaml run --rm api createuser -email <メールアドレス> -name <氏名> -role fpa_admin` を実行する（パスワードは標準入力から読む）。
-9. `https://fpanda.example.com` を開き、ログインできることを確かめる。
+4. **CloudFormation**: コンソールで「スタックの作成」→「テンプレートファイルのアップロード」で `deploy/aws/fpanda.yaml` を選ぶ。スタックの名前は `fpanda`。パラメータ:
+
+   | パラメータ | 入れる値 |
+   | ---------- | -------- |
+   | `DomainName` | アプリの URL のホスト名（例: `fpanda.example.com`） |
+   | `HostedZoneId` | 3 で作られたホストゾーン（一覧から選ぶ） |
+   | `InstanceType` | `t4g.micro`（既定）。遅ければ後で `t4g.small` に変える |
+   | `AlertEmail` | サーバーの異常を知らせるメールアドレス |
+   | `GitHubRepository` | `rnapyzz/f-panda-app`（既定） |
+   | `CreateGitHubOidcProvider` | `true`（既定）。ほかの用途で GitHub の OIDC プロバイダーを作ってあれば `false` |
+
+   「IAM リソースを作成する」ことの確認にチェックを入れて作る。10 分ほどで終わる。`AlertEmail` に届く確認メールのリンクを開く（開かないと知らせが届かない）。
+5. **GitHub**: リポジトリの Settings → Secrets and variables → Actions の **Variables**（秘密情報ではない）に、次を入れる。AWS の鍵は GitHub に置かない（OIDC で一時的な権限を受け取る）。
+
+   | 名前 | 値 |
+   | ---- | -- |
+   | `AWS_REGION` | `ap-northeast-1` |
+   | `AWS_DEPLOY_ROLE_ARN` | スタックの出力（Outputs）の `DeployRoleArn` |
+   | `AWS_INSTANCE_ID` | 出力の `InstanceId` |
+   | `ECR_REGISTRY` | 出力の `EcrRegistry` |
+   | `DEPLOY_BUCKET` | 出力の `DeployBucket` |
+   | `APP_DOMAIN` | `fpanda.example.com` |
+   | `ACME_EMAIL` | 証明書の期限の連絡先のメールアドレス |
+
+   Variables が入るまでは、デプロイのワークフローは何もしない（失敗にもならない）。
+6. **最初のデプロイ**: GitHub の Actions で「Deploy」のワークフローを開き、「Run workflow」で手動で実行する（10 分ほど）。サーバーの `.env` が作られ、アプリが起動する。以後は main へのマージで自動で動く。
+7. **FP&A の管理者を作る**: EC2 のコンソールでインスタンスを選び「接続」→「Session Manager」で入り、次を実行する（パスワードを聞かれる）。
+
+   ```bash
+   sudo /opt/fpanda/create-admin.sh you@example.com 氏名
+   ```
+
+8. `https://fpanda.example.com` を開き、ログインできることを確かめる。初めて開いたときは証明書の取得に数十秒かかることがある。
+
+### 構成を変えるとき
+
+- **サーバーを大きくする**: CloudFormation のスタックを「更新」し、`InstanceType` を `t4g.small` に変える（停止 → 起動で数分止まる。IP・データはそのまま）。
+- **`.env` を変える**（Slack・SSO など）: Session Manager で入り、`sudo vi /opt/fpanda/.env` で直してから `sudo /opt/fpanda/deploy.sh <今のタグ>`（今のタグは `.env` の `IMAGE_TAG`）で入れ替える。
+- **やめる**: スタックを削除する。ディスク（EBS）は誤って消さないよう、スタックを消しても残る設定にしている。要らなければ EC2 の「ボリューム」と「スナップショット」から消す。ドメインは Route 53 で自動更新を止める。
 
 ## 3. リリース（自動）
 
 `.github/workflows/deploy.yml`。main への push（PR のマージ）で、CI と同じテストが通った後に動く。手動でも実行できる。同時に2つは動かさない（後のものは前のものが終わるのを待つ）。
 
 1. **イメージを作る**: `api`・`web`（`prod` ステージ）を `linux/arm64` で作り、タグをコミットのハッシュにして ECR に置く。ビルドは GitHub のランナー（x86）で行い、Go はクロス コンパイル、画面のビルド結果は CPU に依存しないので、Arm のエミュレーションは最後の段だけで済む。
-2. **デプロイを指示する**: SSM の Run Command で、EC2 の `deploy.sh <タグ>` を実行する。`compose.prod.yaml`・`Caddyfile`・`my.cnf`・スクリプトも、そのコミットのものに置き換える。
+2. **デプロイを指示する**: `deploy/server/` のファイルをまとめて S3 に置き、SSM の Run Command で EC2 に取得させてから `deploy.sh <タグ>` を実行する。`compose.prod.yaml`・`Caddyfile`・`my.cnf`・スクリプトも、そのコミットのものに置き換わる。
 3. **`deploy.sh` の中**:
    1. ECR にログインし、新しいイメージを取得する
    2. `migrate up` を実行する。失敗したら、入れ替えずに終わる（前のイメージのまま動き続ける）
@@ -100,12 +136,12 @@ AWS のアカウントの作成・支払いの設定・ドメインの購入は�
 
 ### 手で戻すとき
 
-Session Manager で入り、`/opt/fpanda/deploy.sh rollback`（直前のタグに戻す）か `/opt/fpanda/deploy.sh <タグ>` を実行する。
+Session Manager で入り、`sudo /opt/fpanda/deploy.sh rollback`（直前のタグに戻す）か `sudo /opt/fpanda/deploy.sh <タグ>` を実行する。タグは GitHub のコミットのハッシュ（40 文字）。ECR に残っている新しい 10 個から選べる。
 
 ## 4. 監視
 
 - **EC2 のステータスチェック**: 失敗したら自動で復旧し（同じ IP・ディスクで起動し直す）、メールで知らせる（テンプレートで作る）。
-- **アプリのログ**: `docker compose -f compose.prod.yaml logs api`（Session Manager で入って見る）。ログは Docker の設定で 1 コンテナ 10MB × 3 ファイルまでにする。CloudWatch Logs には送らない（費用を抑えるため）。
+- **アプリのログ**: Session Manager で入り、`cd /opt/fpanda && sudo docker compose -f compose.prod.yaml logs --tail 100 api` で見る。ログは Docker の設定で 1 コンテナ 10MB × 3 ファイルまでにする。CloudWatch Logs には送らない（費用を抑えるため）。
 - **ディスク**: 四半期に1回、`df -h` と DB の大きさを確かめる。監査ログ（`audit_logs`）は消さない。
 
 ```sql
@@ -123,7 +159,7 @@ FROM information_schema.tables WHERE table_schema = 'fpanda' ORDER BY mb DESC LI
 
 ### 復旧の手順
 
-- **データだけを戻す**（誤操作など）: Session Manager で入り、`/opt/fpanda/backup/` のダンプを `docker compose exec -T db mysql ...` で読み込む。戻した時点より後の変更は失われるので、変更履歴をもとに入力し直す。
+- **データだけを戻す**（誤操作など）: Session Manager で入り、`/opt/fpanda/backup/` のダンプを読み込む（`cd /opt/fpanda && gzip -dc backup/<ファイル> | sudo docker compose -f compose.prod.yaml exec -T db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot'`）。戻した時点より後の変更は失われるので、変更履歴をもとに入力し直す。
 - **サーバーごと戻す**（壊れた・消した）: スナップショットからボリュームを作ってインスタンスに付け替える。または、スナップショットから作った AMI で起動し、Elastic IP を付け替える。
 
 ### 復旧の練習
@@ -136,7 +172,7 @@ FROM information_schema.tables WHERE table_schema = 'fpanda' ORDER BY mb DESC LI
 
 1. Google Cloud のコンソールでプロジェクトを作り、「OAuth 同意画面」をユーザーの種類「内部」で設定する。
 2. 「認証情報」で OAuth クライアント ID（ウェブ アプリケーション）を作る。承認済みのリダイレクト URI は `https://fpanda.example.com/api/auth/oidc/callback`。
-3. `.env` に `OIDC_ISSUER=https://accounts.google.com`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`・`OIDC_ALLOWED_DOMAINS` を入れ、`/opt/fpanda/deploy.sh <今のタグ>` で入れ替える。
+3. `.env` に `OIDC_ISSUER=https://accounts.google.com`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`・`OIDC_ALLOWED_DOMAINS` を入れ、`sudo /opt/fpanda/deploy.sh <今のタグ>` で入れ替える（「構成を変えるとき」）。
 
 SSO を有効にすると、パスワードでログインできるのは FP&A の非常用だけになる（architecture.md「認証」）。
 

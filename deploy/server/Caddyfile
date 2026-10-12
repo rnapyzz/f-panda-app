@@ -1,0 +1,10 @@
+# 本番の前段（docs/deploy.md）。APP_DOMAIN で HTTPS を受け、Let's Encrypt の証明書を自動で取得・更新する。
+# HTTP は自動で HTTPS へ転送される。X-Forwarded-For・X-Forwarded-Proto は caddy が付け直して web（nginx）へ渡す。
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+}

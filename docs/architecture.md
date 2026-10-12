@@ -101,7 +101,7 @@
 | サーバー | EC2 1台（`t4g.micro` ＋スワップ、遅ければ `t4g.small`）。docker compose（`deploy/server/compose.prod.yaml`）で caddy・web・api・db を動かす。受けるのは 80・443 だけで、SSH は開けない（操作は Session Manager） |
 | 構成のコード | `deploy/aws/fpanda.yaml`（CloudFormation）。EC2・Elastic IP・セキュリティ グループ・ロール・ECR・スナップショットの自動作成・GitHub の OIDC とデプロイ用のロール・Route 53 のレコード・状態のアラーム |
 | イメージ | `web`（本番用のステージで画面をビルドし nginx に入れる）・`api`。`linux/arm64` で作り、コミットのハッシュをタグにして ECR に置く（新しい 10 個を残す） |
-| リリース | main へのマージで GitHub Actions（`.github/workflows/deploy.yml`）が、テスト → イメージ → SSM でサーバーの `deploy.sh` を実行する。`deploy.sh` はマイグレーション → 入れ替え → `/api/health` の確認を行い、失敗したら前のイメージに戻す。AWS の鍵は GitHub に置かず、OIDC で一時的な権限を受け取る |
+| リリース | main のテスト（CI）が通ったら GitHub Actions（`.github/workflows/deploy.yml`）が、イメージを ECR に置き、サーバーのファイル（`deploy/server/`）を S3 経由で渡して、SSM でサーバーの `deploy.sh` を実行する。`deploy.sh` はマイグレーション → 入れ替え → `/api/health` の確認を行い、失敗したら前のイメージに戻す。AWS の鍵は GitHub に置かず、OIDC で一時的な権限を受け取る |
 | マイグレーション | 入れ替えの前に `migrate up` を実行する。追加だけで作るので、前のイメージに戻しても動く |
 | 自動の処理 | 通知・組織変更の予約は API 内のゴルーチンで動く |
 | 秘密情報 | DB のパスワード・`SLACK_WEBHOOK_URL`・`OIDC_CLIENT_SECRET` はサーバーの `/opt/fpanda/.env`（権限 600）にだけ置く |
