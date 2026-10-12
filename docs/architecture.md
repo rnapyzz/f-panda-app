@@ -130,7 +130,7 @@
 | ------------------------------ | ------------------------------------------------------------------- |
 | 組織 / セグメント              | `GET/POST /api/{organizations,segments}`、`GET/PUT/DELETE /api/{organizations,segments}/{id}` |
 | ユニット                       | `GET/POST /api/units`、`GET/PUT/DELETE /api/units/{id}`。種別 `unit_type`（service / cost_center / corporate、省略時 service）。一覧は既定で廃止したユニットを除く（`include_archived=true` で含める）。`POST /api/units/{id}/merge`（`target_unit_id`・`reason` 必須。施策をすべて移して廃止する）、`POST /api/units/{id}/archive`・`/unarchive` |
-| 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`（`is_restricted` で閲覧制限） |
+| 勘定科目                       | `GET/POST /api/subjects`、`GET/PUT/DELETE /api/subjects/{id}`（`is_restricted` で閲覧制限、`is_project_cost` で原価の科目、`role: wip_transfer` で仕掛品振替の科目。docs/plan.md「2.28」） |
 | 会計科目                       | `GET/POST /api/gl-accounts`、`PUT/DELETE /api/gl-accounts/{id}`（コード・名前・対応する科目 `subject_id`・対象外 `is_excluded`・明細を FP&A 以外に見せない `hide_details`。明細から参照されている会計科目は削除できない） |
 | 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。`GET /api/users/{id}/assignments`（担当している施策・所管ユニットの件数）、`POST /api/users/{id}/deactivate`（`successor_user_id`（null で担当者未設定）・`reason`。担当とマネージャーを付け替えてから無効にする）。Slack のメンバー ID（`slack_user_id`、U または W で始まる英大文字・数字、空で未登録）を持つ |
@@ -197,6 +197,7 @@
 | `GET /api/scenarios/{id}/activities/{aid}`                    | 施策の月別のドライバー値・金額・想定条件。`months` は当期の12か月、`beyond_months` は翌年度の月（施策の終了日が翌年度にかかるときだけ12か月、それ以外は空。docs/plan.md「2.26」）。値は両方の月を返す | 全員           |
 | `PUT .../activities/{aid}/driver-values`                      | ドライバー値の一括登録・更新・削除（理由必須） | 施策の編集権限 |
 | `PUT .../activities/{aid}/amounts`                            | 金額の直接入力（理由必須）                   | 施策の編集権限 |
+| `PUT .../activities/{aid}/recognition`                        | 計上月（`recognition_month`、`YYYY-MM` か `null`）の設定（理由は金額と同じ）。検収月に一括の施策だけ。振替を再計算する（docs/plan.md「2.28」） | 数値の入力と同じ |
 | `PUT .../activities/{aid}/condition`                          | 廃止（想定条件は今回の見込の説明に統合。docs/plan.md「2.18」）。410 を返す | － |
 | `GET/PUT .../activities/{aid}/note`                           | 差異の説明・要因の分類（docs/plan.md「2.10」）  | 参照は全員、更新は数値の入力と同じ |
 | `GET/POST .../activities/{aid}/comments`、`PUT/DELETE .../activities/{aid}/comments/{cid}` | 説明へのコメント（docs/plan.md「2.24」）。書いた順に返し、削除したものは本文を返さない（`deleted: true`）。編集すると `edited_at` を返す（本文が変わったときだけ更新。お知らせは送らない） | 参照・投稿は全員、編集・削除は書いた本人だけ（ロック済みのシナリオではどれもできない。消したコメントは編集できない） |
@@ -318,6 +319,14 @@
 - `scenario_amounts` ビューはシナリオの年度の月だけを返す。年度の集計（予実比較・リスク・ホーム・報告資料・計画値の CSV）はこのビューを使うので、翌年度の月は含まれない
 - 翌年度の月を読むのは、数値入力（`GET .../activities/{aid}`）・施策全体の P/L・新年度の期初計画の「今回の見込を元にする」だけで、`budget_facts` から直接読む
 - 計算式の再計算（`internal/calc`）は、計画値の月（決算確定月より後の当期の月）と翌年度の月を計算する
+
+## 原価と仕掛（docs/plan.md「2.28」）
+
+- 施策の `recognition`（`as_incurred` / `on_delivery`）は施策の作成・更新 API で設定する（プロジェクト型だけ。`on_delivery` は仕掛品振替の科目が指定されていないと 422）
+- 計上月は `activity_recognitions`（`scenario_id`・`activity_id`・`recognition_month`）に持つ。`GET .../activities/{aid}` は `recognition`・`recognition_month`・振替の科目（`wip_subject_id`）・原価の科目（`project_cost_subject_ids`）を返す
+- 振替は `internal/calc` が計算し、`budget_facts` に `source = 'wip'`（`line_id` は NULL）で保存する。金額の保存・計算式の再計算・計上月・決算確定月・計上の仕方・科目の設定の変更のたびに計算し直し、同じ変更セットの監査ログに残す
+- 計上月の仕掛残高は、`actual_facts`（実績の月。過去の年度を含む）と計画値の振替を施策の開始から累計して求める
+- 振替の科目への金額の直接入力は、検収月に一括の施策では 422
 
 ## 報告資料 API（docs/plan.md「2.23」）
 
