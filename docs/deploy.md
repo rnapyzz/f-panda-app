@@ -88,7 +88,7 @@ AWS のアカウントの作成・支払いの設定・ドメインの購入は�
    | `AlertEmail` | サーバーの異常を知らせるメールアドレス |
    | `GitHubRepository` | `rnapyzz/f-panda-app`（既定） |
    | `CreateGitHubOidcProvider` | `true`（既定）。ほかの用途で GitHub の OIDC プロバイダーを作ってあれば `false` |
-   | `GitHubSubjectPrefix` | 空（既定）。リポジトリが ID 付きの OIDC の `sub` を使う場合だけ、`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` の `sub_claim_prefix`（例: `repo:rnapyzz@96988008/f-panda-app@1379719151`）を入れる。デプロイが「Not authorized to perform sts:AssumeRoleWithWebIdentity」で失敗したら、これを確かめる |
+   | `GitHubSubjectPrefix` | 空（既定）。リポジトリが ID 付きの OIDC の `sub` を使う場合だけ、`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` の `sub_claim_prefix`（例: `repo:rnapyzz@96988008/f-panda-app@1379719151`）を入れる。デプロイが「Not authorized to perform sts:AssumeRoleWithWebIdentity」で失敗したら、Deploy のワークフローの「OIDC のトークンの中身」に出る `sub` と、IAM のデプロイ用ロールの「信頼関係」の `sub` を見比べる |
 
    「IAM リソースを作成する」ことの確認にチェックを入れて作る。10 分ほどで終わる。`AlertEmail` に届く確認メールのリンクを開く（開かないと知らせが届かない）。
 5. **GitHub**: リポジトリの Settings → Secrets and variables → Actions の **Variables**（秘密情報ではない）に、次を入れる。AWS の鍵は GitHub に置かない（OIDC で一時的な権限を受け取る）。
@@ -115,7 +115,8 @@ AWS のアカウントの作成・支払いの設定・ドメインの購入は�
 
 ### 構成を変えるとき
 
-- **サーバーを大きくする**: CloudFormation のスタックを「更新」し、`InstanceType` を `t4g.small` に変える（停止 → 起動で数分止まる。IP・データはそのまま）。
+- **スタックの更新のしかた**: CloudFormation でスタックを選び「更新」→「**直接更新を実行**」を選ぶ（「変更セットを作成」を選ぶと、変更セットを作るだけで反映されない）。テンプレートを変えるときは「既存テンプレートを置き換える」で新しい `deploy/aws/fpanda.yaml` を選ぶ。終わったら「パラメータ」タブで値が変わったことを確かめる。
+- **サーバーを大きくする**: スタックを更新し、`InstanceType` を `t4g.small` に変える（停止 → 起動で数分止まる。IP・データはそのまま）。
 - **`.env` を変える**（Slack・SSO など）: Session Manager で入り、`sudo vi /opt/fpanda/.env` で直してから `sudo /opt/fpanda/deploy.sh <今のタグ>`（今のタグは `.env` の `IMAGE_TAG`）で入れ替える。
 - **やめる**: スタックを削除する。ディスク（EBS）は誤って消さないよう、スタックを消しても残る設定にしている。要らなければ EC2 の「ボリューム」と「スナップショット」から消す。ドメインは Route 53 で自動更新を止める。
 
