@@ -8,6 +8,8 @@ import {
   milestoneStatusLabels,
   noteCauseLabels,
   outlookLabels,
+  partnerDirectionLabels,
+  recognitionLabels,
   roleLabels,
   planRoleLabels,
   tableLabels,
@@ -329,6 +331,12 @@ const fieldLabels: Record<string, string> = {
   copied: '複製した件数',
   note: 'メモ',
   unit_type: '種別',
+  company_name: '会社名',
+  accounting_code: '会計システムコード',
+  direction: '取引先の区分',
+  partner_id: '取引先',
+  recognition: '計上の仕方',
+  recognition_month: '計上月',
 }
 
 const valueLabels: Record<string, Record<string, string>> = {
@@ -341,8 +349,10 @@ const valueLabels: Record<string, Record<string, string>> = {
   scenario_kind: { budget: '予算', forecast: '見込', actual: '実績', optimistic: '楽観', pessimistic: '悲観', other: 'その他' },
   plan_role: planRoleLabels,
   outlook: outlookLabels,
-  source: { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績' },
+  source: { manual: '直接入力', formula: '計算式', import: '取込', actual: '実績', wip: '仕掛品振替（自動）' },
   unit_type: unitTypeLabels,
+  direction: partnerDirectionLabels,
+  recognition: recognitionLabels,
 }
 
 function formatField(key: string, v: unknown): string {

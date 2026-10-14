@@ -310,7 +310,7 @@ function ValuesEditor({
             {l.name}
           </>
         ),
-        sub: `${l.formula_enabled ? l.expression : '直接入力'} ／ ${outlookLabels[l.outlook]}・${l.confidence_level ?? v.activity.confidence_level}`,
+        sub: `${l.formula_enabled ? l.expression : '直接入力'} ／ ${outlookLabels[l.outlook]}・${l.confidence_level ?? v.activity.confidence_level}${l.partner ? ` ／ ${l.partner.name}` : ''}`,
         editable: !l.formula_enabled,
         indent: true,
       })),

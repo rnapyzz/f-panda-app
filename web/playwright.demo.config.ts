@@ -1,9 +1,9 @@
 import { defineConfig } from '@playwright/test'
 
-// 研修・試用の環境にデモのデータを入れる（scripts/demo.sh、docs/demo.md）。ブラウザは API のログインにだけ使う。
+// 研修・試用の環境にデモのデータを入れる（scripts/demo.sh、docs/demo.md）。demo-partners.spec.ts は取引先だけを足す。ブラウザは API のログインにだけ使う。
 export default defineConfig({
   testDir: './screenshots',
-  testMatch: 'demo.spec.ts',
+  testMatch: ['demo.spec.ts', 'demo-partners.spec.ts'],
   workers: 1,
   timeout: 180_000,
   reporter: 'list',

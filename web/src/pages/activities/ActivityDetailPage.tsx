@@ -15,6 +15,7 @@ import {
   type Unit,
   type List,
   type Milestone,
+  type Partner,
   type Scenario,
   type Subject,
   type User,
@@ -54,6 +55,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
   const units = useApi<List<Unit>>('/units')
   const users = useApi<List<User>>('/users')
   const subjects = useApi<List<Subject>>('/subjects')
+  const partners = useApi<List<Partner>>('/partners')
   const scenarios = useApi<List<Scenario>>('/scenarios')
   const { withReason, askReason, dialog: reasonDialog } = useReason()
   // 「今回の更新」の数値を読み直すきっかけ（内訳・ドライバーを変えたとき）と、未保存の入力の有無
@@ -72,6 +74,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
   const unitById = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f])), [units.data])
   const userName = useMemo(() => new Map((users.data?.items ?? []).map((u) => [u.id, u.name])), [users.data])
   const subjectById = useMemo(() => new Map((subjects.data?.items ?? []).map((s) => [s.id, s])), [subjects.data])
+  const partnerById = useMemo(() => new Map((partners.data?.items ?? []).map((p) => [p.id, p])), [partners.data])
 
   const error = activity.error ?? units.error ?? users.error ?? subjects.error ?? scenarios.error
   if (error) return <ErrorMessage error={error} />
@@ -386,6 +389,7 @@ export function ActivityDetailPage({ id }: { id: string }) {
                     <tr>
                       <th className="w-40">科目</th>
                       <th>内訳</th>
+                      <th>取引先</th>
                       <th className="w-24">見通し</th>
                       <th className="w-28">確度の段階</th>
                       <th className="w-28">金額の入れ方</th>
@@ -408,6 +412,13 @@ export function ActivityDetailPage({ id }: { id: string }) {
                             )}
                           </td>
                           <td className="font-medium">{l.name}</td>
+                          <td className="text-sm">
+                            {l.partner_id ? (
+                              <PartnerName partner={partnerById.get(l.partner_id)} />
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
                           <td>
                             <Badge tone={l.outlook === 'downside' ? 'red' : l.outlook === 'addon' ? 'green' : 'slate'}>{outlookLabels[l.outlook]}</Badge>
                           </td>
@@ -518,5 +529,16 @@ function Info({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-slate-500">{label}</dt>
       <dd className="text-slate-800">{children}</dd>
     </>
+  )
+}
+
+/** 内訳の取引先（取引先の画面へのリンク。取引停止なら印を付ける） */
+function PartnerName({ partner }: { partner: Partner | undefined }) {
+  if (!partner) return <span className="text-slate-400">—</span>
+  return (
+    <Link to={`/masters/partners?id=${partner.id}`} className="text-indigo-700 hover:underline">
+      {partner.name}
+      {!partner.is_active && <span className="ml-1 text-xs text-slate-500">（取引停止）</span>}
+    </Link>
   )
 }

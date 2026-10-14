@@ -79,9 +79,18 @@ type lineRow struct {
 	Expression     string `json:"expression"`
 	FormulaEnabled bool   `json:"formula_enabled"`
 	// ConfidenceLevel は内訳の確度の段階（nil は施策の段階）、Outlook は見通しの種類
-	ConfidenceLevel *string      `json:"confidence_level"`
-	Outlook         string       `json:"outlook"`
-	Values          []amountCell `json:"values"`
+	ConfidenceLevel *string `json:"confidence_level"`
+	Outlook         string  `json:"outlook"`
+	// Partner は内訳の取引先（docs/plan.md「2.29」。nil は付けていない）
+	Partner *partnerRef  `json:"partner"`
+	Values  []amountCell `json:"values"`
+}
+
+// partnerRef は内訳に付いた取引先の要約。
+type partnerRef struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	IsActive bool   `json:"is_active"`
 }
 
 // valuesView はシナリオ×施策の入力画面用のデータ。
@@ -280,8 +289,10 @@ func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activi
 	}
 
 	lrows, err := q.QueryContext(ctx, `
-		SELECT id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook
-		FROM activity_lines WHERE activity_id = ?`+visibility.SubjectFilter(u, "subject_id")+` ORDER BY subject_id, sort_order, id`, activityID)
+		SELECT l.id, l.subject_id, l.name, COALESCE(l.expression, ''), l.formula_enabled, l.confidence_level, l.outlook,
+		       p.id, COALESCE(p.name, ''), COALESCE(p.is_active, FALSE)
+		FROM activity_lines l LEFT JOIN partners p ON p.id = l.partner_id
+		WHERE l.activity_id = ?`+visibility.SubjectFilter(u, "l.subject_id")+` ORDER BY l.subject_id, l.sort_order, l.id`, activityID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +300,15 @@ func loadAmounts(ctx context.Context, q queryer, u auth.User, scenarioID, activi
 		var l lineRow
 		var subjectID int64
 		var level sql.NullString
-		if err := lrows.Scan(&l.ID, &subjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook); err != nil {
+		var partnerID sql.NullInt64
+		var partnerName string
+		var partnerActive bool
+		if err := lrows.Scan(&l.ID, &subjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook, &partnerID, &partnerName, &partnerActive); err != nil {
 			lrows.Close()
 			return nil, err
+		}
+		if partnerID.Valid {
+			l.Partner = &partnerRef{ID: partnerID.Int64, Name: partnerName, IsActive: partnerActive}
 		}
 		l.ConfidenceLevel = ptrString(level)
 		l.Values = []amountCell{}

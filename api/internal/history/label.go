@@ -65,6 +65,7 @@ var tableNouns = map[string]string{
 	"notification_settings": "通知の設定",
 	"org_change_plans":      "組織変更の予約",
 	"users":                 "ユーザー",
+	"partners":              "取引先",
 }
 
 func (l *labeler) label(log Log) string {
@@ -122,6 +123,8 @@ func (l *labeler) label(log Log) string {
 		return activity() + " / 想定条件"
 	case "activity_scenario_notes":
 		return activity() + " / 差異の説明・更新の完了"
+	case "activity_recognitions":
+		return activity() + " / 計上月"
 	}
 	if noun, ok := tableNouns[log.TableName]; ok {
 		if name := rec.str("name"); name != "" {

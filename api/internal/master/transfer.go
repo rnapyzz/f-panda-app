@@ -942,6 +942,8 @@ func (h *Handler) importRoutes(read, write func(httpx.HandlerFunc) http.Handler,
 	mux.Handle("POST /api/units/import", write(h.importUnits))
 	mux.Handle("GET /api/subjects/export", read(h.exportSubjects))
 	mux.Handle("POST /api/subjects/import", write(h.importSubjects))
+	mux.Handle("GET /api/partners/export", read(h.exportPartners))
+	mux.Handle("POST /api/partners/import", write(h.importPartners))
 	mux.Handle("GET /api/users/export", read(h.exportUsers))
 	mux.Handle("POST /api/users/import", write(h.importUsers))
 }

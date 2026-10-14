@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { categoryLabels, driverKindLabels, outlookDescriptions, outlookLabels, milestoneStatusLabels, type ConfidenceLevel, type Driver, type DriverKind, type Line, type Outlook, type Milestone, type MilestoneStatus, type Subject } from '../../api/types'
+import { categoryLabels, driverKindLabels, outlookDescriptions, outlookLabels, milestoneStatusLabels, partnerDirectionLabels, type ConfidenceLevel, type Driver, type DriverKind, type Line, type List, type Outlook, type Milestone, type MilestoneStatus, type Partner, type Subject } from '../../api/types'
 import { Button, Dialog, Field, FormError, Input, Select, Textarea, fieldError } from '../../components/ui'
 import { confidenceLabel } from '../../lib/confidence'
+import { useApi } from '../../lib/useApi'
 
 /** ダイアログの保存処理と状態をまとめる */
 function useSubmit(save: () => Promise<void>) {
@@ -130,10 +131,17 @@ export function LineDialog({
   const [expression, setExpression] = useState(initial?.expression ?? '')
   const [level, setLevel] = useState(initial?.confidence_level ?? '')
   const [outlook, setOutlook] = useState<Outlook>(initial?.outlook ?? 'base')
+  // 取引先（任意。docs/plan.md「2.29」）: 取引中で、区分が科目の区分に合うもの（収益 → 受注、費用 → 発注）
+  const partners = useApi<List<Partner>>('/partners')
+  const [partnerId, setPartnerId] = useState(initial?.partner_id ? String(initial.partner_id) : '')
+  const category = subjects.find((s) => String(s.id) === subjectId)?.category
+  const partnerChoices = (partners.data?.items ?? []).filter(
+    (p) => String(p.id) === partnerId || (p.is_active && (!category || p.direction === (category === 'revenue' ? 'sales' : 'purchase'))),
+  )
   const [reason, setReason] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const { error, busy, submit } = useSubmit(async () => {
-    await save({ subject_id: Number(subjectId) || 0, name, expression, formula_enabled: formulaEnabled, confidence_level: level, outlook, reason })
+    await save({ subject_id: Number(subjectId) || 0, name, expression, formula_enabled: formulaEnabled, confidence_level: level, outlook, partner_id: partnerId ? Number(partnerId) : null, reason })
   })
 
   // 識別子をカーソル位置に挿入する
@@ -165,6 +173,7 @@ export function LineDialog({
                 disabled={initial !== null}
                 onChange={(e) => {
                   setSubjectId(e.target.value)
+                  setPartnerId('')
                   if (!name) setName(subjects.find((s) => String(s.id) === e.target.value)?.name ?? '')
                 }}
               >
@@ -179,6 +188,23 @@ export function LineDialog({
           </Field>
           <Field label="内訳名" required error={fieldError(error, 'name')} hint="例: 月額利用料、初期導入費">
             {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />}
+          </Field>
+          <Field
+            label="取引先（任意）"
+            error={fieldError(error, 'partner_id')}
+            hint={category ? `${category === 'revenue' ? '受注' : '発注'}の取引先から選べます。取引先は FP&A が「取引先」で登録します` : '科目を選ぶと、区分の合う取引先を選べます'}
+            className="sm:col-span-2"
+          >
+            {(p) => (
+              <Select {...p} value={partnerId} onChange={(e) => setPartnerId(e.target.value)} disabled={!category}>
+                <option value="">付けない</option>
+                {partnerChoices.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {pt.name}（{pt.company_name}・{partnerDirectionLabels[pt.direction]}）{pt.is_active ? '' : '［取引停止］'}
+                  </option>
+                ))}
+              </Select>
+            )}
           </Field>
         </div>
         {/* 確度の段階・見通しの種類は「詳細設定」（docs/plan.md「2.18」）。標準と違う設定があれば開いておく */}
@@ -272,7 +298,7 @@ export function LineDialog({
         {initial && initial.formula_enabled && !formulaEnabled && (
           <p className="rounded bg-slate-50 px-3 py-2 text-xs text-slate-600">反映をやめても、これまでに算出した金額は残ります。以後は直接入力で編集できます。</p>
         )}
-        <FormError error={error} fields={['subject_id', 'name', 'expression', 'confidence_level', 'outlook', 'reason']} />
+        <FormError error={error} fields={['subject_id', 'name', 'expression', 'confidence_level', 'outlook', 'partner_id', 'reason']} />
       </form>
     </Dialog>
   )
