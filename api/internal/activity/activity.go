@@ -538,7 +538,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// copyDefinitions は、施策 from のドライバーと内訳の定義を施策 to に写す（docs/plan.md「2.27」）。金額・ドライバー値は写さない。
+// copyDefinitions は、施策 from のドライバーと内訳の定義（取引先を含む。docs/plan.md「2.29」）を施策 to に写す（docs/plan.md「2.27」）。金額・ドライバー値は写さない。
 // 閲覧制限のある科目の内訳は FP&A だけが写せる（それ以外は写さず、その数を返す）。
 func copyDefinitions(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, u auth.User, from, to int64) (skipped int, err error) {
 	drivers, err := listDrivers(ctx, tx, from)
@@ -577,8 +577,8 @@ func copyDefinitions(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, u aut
 			}
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			to, l.SubjectID, l.Name, dbx.NullString(l.Expression), l.FormulaEnabled, l.ConfidenceLevel, l.Outlook, l.SortOrder)
+			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, partner_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			to, l.SubjectID, l.Name, dbx.NullString(l.Expression), l.FormulaEnabled, l.ConfidenceLevel, l.Outlook, dbx.NullInt64(l.PartnerID), l.SortOrder)
 		if err != nil {
 			return 0, err
 		}

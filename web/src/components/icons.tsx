@@ -84,6 +84,14 @@ export const IconSubjects = (p: P) => (
   </Icon>
 )
 
+/** 取引先: 握手の代わりに建物（会社） */
+export const IconPartners = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 20V6.5A1.5 1.5 0 0 1 5.5 5H12v15M12 9h6.5A1.5 1.5 0 0 1 20 10.5V20M3 20h18" />
+    <path d="M7.5 8.5h1.5M7.5 12h1.5M7.5 15.5h1.5M15 12.5h1.5M15 16h1.5" />
+  </Icon>
+)
+
 /** ユーザー: 人物 */
 export const IconUsers = (p: P) => (
   <Icon {...p}>

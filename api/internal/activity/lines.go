@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -34,7 +35,9 @@ type line struct {
 	// ConfidenceLevel は内訳の確度の段階。nil なら施策の段階を使う
 	ConfidenceLevel *string `json:"confidence_level"`
 	// Outlook は見通しの種類（base: ベース / addon: アドオン / downside: ダウンサイド）
-	Outlook   string `json:"outlook"`
+	Outlook string `json:"outlook"`
+	// PartnerID は取引先（docs/plan.md「2.29」。nil は付けていない）
+	PartnerID *int64 `json:"partner_id"`
 	SortOrder int    `json:"sort_order"`
 	timestamps
 }
@@ -50,20 +53,44 @@ type lineRequest struct {
 	// ConfidenceLevel は確度の段階のコード。空なら施策の段階を使う
 	ConfidenceLevel string `json:"confidence_level"`
 	// Outlook は見通しの種類。空ならベース
-	Outlook   string `json:"outlook"`
-	SortOrder int    `json:"sort_order"`
-	Reason    string `json:"reason"`
+	Outlook string `json:"outlook"`
+	// PartnerID は取引先。省略すると、作成では付けず、更新では今のまま。null で外す
+	PartnerID optionalID `json:"partner_id"`
+	SortOrder int        `json:"sort_order"`
+	Reason    string     `json:"reason"`
 }
 
-const lineSelect = "SELECT id, activity_id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook, sort_order, created_at, updated_at FROM activity_lines"
+// optionalID は、JSON で省略されたか（Set が false）、null か、値があるかを区別する ID。
+type optionalID struct {
+	Set   bool
+	Value *int64
+}
+
+func (o *optionalID) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var v int64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	o.Value = &v
+	return nil
+}
+
+const lineSelect = "SELECT id, activity_id, subject_id, name, COALESCE(expression, ''), formula_enabled, confidence_level, outlook, partner_id, sort_order, created_at, updated_at FROM activity_lines"
 
 func scanLine(row interface{ Scan(...any) error }) (line, error) {
 	var l line
 	var level sql.NullString
-	err := row.Scan(&l.ID, &l.ActivityID, &l.SubjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook, &l.SortOrder, &l.CreatedAt, &l.UpdatedAt)
+	var partner sql.NullInt64
+	err := row.Scan(&l.ID, &l.ActivityID, &l.SubjectID, &l.Name, &l.Expression, &l.FormulaEnabled, &level, &l.Outlook, &partner, &l.SortOrder, &l.CreatedAt, &l.UpdatedAt)
 	if level.Valid {
 		l.ConfidenceLevel = &level.String
 	}
+	l.PartnerID = dbx.PtrInt64(partner)
 	return l, err
 }
 
@@ -106,6 +133,32 @@ func findLine(ctx context.Context, tx *sql.Tx, activityID, id int64) (line, erro
 		return line{}, httpx.NotFound("内訳が見つかりません")
 	}
 	return l, err
+}
+
+// checkPartner は、内訳に付ける取引先を確かめる（docs/plan.md「2.29」）。取引中で、区分が科目の区分に合うこと
+// （収益の科目 → 受注、費用の科目 → 発注）。
+func checkPartner(ctx context.Context, tx *sql.Tx, partnerID, subjectID int64) error {
+	var direction, category string
+	var active bool
+	err := tx.QueryRowContext(ctx, "SELECT direction, is_active FROM partners WHERE id = ? FOR SHARE", partnerID).Scan(&direction, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return httpx.Validation(map[string]string{"partner_id": "取引先が見つかりません"})
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT category FROM subjects WHERE id = ?", subjectID).Scan(&category); err != nil {
+		return err
+	}
+	switch {
+	case !active:
+		return httpx.Validation(map[string]string{"partner_id": "取引停止の取引先は付けられません"})
+	case category == "revenue" && direction != "sales":
+		return httpx.Validation(map[string]string{"partner_id": "収益の科目の内訳には、受注の取引先を付けてください"})
+	case category == "expense" && direction != "purchase":
+		return httpx.Validation(map[string]string{"partner_id": "費用の科目の内訳には、発注の取引先を付けてください"})
+	}
+	return nil
 }
 
 // validateLine は内訳の入力を検証し、計算式を解析する。式に使える識別子は、施策のドライバーの code。
@@ -198,9 +251,14 @@ func (h *Handler) createLine(w http.ResponseWriter, r *http.Request) error {
 		if err := validateLine(ctx, tx, activityID, &req); err != nil {
 			return err
 		}
+		if req.PartnerID.Value != nil {
+			if err := checkPartner(ctx, tx, *req.PartnerID.Value, req.SubjectID); err != nil {
+				return err
+			}
+		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			activityID, req.SubjectID, req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, req.SortOrder)
+			"INSERT INTO activity_lines (activity_id, subject_id, name, expression, formula_enabled, confidence_level, outlook, partner_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			activityID, req.SubjectID, req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, dbx.NullInt64(req.PartnerID.Value), req.SortOrder)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "この科目に同じ名前の内訳があります"})
 		}
@@ -263,6 +321,16 @@ func (h *Handler) updateLine(w http.ResponseWriter, r *http.Request) error {
 		if err := validateLine(ctx, tx, activityID, &req); err != nil {
 			return err
 		}
+		// 取引先: 省略したら今のまま。変えるときだけ確かめる（取引停止になった取引先が付いたままの内訳も、ほかの項目は直せる）
+		partnerID := before.PartnerID
+		if req.PartnerID.Set {
+			partnerID = req.PartnerID.Value
+			if partnerID != nil && (before.PartnerID == nil || *before.PartnerID != *partnerID) {
+				if err := checkPartner(ctx, tx, *partnerID, before.SubjectID); err != nil {
+					return err
+				}
+			}
+		}
 		formulaChanged := before.Expression != req.Expression || before.FormulaEnabled != req.FormulaEnabled
 		// 確度の段階・見通しの種類も、加重見込や楽観・悲観に影響するため理由が必須（docs/plan.md「2.7」）
 		levelChanged := derefString(before.ConfidenceLevel) != req.ConfidenceLevel || before.Outlook != req.Outlook
@@ -272,8 +340,8 @@ func (h *Handler) updateLine(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		_, err = tx.ExecContext(ctx,
-			"UPDATE activity_lines SET name = ?, expression = ?, formula_enabled = ?, confidence_level = ?, outlook = ?, sort_order = ? WHERE id = ?",
-			req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, req.SortOrder, id)
+			"UPDATE activity_lines SET name = ?, expression = ?, formula_enabled = ?, confidence_level = ?, outlook = ?, partner_id = ?, sort_order = ? WHERE id = ?",
+			req.Name, dbx.NullString(req.Expression), req.FormulaEnabled, dbx.NullString(req.ConfidenceLevel), req.Outlook, dbx.NullInt64(partnerID), req.SortOrder, id)
 		if dbx.ErrNo(err) == dbx.ErrDuplicateEntry {
 			return httpx.Validation(map[string]string{"name": "この科目に同じ名前の内訳があります"})
 		}

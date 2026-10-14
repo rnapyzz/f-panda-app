@@ -5,6 +5,7 @@ import { api } from '../e2e/helpers'
 // 2026年度の想定で、10月見込（今回の見込）を現場が更新している途中の状態を作る。日付は固定（締切 2026-10-16）。
 // 4つのユニットに施策 41 件。実績は施策コード・外部コード（案件番号）・割当ルール（会計科目 × 部門）で割り当て、未割当も少し残す。
 // 「新規開拓（受託）」は枠の施策（docs/plan.md「2.5」）の例で、内訳に α社・β社・γ社・未確定分を持ち、受注した案件の番号を外部コードに登録している。
+// 取引先（docs/plan.md「2.29」）は seedDemoPartners で入れ、新規開拓の α社・β社・γ社などの内訳に付ける。
 // 「S社 システム開発（1月検収）」は検収月に一括の施策（docs/plan.md「2.28」）の例で、外注費を仕掛品に積み、1月に売上と売上原価を計上する。
 // FP&A でログインした page を受け取り、API でデータを入れる。施策が1件でもある環境には入れない（本番などに誤って入れないため）。
 
@@ -297,5 +298,87 @@ export async function seedDemo(page: Page): Promise<DemoData> {
   // 説明へのコメント（docs/plan.md「2.24」）: FP&A が A社の後ろ倒しについて聞いている
   await a.post(`/scenarios/${oct.id}/activities/${bigA.id}/comments`, { body: '10〜12月の売上が後ろ倒しになっています。理由と、年度内に戻る見込みを説明に書いてください。' })
 
+  await seedDemoPartners(page)
+
   return { activityId: bigA.id, scenarioId: oct.id, wipActivityId: delivery.id }
+}
+
+/** デモの取引先（docs/plan.md「2.29」）。links は「施策コード / 内訳名」で、その内訳に付ける */
+type DemoPartner = {
+  code: string
+  name: string
+  company_name: string
+  accounting_code?: string
+  direction: 'sales' | 'purchase'
+  is_active?: boolean
+  note?: string
+  links: string[]
+}
+const demoPartners: DemoPartner[] = [
+  { code: 'TP-0001', name: 'α社 開発部', company_name: 'α社', accounting_code: 'C-1001', direction: 'sales', links: ['DEV-006 / α社'] },
+  { code: 'TP-0002', name: 'β社', company_name: 'β社', accounting_code: 'C-1002', direction: 'sales', links: ['DEV-006 / β社'] },
+  { code: 'TP-0003', name: 'γ社 情報システム部', company_name: 'γ社', direction: 'sales', links: ['DEV-006 / γ社'] },
+  { code: 'TP-0004', name: 'B社 業務改革室', company_name: 'B社', accounting_code: 'C-1010', direction: 'sales', links: ['DEV-002 / 追加要件'] },
+  { code: 'TP-0005', name: '株式会社 協力開発', company_name: '株式会社 協力開発', accounting_code: 'V-2001', direction: 'purchase', links: [] },
+  { code: 'TP-0006', name: 'クラウド基盤サービス', company_name: 'クラウド基盤サービス株式会社', accounting_code: 'V-2002', direction: 'purchase', links: [] },
+  {
+    code: 'TP-0007', name: 'α社 旧システム部', company_name: 'α社', direction: 'sales', is_active: false,
+    note: '2026年4月の組織変更で α社 開発部（TP-0001）に統合', links: [],
+  },
+]
+
+/**
+ * デモの取引先を入れ、デモの施策の内訳に付ける（何度実行しても同じ結果になる）。
+ * 取引先は取引先名・会社名・区分で探し、なければ作る。内訳は施策コードと内訳名で探し、取引先がまだ付いていなければ付ける。
+ * デモの施策がない環境では、内訳には何も付けない。scripts/demo.sh partners からも使う（docs/demo.md）。
+ */
+export async function seedDemoPartners(page: Page): Promise<{ created: number; linked: number }> {
+  const a = api(page)
+  const get = async <T>(path: string): Promise<T> => {
+    const res = await page.request.get(`/api${path}`)
+    if (!res.ok()) throw new Error(`GET ${path}: ${res.status()} ${await res.text()}`)
+    return (await res.json()) as T
+  }
+  type Line = { id: number; name: string; expression: string; formula_enabled: boolean; confidence_level: string | null; outlook: string; partner_id: number | null; sort_order: number }
+
+  // 同じ取引先は「取引先名・会社名・区分」で探す（コードはほかの取引先が使っていることがある）。なければ作り、
+  // コードがほかの取引先に使われていれば自動で採番する
+  type Existing = { id: number; code: string; name: string; company_name: string; direction: string; accounting_code: string | null }
+  const list = (await get<{ items: Existing[] }>('/partners')).items
+  const idOf = new Map<string, number>()
+  let created = 0
+  for (const p of demoPartners) {
+    const same = list.find((x) => x.name === p.name && x.company_name === p.company_name && x.direction === p.direction)
+    if (same) {
+      idOf.set(p.code, same.id)
+      continue
+    }
+    const res = await a.post<Existing>('/partners', {
+      code: list.some((x) => x.code === p.code) ? '' : p.code, name: p.name, company_name: p.company_name,
+      accounting_code: p.accounting_code && !list.some((x) => x.accounting_code === p.accounting_code) ? p.accounting_code : '',
+      direction: p.direction, is_active: p.is_active ?? true, note: p.note ?? '', reason: 'デモのデータ',
+    })
+    list.push(res)
+    idOf.set(p.code, res.id)
+    created++
+  }
+
+  const activities = new Map((await get<{ items: { id: number; code: string }[] }>('/activities')).items.map((x) => [x.code, x.id]))
+  let linked = 0
+  for (const p of demoPartners) {
+    for (const link of p.links) {
+      const [activityCode, lineName] = link.split(' / ')
+      const activityId = activities.get(activityCode)
+      if (!activityId) continue
+      const detail = await get<{ lines: Line[] }>(`/activities/${activityId}`)
+      const line = detail.lines.find((l) => l.name === lineName)
+      if (!line || line.partner_id) continue
+      await a.put(`/activities/${activityId}/lines/${line.id}`, {
+        name: line.name, expression: line.expression, formula_enabled: line.formula_enabled, confidence_level: line.confidence_level ?? '',
+        outlook: line.outlook, sort_order: line.sort_order, partner_id: idOf.get(p.code), reason: 'デモのデータ',
+      })
+      linked++
+    }
+  }
+  return { created, linked }
 }

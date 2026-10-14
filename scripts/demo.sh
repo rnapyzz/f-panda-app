@@ -5,6 +5,7 @@
 #   scripts/demo.sh down       止めて、データも消す
 #   scripts/demo.sh reset      データを消して、入れ直す（研修の前に初期の状態へ戻す）
 #   scripts/demo.sh seed       起動済みの環境に、デモのデータだけを入れる（DEMO_URL で別の環境も指定できる）
+#   scripts/demo.sh partners   デモのデータを入れ済みの環境に、取引先と内訳への紐づけだけを足す（何度実行しても同じ結果）
 #
 # 外への通知（Slack）は送らない。施策が1件でもある環境には、デモのデータを入れない。
 set -euo pipefail
@@ -21,7 +22,12 @@ ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-demo-admin-password}"
 
 seed() {
   echo "デモのデータを入れています（${URL}）..."
-  (cd web && E2E_BASE_URL="$URL" E2E_EMAIL="$ADMIN_EMAIL" E2E_PASSWORD="$ADMIN_PASSWORD" npx playwright test --config=playwright.demo.config.ts --reporter=line)
+  (cd web && E2E_BASE_URL="$URL" E2E_EMAIL="$ADMIN_EMAIL" E2E_PASSWORD="$ADMIN_PASSWORD" npx playwright test --config=playwright.demo.config.ts --reporter=line demo.spec.ts)
+}
+
+partners() {
+  echo "デモの取引先を入れています（${URL}）..."
+  (cd web && E2E_BASE_URL="$URL" E2E_EMAIL="$ADMIN_EMAIL" E2E_PASSWORD="$ADMIN_PASSWORD" npx playwright test --config=playwright.demo.config.ts --reporter=line demo-partners.spec.ts)
 }
 
 up() {
@@ -57,5 +63,6 @@ case "${1:-up}" in
   down) docker compose down -v ;;
   reset) docker compose down -v && up ;;
   seed) seed ;;
-  *) echo "使い方: scripts/demo.sh [up|down|reset|seed]" >&2; exit 1 ;;
+  partners) partners ;;
+  *) echo "使い方: scripts/demo.sh [up|down|reset|seed|partners]" >&2; exit 1 ;;
 esac

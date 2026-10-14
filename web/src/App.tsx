@@ -33,6 +33,7 @@ const HistoryPage = page(() => import('./pages/history/HistoryPage'), 'HistoryPa
 const TreeMasterPage = page(() => import('./pages/masters/TreeMasterPage'), 'TreeMasterPage')
 const UnitsPage = page(() => import('./pages/masters/UnitsPage'), 'UnitsPage')
 const SubjectsPage = page(() => import('./pages/masters/SubjectsPage'), 'SubjectsPage')
+const PartnersPage = page(() => import('./pages/masters/PartnersPage'), 'PartnersPage')
 const GLAccountsPage = page(() => import('./pages/masters/GLAccountsPage'), 'GLAccountsPage')
 const AllocationRulesPage = page(() => import('./pages/masters/AllocationRulesPage'), 'AllocationRulesPage')
 const ConfidenceLevelsPage = page(() => import('./pages/masters/ConfidenceLevelsPage'), 'ConfidenceLevelsPage')
@@ -65,6 +66,7 @@ const routes: Route[] = [
   // 旧 URL（「機能」だった頃）
   { path: '/masters/functions', render: () => <Redirect to="/masters/units" /> },
   { path: '/masters/subjects', render: () => <SubjectsPage /> },
+  { path: '/masters/partners', render: () => <PartnersPage /> },
   { path: '/masters/gl-accounts', render: () => <GLAccountsPage /> },
   { path: '/masters/allocation-rules', render: () => <AllocationRulesPage /> },
   { path: '/masters/confidence-levels', render: () => <ConfidenceLevelsPage /> },

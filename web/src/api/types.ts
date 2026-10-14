@@ -182,7 +182,44 @@ export type Line = Timestamps & {
   /** 内訳の確度の段階。null なら施策の段階 */
   confidence_level: string | null
   outlook: Outlook
+  /** 取引先（docs/plan.md「2.29」。null は付けていない） */
+  partner_id: number | null
   sort_order: number
+}
+
+/** 取引先の区分。sales = 受注（顧客）、purchase = 発注（発注先） */
+export type PartnerDirection = 'sales' | 'purchase'
+
+export const partnerDirectionLabels: Record<PartnerDirection, string> = {
+  sales: '受注',
+  purchase: '発注',
+}
+
+/** 取引先（docs/plan.md「2.29」） */
+export type Partner = Timestamps & {
+  id: number
+  code: string
+  name: string
+  company_name: string
+  accounting_code: string | null
+  direction: PartnerDirection
+  /** 取引中か（false は取引停止） */
+  is_active: boolean
+  note: string
+  /** 付いている内訳の数 */
+  line_count: number
+}
+
+/** 取引先が付いた内訳（GET /partners/{id}/lines） */
+export type PartnerLine = {
+  id: number
+  name: string
+  subject_id: number
+  subject_name: string
+  activity_id: number
+  activity_code: string
+  activity_name: string
+  status: ActivityStatus
 }
 
 export type ExternalCode = Timestamps & {
@@ -290,6 +327,8 @@ export type AmountLine = {
   formula_enabled: boolean
   confidence_level: string | null
   outlook: Outlook
+  /** 取引先（null は付けていない） */
+  partner?: { id: number; name: string; is_active: boolean } | null
   values: AmountCell[]
 }
 
@@ -568,6 +607,8 @@ export const tableLabels: Record<string, string> = {
   confidence_levels: '確度の段階',
   activity_scenario_notes: '今回の見込の説明・更新の完了',
   users: 'ユーザー',
+  partners: '取引先',
+  activity_recognitions: '計上月',
 }
 
 // --- リスク ---

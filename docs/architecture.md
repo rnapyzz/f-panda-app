@@ -350,8 +350,8 @@
 
 | API | 内容 | 権限 |
 | --- | ---- | ---- |
-| `GET /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,activities}/export` | CSV（BOM 付き UTF-8）をダウンロード | 全員 |
-| `POST /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,activities}/import` | CSV を取込（`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | FP&A |
+| `GET /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,partners,activities}/export` | CSV（BOM 付き UTF-8）をダウンロード | 全員 |
+| `POST /api/{organizations,segments,units,subjects,gl-accounts,allocation-rules,users,partners,activities}/import` | CSV を取込（`multipart/form-data` の `file` と `reason`、`?dry_run=true` で確認のみ） | FP&A |
 
 - 形式と取込のルールは docs/plan.md「6.2」
 - 省略できる列（ユーザーの `slack_user_id`）は `csvio.ParseWithOptional` で読む

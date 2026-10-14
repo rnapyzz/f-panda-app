@@ -28,6 +28,7 @@ import {
   IconSubjects,
   IconUnits,
   IconUsers,
+  IconPartners,
   IconManual,
 } from './icons'
 import { NotificationBell } from './NotificationBell'
@@ -73,6 +74,7 @@ const navGroups: NavGroup[] = [
       { to: '/masters/subjects', label: '勘定科目', icon: IconSubjects },
       { to: '/masters/gl-accounts', label: '会計科目', icon: IconLedger },
       { to: '/masters/allocation-rules', label: '割当ルール', icon: IconRules },
+      { to: '/masters/partners', label: '取引先', icon: IconPartners },
       { to: '/masters/confidence-levels', label: '確度の段階', icon: IconConfidence },
       { to: '/masters/users', label: 'ユーザー', icon: IconUsers },
     ],
