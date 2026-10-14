@@ -159,6 +159,16 @@ export const IconHome = (p: P) => (
   </Icon>
 )
 
+/** ダッシュボード: 4つのパネル */
+export const IconDashboard = (p: P) => (
+  <Icon {...p}>
+    <rect x="3.5" y="3.5" width="7" height="9" rx="1.5" />
+    <rect x="13.5" y="3.5" width="7" height="5" rx="1.5" />
+    <rect x="13.5" y="11.5" width="7" height="9" rx="1.5" />
+    <rect x="3.5" y="15.5" width="7" height="5" rx="1.5" />
+  </Icon>
+)
+
 /** 会計科目: 台帳 */
 export const IconLedger = (p: P) => (
   <Icon {...p}>

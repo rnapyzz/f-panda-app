@@ -14,6 +14,7 @@ import {
   IconConfidence,
   IconHistory,
   IconHome,
+  IconDashboard,
   IconLedger,
   IconLogout,
   IconMenu,
@@ -43,6 +44,7 @@ const navGroups: NavGroup[] = [
     label: '日々の作業',
     items: [
       { to: '/', label: 'ホーム', icon: IconHome },
+      { to: '/dashboard', label: 'ダッシュボード', icon: IconDashboard },
       { to: '/activities', label: '施策', icon: IconActivities },
       { to: '/scenarios', label: 'シナリオ', icon: IconScenarios, roles: ['fpa_admin', 'viewer'] },
       { to: '/reports', label: '予実比較', icon: IconReports },
