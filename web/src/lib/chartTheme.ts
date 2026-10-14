@@ -27,3 +27,10 @@ export const ink = {
   accent: '#6e56cf',
   accentSoft: '#e4dffb',
 } as const
+
+/**
+ * 月次の推移（ダッシュボード。docs/plan.md「2.30」）。棒は同じ紫の濃い（実績の月）・淡い（見込の月）、
+ * 線は目標（青緑）と前回の見込（橙・点線）。棒・線の3色の組は検証スクリプトで確かめた（ΔE 13 以上）。
+ * 線は面との対比が 3:1 に届かないので、凡例と「表で見る」を必ず付ける
+ */
+export const trend = { actual: '#5340b8', plan: '#b2a6ef', target: '#12a594', previous: '#f76b15' } as const

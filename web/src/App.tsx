@@ -27,6 +27,7 @@ const ActualsPage = page(() => import('./pages/scenarios/ActualsPage'), 'Actuals
 const NotificationSettingsPage = page(() => import('./pages/scenarios/NotificationSettingsPage'), 'NotificationSettingsPage')
 const OrgChangesPage = page(() => import('./pages/scenarios/OrgChangesPage'), 'OrgChangesPage')
 const ReportPage = page(() => import('./pages/reports/ReportPage'), 'ReportPage')
+const DashboardPage = page(() => import('./pages/dashboard/DashboardPage'), 'DashboardPage')
 const ReportPackPage = page(() => import('./pages/reports/ReportPackPage'), 'ReportPackPage')
 const RiskPage = page(() => import('./pages/reports/RiskPage'), 'RiskPage')
 const HistoryPage = page(() => import('./pages/history/HistoryPage'), 'HistoryPage')
@@ -56,6 +57,7 @@ const routes: Route[] = [
   { path: '/admin/actuals', render: () => <ActualsPage /> },
   { path: '/admin/notifications', render: () => <NotificationSettingsPage /> },
   { path: '/admin/org-changes', render: () => <OrgChangesPage /> },
+  { path: '/dashboard', render: () => <DashboardPage /> },
   { path: '/reports', render: () => <ReportPage /> },
   { path: '/reports/pack', render: () => <ReportPackPage /> },
   { path: '/history', render: () => <HistoryPage /> },

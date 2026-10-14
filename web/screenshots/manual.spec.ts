@@ -30,6 +30,12 @@ test('手引きの画像', async ({ page, browser }) => {
   await page.waitForLoadState('networkidle')
   await page.locator('div:has(> [data-chart])').screenshot({ path: out('activity-pipeline') })
 
+  // ダッシュボード（全社）
+  await page.goto('/dashboard')
+  await expect(page.getByRole('region', { name: '年間の状況' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'どこで差が出ているか' }).getByRole('button').first()).toBeVisible()
+  await shot(page, 'dashboard')
+
   // リスク画面
   await page.goto('/risks')
   await expect(page.getByRole('img', { name: /悲観/ }).first()).toBeVisible()

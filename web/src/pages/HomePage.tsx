@@ -205,6 +205,12 @@ function HomeView({ scenarioId, tabs }: { scenarioId: number; tabs?: ReactNode }
       />
       {tabs}
       <RestrictedNote hidden={r.restricted_hidden} className="mb-4" />
+      <p className="mb-4 text-sm">
+        <Link to={`/dashboard?scenario=${r.scenario.id}&fy=${r.scenario.fiscal_year}`} className="font-medium text-indigo-700 hover:underline">
+          📊 ダッシュボードで図で見る →
+        </Link>
+        <span className="ml-2 text-xs text-slate-500">年間の状況・月次の推移・どこで差が出ているかを、図を押して掘り下げられます</span>
+      </p>
 
       {r.new_actual_months.length > 0 && (
         <Card className="mb-4">
