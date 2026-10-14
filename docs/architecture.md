@@ -123,7 +123,7 @@
 
 ## マスタ管理 API
 
-組織・セグメント・ユニット・勘定科目・会計科目・割当ルール・ユーザー・確度の段階の CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
+組織・セグメント・ユニット・勘定科目・会計科目・割当ルール・ユーザー・確度の段階・取引先の CRUD。参照はログインユーザー全員、更新は FP&A（`fpa_admin`）のみ。
 
 | リソース                       | API                                                                 |
 | ------------------------------ | ------------------------------------------------------------------- |
@@ -134,6 +134,7 @@
 | 割当ルール                     | `GET/POST /api/allocation-rules`、`PUT/DELETE /api/allocation-rules/{id}`（会計科目 `gl_account_id`・部門 `department_code`（空は全部門）・施策 `activity_id`。会計科目 × 部門で一意。変更は次の取込・再割当から反映） |
 | ユーザー                       | `GET/POST /api/users`、`GET/PUT /api/users/{id}`、`PUT /api/users/{id}/password`。`GET /api/users/{id}/assignments`（担当している施策・所管ユニットの件数）、`POST /api/users/{id}/deactivate`（`successor_user_id`（null で担当者未設定）・`reason`。担当とマネージャーを付け替えてから無効にする）。Slack のメンバー ID（`slack_user_id`、U または W で始まる英大文字・数字、空で未登録）を持つ |
 | 確度の段階                     | `GET/POST /api/confidence-levels`、`PUT/DELETE /api/confidence-levels/{id}`（名前・標準の確率 0〜1・判定基準・表示順。コードは作成後に変更できない。施策・内訳から参照されている段階は削除できない） |
+| 取引先                         | `GET/POST /api/partners`、`GET/PUT/DELETE /api/partners/{id}`（取引先コード `code`（作成時に空なら `TP-0001` 形式で採番）・取引先名・会社名 `company_name`・会計システムコード `accounting_code`（任意・一意）・区分 `direction`（sales / purchase）・状態 `is_active`・メモ）。`GET /api/partners/{id}/lines`（付いている内訳と施策）。内訳に付いている取引先は削除できない（409）。docs/plan.md「2.29」 |
 
 - 一覧は `{"items": [...]}` で全件を返す（マスタは件数が少ないためページングしない）
 - 組織・セグメント・ユニット・勘定科目はコードを持つ（一意）。組織・セグメント・ユニットは、作成時にコードが空なら `ORG-0001` / `SEG-0001` / `UNIT-0001` 形式で自動採番し、更新時に空なら変更しない
@@ -164,7 +165,7 @@
 | ドライバー定義 | `POST /api/activities/{id}/drivers`、`PUT/DELETE /api/activities/{id}/drivers/{did}`     |
 | 重点施策       | `PUT /api/activities/{id}/priority`（`is_priority`。施策の作成・削除の権限が必要。変更履歴に残す） |
 | ウォッチ       | `PUT/DELETE /api/activities/{id}/watch`（ログインユーザー本人の印。施策の一覧・詳細に `is_watched` を返す） |
-| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定。計算式・反映の有無・段階・見通しの種類の変更は理由必須） |
+| 金額の内訳     | `POST /api/activities/{id}/lines`、`PUT/DELETE /api/activities/{id}/lines/{lid}`（施策 × 科目に複数。取引先 `partner_id`（任意。取引中で、区分が科目の区分に合うもの。合わなければ 422）。計算式で反映するか・確度の段階（`confidence_level`、空なら施策の段階）・見通しの種類（`outlook`: base / addon / downside）を内訳ごとに設定。計算式・反映の有無・段階・見通しの種類の変更は理由必須） |
 
 - 一覧は `unit_id` / `owner_user_id` / `activity_type` / `status` / `q`（コード・名称の部分一致）で絞り込める
 - 作成（`POST /api/activities`）で `copy_from_activity_id` を指定すると、その施策の内訳・ドライバーを写して作る（docs/plan.md「2.27」）。閲覧制限のある科目の内訳は FP&A 以外は写さず、レスポンスの `skipped_restricted_lines` に件数を返す。元の施策が見つからなければ 422
