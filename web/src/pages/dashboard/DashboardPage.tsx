@@ -3,6 +3,7 @@ import { api, query } from '../../api/client'
 import {
   activityTypeLabels,
   noteStatusLabels,
+  planRoleLabels,
   unitTypeLabels,
   type Activity,
   type ActivityProgressReport,
@@ -157,7 +158,15 @@ function Dashboard({
   const compare = f.compare === 'previous' ? previous : target
   const compareScenario = compare && compare.id !== scenario?.id ? compare : undefined
   const previousScenario = previous && previous.id !== scenario?.id ? previous : undefined
-  const compareLabel = f.compare === 'previous' ? '前回の見込' : '目標'
+  // 系列の名前: 比較の目標（修正計画、なければ期初計画）はエイリアス、ほかはシナリオ名で出す（「目標」「今回」だけだと、どのシナリオか分からないため）
+  const nameOf = (s: Scenario | undefined, fallback: string) => (s ? s.name : fallback)
+  const aliasOrName = (s: Scenario | undefined, fallback: string) => (s ? (s.plan_role ? planRoleLabels[s.plan_role] : s.name) : fallback)
+  const labels = {
+    current: scenario ? nameOf(scenario, '') : '',
+    previous: nameOf(previousScenario, '前回の見込'),
+    compare: f.compare === 'previous' ? nameOf(previousScenario, '前回の見込') : aliasOrName(compareScenario, '目標'),
+  }
+  const compareLabel = labels.compare
 
   const ids = scenario ? [...new Set([scenario.id, compareScenario?.id, previousScenario?.id].filter((x): x is number => x !== undefined))] : []
   const reportQuery = ids.length > 0 ? query({ scenario_ids: ids.join(',') }) : null
@@ -230,7 +239,8 @@ function Dashboard({
         years={years}
         inYear={inYear}
         scenario={scenario}
-        hasPrevious={previousScenario !== undefined}
+        target={target && target.id !== scenario.id ? target : undefined}
+        previous={previousScenario}
         set={set}
         role={me.role}
       />
@@ -253,11 +263,13 @@ function Dashboard({
                 compare={keys.compare ? totals.get(keys.compare)!.year : null}
                 previous={keys.previous ? totals.get(keys.previous)!.year : null}
                 compareLabel={compareLabel}
+                previousLabel={labels.previous}
+                showPrevious={f.compare !== 'previous'}
                 actualThrough={scenario.actual_through}
                 scenario={scenario}
               />
               <div className="grid gap-4 xl:grid-cols-2">
-                <Section title="月次の推移" sub={`今回の見込「${scenarioLabel(scenario)}」`}>
+                <Section title="月次の推移" sub={scenarioLabel(scenario)}>
                   <TrendChart
                     months={months}
                     actualThrough={scenario.actual_through}
@@ -268,10 +280,10 @@ function Dashboard({
                     }}
                     measure={f.measure}
                     onMeasure={(m) => set({ measure: m })}
-                    compareLabel={compareLabel}
+                    labels={labels}
                   />
                 </Section>
-                <VarianceSection f={f} tree={tree} units={units} activities={dashActivities} scope={scope} rows={rows} keys={keys} categoryOf={categoryOf} months={months} compareLabel={compareLabel} onGroup={onGroup} />
+                <VarianceSection f={f} tree={tree} units={units} activities={dashActivities} scope={scope} rows={rows} keys={keys} categoryOf={categoryOf} months={months} compareLabel={compareLabel} currentLabel={labels.current} onGroup={onGroup} />
                 <ChangesSection
                   f={f}
                   tree={tree}
@@ -287,6 +299,7 @@ function Dashboard({
                   onGroup={onGroup}
                   onCause={(c) => set({ cause: f.cause === c ? null : c })}
                   statusById={statusById}
+                  labels={labels}
                 />
                 <CertaintySection risk={risk.data!} status={status.data!} scope={scope} f={f} onLevel={(code) => set({ level: f.level === code ? null : code })} />
               </div>
@@ -333,7 +346,8 @@ function FilterBar({
   years,
   inYear,
   scenario,
-  hasPrevious,
+  target,
+  previous,
   set,
   role,
 }: {
@@ -341,7 +355,9 @@ function FilterBar({
   years: number[]
   inYear: Scenario[]
   scenario: Scenario
-  hasPrevious: boolean
+  /** 比較の目標（修正計画、なければ期初計画）と前回の見込のシナリオ */
+  target: Scenario | undefined
+  previous: Scenario | undefined
   set: (patch: Partial<DashFilters>) => void
   role: string
 }) {
@@ -368,10 +384,12 @@ function FilterBar({
           </Select>
         </Control>
         <Control label="比較">
-          <Select aria-label="比較" value={f.compare} onChange={(e) => set({ compare: e.target.value as DashFilters['compare'] })} className="w-36 py-1 text-xs">
-            <option value="target">目標</option>
-            <option value="previous" disabled={!hasPrevious}>
-              前回の見込
+          <Select aria-label="比較" value={f.compare} onChange={(e) => set({ compare: e.target.value as DashFilters['compare'] })} className="w-64 py-1 text-xs">
+            <option value="target" disabled={!target}>
+              {target ? scenarioLabel(target) : '目標（修正計画・期初計画）なし'}
+            </option>
+            <option value="previous" disabled={!previous}>
+              {previous ? `${previous.name}（前回の見込）` : '前回の見込なし'}
             </option>
           </Select>
         </Control>
@@ -464,6 +482,8 @@ function KpiTiles({
   compare,
   previous,
   compareLabel,
+  previousLabel,
+  showPrevious,
   actualThrough,
   scenario,
 }: {
@@ -471,6 +491,9 @@ function KpiTiles({
   compare: PL | null
   previous: PL | null
   compareLabel: string
+  previousLabel: string
+  /** 比較とは別に、前回の見込との差も出すか（比較が前回の見込なら出さない） */
+  showPrevious: boolean
   actualThrough: string | null
   scenario: Scenario
 }) {
@@ -483,7 +506,7 @@ function KpiTiles({
     const v = pick(current.year)
     const diffs: { label: string; diff: bigint; rate: number | null }[] = []
     if (compare) diffs.push({ label: compareLabel, diff: v - pick(compare), rate: varianceRate(pick(compare), v) })
-    if (previous && compareLabel !== '前回の見込') diffs.push({ label: '前回の見込', diff: v - pick(previous), rate: varianceRate(pick(previous), v) })
+    if (previous && showPrevious) diffs.push({ label: previousLabel, diff: v - pick(previous), rate: varianceRate(pick(previous), v) })
     const good = (d: bigint) => (d === 0n ? null : measure === 'expense' ? d < 0n : d > 0n)
     return (
       <div key={measure} className={cx('rounded-lg border bg-white px-4 py-3', measure === 'profit' ? 'border-indigo-200' : 'border-slate-200')}>
@@ -540,6 +563,7 @@ function VarianceSection({
   categoryOf,
   months,
   compareLabel,
+  currentLabel,
   onGroup,
 }: {
   f: DashFilters
@@ -552,6 +576,7 @@ function VarianceSection({
   categoryOf: (id: number) => Subject['category'] | undefined
   months: string[]
   compareLabel: string
+  currentLabel: string
   onGroup: (g: Group) => void
 }) {
   if (!keys.compare) {
@@ -573,7 +598,7 @@ function VarianceSection({
           <Empty>金額のある区分がありません。</Empty>
         </Card>
       ) : (
-        <VarianceChart bars={bars} compareLabel={compareLabel} onSelect={(b: VarianceBar) => onGroup(b.group)} />
+        <VarianceChart bars={bars} compareLabel={compareLabel} currentLabel={currentLabel} onSelect={(b: VarianceBar) => onGroup(b.group)} />
       )}
     </Section>
   )
@@ -596,6 +621,7 @@ function ChangesSection({
   onGroup,
   onCause,
   statusById,
+  labels,
 }: {
   f: DashFilters
   tree: Tree
@@ -611,6 +637,7 @@ function ChangesSection({
   onGroup: (g: Group) => void
   onCause: (c: ReturnType<typeof causeKeyOf>) => void
   statusById: Map<number, ActivityProgressReport['items'][number]>
+  labels: { current: string; previous: string }
 }) {
   const { signed } = useAmountUnit()
   if (!keys.previous) {
@@ -639,7 +666,7 @@ function ChangesSection({
     const g = groupOfActivity(a)
     return g ? { key: g.key, label: g.name, filter: g.kind === 'unallocated' ? null : { kind: 'group', group: g }, current, previous } : { key: 'other', label: 'その他', filter: null, current, previous }
   })
-  const steps = waterfall(entries)
+  const steps = waterfall(entries, 8, { start: labels.previous, end: labels.current })
   const onSelect = (s: Step) => {
     if (s.filter?.kind === 'group') onGroup(s.filter.group)
     else if (s.filter?.kind === 'cause') onCause(s.filter.cause)
@@ -652,7 +679,7 @@ function ChangesSection({
     .sort((x, y) => (x.diff < 0n ? -x.diff : x.diff) > (y.diff < 0n ? -y.diff : y.diff) ? -1 : 1)
     .slice(0, 3)
   return (
-    <Section title="前回から何が変わったか" sub="前回の見込 → 今回の見込（利益）">
+    <Section title="前回から何が変わったか" sub={`前回の見込「${labels.previous}」→「${labels.current}」（利益）`}>
       <WaterfallCard
         steps={steps}
         mode={mode}

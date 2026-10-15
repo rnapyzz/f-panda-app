@@ -32,6 +32,17 @@ test('ダッシュボードで年間の状況を見て、差の図を押して�
   await expect(kpi).toContainText('1,500,000')
   await expect(kpi).toContainText('+500,000')
 
+  // 比較は目標のシナリオのエイリアス（期初計画）で出す
+  await expect(kpi).toContainText('期初計画との差')
+
+  // 「表で見る」を入れて外しても、図は枠の幅で描かれる（拡大しない）
+  const trend = page.getByRole('region', { name: '月次の推移' })
+  const svgSize = () => trend.locator('svg').first().evaluate((el) => [(el as SVGSVGElement).viewBox.baseVal.width, Math.round(el.getBoundingClientRect().width)])
+  const [viewBoxBefore] = await svgSize()
+  await trend.getByLabel('表で見る').check()
+  await trend.getByLabel('表で見る').uncheck()
+  await expect.poll(svgSize).toEqual([viewBoxBefore, viewBoxBefore])
+
   // ③ どこで差が出ているか: セグメント → ユニット → 施策
   const variance = page.getByRole('region', { name: 'どこで差が出ているか' })
   await variance.getByRole('button', { name: new RegExp(`^E2E事業 ${f.run}: 差 \\+500,000`) }).click()

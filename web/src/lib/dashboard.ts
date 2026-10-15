@@ -262,7 +262,7 @@ export type WaterfallEntry = { key: string; label: string; filter: Step['filter'
  * 前回の見込の利益から、区分ごとの増減を積み上げて今回の見込の利益に至る段。
  * 同じ key の entry はまとめる。増減の大きい順に limit 個まで並べ、残りは「その他」にまとめる。増減が 0 の区分は出さない。
  */
-export function waterfall(entries: WaterfallEntry[], limit = 8): Step[] {
+export function waterfall(entries: WaterfallEntry[], limit = 8, labels = { start: '前回の見込', end: '今回の見込' }): Step[] {
   let start = 0n
   let end = 0n
   const buckets = new Map<string, { label: string; filter: Step['filter']; delta: bigint }>()
@@ -277,7 +277,7 @@ export function waterfall(entries: WaterfallEntry[], limit = 8): Step[] {
   const sorted = [...buckets.entries()].filter(([, b]) => b.delta !== 0n).sort((a, b) => (abs(a[1].delta) === abs(b[1].delta) ? 0 : abs(a[1].delta) > abs(b[1].delta) ? -1 : 1))
   const shown = sorted.slice(0, limit)
   const rest = sorted.slice(limit).reduce((s, [, b]) => s + b.delta, 0n)
-  const steps: Step[] = [{ key: 'start', label: '前回の見込', kind: 'total', from: 0n, to: start, filter: null }]
+  const steps: Step[] = [{ key: 'start', label: labels.start, kind: 'total', from: 0n, to: start, filter: null }]
   let acc = start
   for (const [key, b] of shown) {
     steps.push({ key, label: b.label, kind: 'delta', from: acc, to: acc + b.delta, filter: b.filter })
@@ -287,7 +287,7 @@ export function waterfall(entries: WaterfallEntry[], limit = 8): Step[] {
     steps.push({ key: 'rest', label: `その他（${sorted.length - shown.length}件）`, kind: 'delta', from: acc, to: acc + rest, filter: null })
     acc += rest
   }
-  steps.push({ key: 'end', label: '今回の見込', kind: 'total', from: 0n, to: end, filter: null })
+  steps.push({ key: 'end', label: labels.end, kind: 'total', from: 0n, to: end, filter: null })
   return steps
 }
 
