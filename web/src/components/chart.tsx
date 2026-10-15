@@ -1,6 +1,6 @@
 // 図の共通の部品（施策の一覧の図・ダッシュボード）。カード・凡例・切り替え・ツールチップ・キーボード操作・文字の幅。
 
-import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { Card, cx } from './ui'
 import { formatAmount, formatSignedAmount } from '../lib/format'
 import { useAmountUnit } from '../lib/amountUnit'
@@ -166,18 +166,21 @@ export function clip(text: string, width: number, fontSize: number): string {
 }
 
 /**
- * 図を描く枠の幅（px）。SVG を実際の幅で描き、文字が縮まないようにする（狭い画面・2列の配置でも読める大きさ）
+ * 図を描く枠の幅（px）。SVG を実際の幅で描き、文字が縮まないようにする（狭い画面・2列の配置でも読める大きさ）。
+ * ref はコールバックなので、「表で見る」などで枠が消えて出直しても、出直した枠を測り直す
  */
 export function useWidth<T extends HTMLElement>(initial = 640) {
-  const ref = useRef<T>(null)
   const [width, setWidth] = useState(initial)
-  useLayoutEffect(() => {
-    const el = ref.current
+  const observer = useRef<ResizeObserver | null>(null)
+  const ref = useCallback((el: T | null) => {
+    observer.current?.disconnect()
+    observer.current = null
     if (!el) return
-    setWidth(Math.max(280, Math.round(el.getBoundingClientRect().width)))
-    const ro = new ResizeObserver(([e]) => setWidth(Math.max(280, Math.round(e.contentRect.width))))
+    const measure = (w: number) => w > 0 && setWidth(Math.max(280, Math.round(w)))
+    measure(el.getBoundingClientRect().width)
+    const ro = new ResizeObserver(([e]) => measure(e.contentRect.width))
     ro.observe(el)
-    return () => ro.disconnect()
+    observer.current = ro
   }, [])
   return [ref, width] as const
 }

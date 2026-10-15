@@ -36,15 +36,17 @@ export function TrendChart({
   series,
   measure,
   onMeasure,
-  compareLabel,
+  labels,
 }: {
   months: string[]
   actualThrough: string | null
   series: TrendSeries
   measure: Measure
   onMeasure: (m: Measure) => void
-  compareLabel: string
+  /** 系列の名前（今回・比較・前回の見込のシナリオの名前かエイリアス） */
+  labels: { current: string; compare: string; previous: string }
 }) {
+  const compareLabel = labels.compare
   const { man, yen } = useChartFormat()
   const { tip, active, props } = useMarks()
   const { table, toggle } = useTableView()
@@ -72,10 +74,10 @@ export function TrendChart({
     <ChartCard
       legend={
         <>
-          <Swatch shape="square" color={trend.actual} label="今回の見込（実績の月）" />
-          <Swatch shape="square" color={trend.plan} label="今回の見込（見込の月）" />
+          <Swatch shape="square" color={trend.actual} label={`${labels.current}（実績の月）`} />
+          <Swatch shape="square" color={trend.plan} label={`${labels.current}（見込の月）`} />
           {series.compare && <Swatch shape="line" color={trend.target} label={compareLabel} />}
-          {series.previous && <Swatch shape="line" color={trend.previous} label="前回の見込（点線）" />}
+          {series.previous && <Swatch shape="line" color={trend.previous} label={`${labels.previous}（点線）`} />}
         </>
       }
       actions={
@@ -91,9 +93,9 @@ export function TrendChart({
             <thead>
               <tr>
                 <th>月</th>
-                <th className="text-right">今回の見込</th>
+                <th className="text-right">{labels.current}</th>
                 {series.compare && <th className="text-right">{compareLabel}</th>}
-                {series.previous && <th className="text-right">前回の見込</th>}
+                {series.previous && <th className="text-right">{labels.previous}</th>}
               </tr>
             </thead>
             <tbody>
@@ -127,9 +129,9 @@ export function TrendChart({
               const top = py(Math.max(0, v))
               const height = Math.max(1, Math.abs(py(v) - py(0)))
               const bw = Math.min(28, step * 0.56)
-              const rows: [string, string][] = [['今回の見込', yen(v)]]
+              const rows: [string, string][] = [[labels.current, yen(v)]]
               if (series.compare) rows.push([compareLabel, yen(val(series.compare, m) ?? 0)])
-              if (series.previous) rows.push(['前回の見込', yen(val(series.previous, m) ?? 0)])
+              if (series.previous) rows.push([labels.previous, yen(val(series.previous, m) ?? 0)])
               return (
                 <g key={m} {...props(m, null, `${monthLabel(m)}: ${rows.map((r) => r.join(' ')).join('、')}`, <TipBody title={`${monthLabel(m)}${isActual(m) ? '（実績）' : ''}`} rows={rows} link={false} />)}>
                   <rect x={M.left + step * i} y={M.top} width={step} height={H - M.top - M.bottom} fill={active(m) ? '#f6f5ff' : 'transparent'} />
@@ -161,7 +163,19 @@ const ROW_H = 30
 const labelWidth = (w: number) => Math.min(200, Math.round(w * 0.3))
 
 /** 区分ごとの比較との差（利益）を、0 を中心に左右へ伸ばす横棒。押すと掘り下げる */
-export function VarianceChart({ bars, compareLabel, onSelect, limit = 12 }: { bars: VarianceBar[]; compareLabel: string; onSelect: (b: VarianceBar) => void; limit?: number }) {
+export function VarianceChart({
+  bars,
+  compareLabel,
+  currentLabel,
+  onSelect,
+  limit = 12,
+}: {
+  bars: VarianceBar[]
+  compareLabel: string
+  currentLabel: string
+  onSelect: (b: VarianceBar) => void
+  limit?: number
+}) {
   const { man, yen, signedYen } = useChartFormat()
   const { tip, active, props } = useMarks()
   const { table, toggle } = useTableView()
@@ -191,7 +205,7 @@ export function VarianceChart({ bars, compareLabel, onSelect, limit = 12 }: { ba
           <thead>
             <tr>
               <th>区分</th>
-              <th className="text-right">今回の見込</th>
+              <th className="text-right">{currentLabel}</th>
               <th className="text-right">{compareLabel}</th>
               <th className="text-right">差</th>
             </tr>
@@ -237,7 +251,7 @@ export function VarianceChart({ bars, compareLabel, onSelect, limit = 12 }: { ba
                 <g
                   key={b.group.key}
                   {...props(b.group.key, target, `${b.group.name}: 差 ${signedYen(d)}`, (
-                    <TipBody title={b.group.name} rows={[['今回の見込', yen(toNum(b.current))], [compareLabel, yen(toNum(b.compare))], ['差', signedYen(d)]]} link={false} hint={hint(b)} />
+                    <TipBody title={b.group.name} rows={[[currentLabel, yen(toNum(b.current))], [compareLabel, yen(toNum(b.compare))], ['差', signedYen(d)]]} link={false} hint={hint(b)} />
                   ))}
                 >
                   <rect x={0} y={y - ROW_H / 2} width={W} height={ROW_H} rx={6} fill={active(b.group.key) ? '#f6f5ff' : 'transparent'} />
@@ -290,7 +304,7 @@ export function WaterfallCard({
     <ChartCard
       legend={
         <>
-          <Swatch shape="square" color={totalColor} label="前回・今回の見込" />
+          <Swatch shape="square" color={totalColor} label="前回・今回の合計" />
           <Swatch shape="square" color={upColor} label="増加" />
           <Swatch shape="square" color={downColor} label="減少" />
         </>
