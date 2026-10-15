@@ -411,8 +411,9 @@ export function CompositionBar({
 }: {
   composition: Map<string, bigint>
   levels: { code: string; name: string }[]
-  selected: string | null
-  onSelect: (code: string) => void
+  /** 選んだ段階（絞り込み）。onSelect がなければ押せない（シナリオの全体像） */
+  selected?: string | null
+  onSelect?: (code: string) => void
 }) {
   const { yen } = useChartFormat()
   const { fmt } = useAmountUnit()
@@ -443,11 +444,11 @@ export function CompositionBar({
               const w = (Number(p.value) / Number(total)) * W
               const at = x
               x += w
-              const dim = selected !== null && selected !== p.key
+              const dim = selected != null && selected !== p.key
               return (
                 <g
                   key={p.key}
-                  {...props(p.key, p.level ? () => onSelect(p.key) : null, `${p.label}: ${yen(toNum(p.value))}`, (
+                  {...props(p.key, p.level && onSelect ? () => onSelect(p.key) : null, `${p.label}: ${yen(toNum(p.value))}`, (
                     <TipBody
                       title={p.label}
                       rows={[
@@ -455,7 +456,7 @@ export function CompositionBar({
                         ['割合', `${((Number(p.value) / Number(total)) * 100).toFixed(1)}%`],
                       ]}
                       link={false}
-                      hint={p.level ? (selected === p.key ? 'クリックで絞り込みを外す' : 'クリックでこの段階の施策に絞り込む') : undefined}
+                      hint={p.level && onSelect ? (selected === p.key ? 'クリックで絞り込みを外す' : 'クリックでこの段階の施策に絞り込む') : undefined}
                     />
                   ))}
                 >

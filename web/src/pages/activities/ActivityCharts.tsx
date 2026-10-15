@@ -589,7 +589,7 @@ function WaterfallChart({
 type MilestoneItem = { id: number; activity_id: number; name: string; due_date: string; overdue: boolean; delayed: boolean }
 
 /** 施策の期間を帯、完了していないマイルストーンを菱形で描く。年度（4月〜翌3月）の範囲 */
-function TimelineChart({ activities, scenario, unitName }: { activities: Activity[]; scenario: Scenario; unitName: (id: number) => string }) {
+export function TimelineChart({ activities, scenario, unitName }: { activities: Activity[]; scenario: Scenario; unitName: (id: number) => string }) {
   const { tip, active, props } = useMarks()
   const dated = activities
     .filter((a) => a.start_date || a.end_date)

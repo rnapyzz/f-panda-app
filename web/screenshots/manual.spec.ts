@@ -36,6 +36,12 @@ test('手引きの画像', async ({ page, browser }) => {
   await expect(page.getByRole('region', { name: 'どこで差が出ているか' }).getByRole('button').first()).toBeVisible()
   await shot(page, 'dashboard')
 
+  // シナリオの全体像（今回の見込）
+  await page.goto(`/scenarios/${d.scenarioId}`)
+  await expect(page.getByRole('region', { name: 'ひとことで' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '何でできているか（売上）' }).getByRole('button').first()).toBeVisible()
+  await shot(page, 'scenario-overview')
+
   // リスク画面
   await page.goto('/risks')
   await expect(page.getByRole('img', { name: /悲観/ }).first()).toBeVisible()

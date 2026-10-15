@@ -16,7 +16,9 @@ test('計画値の CSV を出力し、確認してから取り込める', async 
   const activity = await createActivity(page, f)
   const scenario = await api(page).post('/scenarios', { name: `E2E計画値 ${f.run}`, fiscal_year: 2032 })
 
+  // 計画値の CSV は、シナリオの画面の「計画値の CSV」のタブ（docs/plan.md「2.31」）
   await page.goto(`/scenarios/${scenario.id}`)
+  await page.getByRole('tab', { name: '計画値の CSV' }).click()
   await page.getByRole('combobox', { name: '出力するユニット' }).selectOption({ label: `E2E課 ${f.run}` })
   expect(await exportCsv(page, '金額を出力')).toMatch(/^activity_code,activity_name,subject_code,subject_name,line_name,line_type,2032-04,.*,2033-03\r\n$/)
 

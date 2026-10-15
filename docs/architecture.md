@@ -334,6 +334,11 @@
 - 絞り込み・掘り下げの状態は URL のクエリに持つ。集計（セグメントの階層・差・滝の図の増減）は `web/src/lib/dashboard.ts` で行い、単体テストを付ける
 - 図は依存ライブラリを使わず SVG で描く（施策の一覧の図・リスク画面と同じ）。図を描く枠の実際の幅で描き（`useWidth`）、狭い画面でも文字を縮めない。図の部品（カード・凡例・ツールチップ・キーボード操作）は `web/src/components/chart.tsx` にまとめる
 
+## シナリオの全体像（docs/plan.md「2.31」）
+
+- シナリオの画面（`/scenarios/:id`）の「全体像」のタブ。新しい API は作らず、ダッシュボードと同じく予実比較 API（`scenario_ids` はこのシナリオだけ）を対象のユニットごとに `unit_id` 付きで呼んだ施策ごとの行、施策の一覧、リスク API、`activity-status`、マイルストーンの API を組み合わせる
+- 集計（科目 × 四半期の P/L・構成・割合・「ひとことで」の文）は `web/src/lib/overview.ts` で行い、単体テストを付ける。範囲と掘り下げは `web/src/lib/dashboard.ts` の関数を使う
+
 ## 報告資料 API（docs/plan.md「2.23」）
 
 `GET /api/reports/pack.xlsx`（ログインユーザー全員）
