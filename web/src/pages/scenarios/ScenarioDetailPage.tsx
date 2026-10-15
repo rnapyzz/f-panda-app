@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
 import { activityTypeLabels, type Activity, type List, type Scenario, type Unit } from '../../api/types'
-import { Card, Empty, ErrorMessage, Input, Loading, PageHeader, Table } from '../../components/ui'
+import { Card, Empty, ErrorMessage, Input, Loading, PageHeader, Table, cx } from '../../components/ui'
 import { useCurrentUser } from '../../lib/auth'
-import { Link } from '../../lib/router'
+import { Link, navigate, useLocation } from '../../lib/router'
 import { useApi } from '../../lib/useApi'
 import { PlanValuesCsvCard } from './PlanValuesCsv'
 import { ScenarioBadges } from './ScenarioListPage'
+import { ScenarioOverview } from './ScenarioOverview'
+
+type Tab = 'overview' | 'activities' | 'csv'
+const tabLabels: Record<Tab, string> = { overview: '全体像', activities: '施策', csv: '計画値の CSV' }
 
 export function ScenarioDetailPage({ id }: { id: string }) {
   const me = useCurrentUser()
@@ -15,6 +19,9 @@ export function ScenarioDetailPage({ id }: { id: string }) {
   const units = useApi<List<Unit>>('/units')
   const unitName = useMemo(() => new Map((units.data?.items ?? []).map((f) => [f.id, f.name])), [units.data])
   const [q, setQ] = useState('')
+  const { search } = useLocation()
+  // タブ（docs/plan.md「2.31」）。開くと全体像
+  const tab: Tab = search.get('tab') === 'activities' ? 'activities' : search.get('tab') === 'csv' ? 'csv' : 'overview'
 
   const error = scenario.error ?? activities.error ?? units.error
   if (error) return <ErrorMessage error={error} />
@@ -63,8 +70,25 @@ export function ScenarioDetailPage({ id }: { id: string }) {
         <p className="mb-4 rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-700">このシナリオは今回の見込ではないため、数値を入力できるのは FP&A のみです。</p>
       )}
 
-      <PlanValuesCsvCard scenario={s} units={units.data.items} canImport={!s.is_locked && (s.is_active ? me.role !== 'viewer' : isAdmin)} />
+      <div role="tablist" aria-label="シナリオ" className="mb-4 flex gap-1 border-b border-slate-200">
+        {(Object.keys(tabLabels) as Tab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => navigate(t === 'overview' ? `/scenarios/${s.id}` : `/scenarios/${s.id}?tab=${t}`)}
+            className={cx('-mb-px border-b-2 px-4 py-2 text-sm font-medium', tab === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800')}
+          >
+            {tabLabels[t]}
+          </button>
+        ))}
+      </div>
 
+      {tab === 'overview' && <ScenarioOverview key={s.id} scenario={s} />}
+      {tab === 'csv' && <PlanValuesCsvCard scenario={s} units={units.data.items} canImport={!s.is_locked && (s.is_active ? me.role !== 'viewer' : isAdmin)} />}
+
+      {tab === 'activities' && (
       <Card
         title="施策"
         actions={<Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="コード・名称で絞り込み" className="w-56 py-1" aria-label="施策の絞り込み" />}
@@ -100,7 +124,7 @@ export function ScenarioDetailPage({ id }: { id: string }) {
           </Table>
         )}
       </Card>
-
+      )}
     </>
   )
 }

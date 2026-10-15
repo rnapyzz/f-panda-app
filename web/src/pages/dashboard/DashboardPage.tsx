@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, query } from '../../api/client'
+import { useMemo, useState, type ReactNode } from 'react'
+import { query } from '../../api/client'
 import {
   activityTypeLabels,
   noteStatusLabels,
@@ -59,6 +59,7 @@ import { Link, navigate, useLocation } from '../../lib/router'
 import { currentFiscalYear, defaultScenarios, fiscalMonths, scenarioLabel } from '../../lib/scenario'
 import { buildTree, type Tree } from '../../lib/tree'
 import { useApi } from '../../lib/useApi'
+import { useActivityRows } from '../../lib/useActivityRows'
 import { CompositionBar, ProgressBar, TrendChart, VarianceChart, WaterfallCard } from './DashboardCharts'
 
 /**
@@ -92,35 +93,6 @@ function defaultScope(role: string): DashScope {
   if (role === 'member') return 'mine'
   if (role === 'manager') return 'units'
   return 'all'
-}
-
-/** 対象のユニットの、施策ごとの予実比較の行（ユニットごとに取得して覚えておく） */
-function useActivityRows(reportQuery: string | null, unitIds: number[]) {
-  const [cache, setCache] = useState<Map<string, ReportRow[]>>(new Map())
-  const [error, setError] = useState<unknown>(null)
-  const missing = reportQuery ? unitIds.filter((id) => !cache.has(`${reportQuery}|${id}`)) : []
-  const missingKey = missing.join(',')
-  useEffect(() => {
-    if (!reportQuery || missingKey === '') return
-    let cancelled = false
-    Promise.all(
-      missingKey.split(',').map(async (id) => [id, (await api.get<ComparisonReport>(`/reports/comparison${reportQuery}&unit_id=${id}`)).rows] as const),
-    )
-      .then((results) => {
-        if (cancelled) return
-        setCache((prev) => {
-          const next = new Map(prev)
-          for (const [id, rows] of results) next.set(`${reportQuery}|${id}`, rows)
-          return next
-        })
-      })
-      .catch((err) => !cancelled && setError(err))
-    return () => {
-      cancelled = true
-    }
-  }, [reportQuery, missingKey])
-  const rows = reportQuery && missing.length === 0 ? unitIds.flatMap((id) => cache.get(`${reportQuery}|${id}`) ?? []) : null
-  return { rows, error }
 }
 
 function Dashboard({
@@ -383,6 +355,9 @@ function FilterBar({
             ))}
           </Select>
         </Control>
+        <Link to={`/scenarios/${scenario.id}`} className="pb-1.5 text-xs font-medium text-indigo-700 hover:underline">
+          このシナリオの全体像 →
+        </Link>
         <Control label="比較">
           <Select aria-label="比較" value={f.compare} onChange={(e) => set({ compare: e.target.value as DashFilters['compare'] })} className="w-64 py-1 text-xs">
             <option value="target" disabled={!target}>
