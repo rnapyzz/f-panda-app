@@ -609,6 +609,19 @@ export const tableLabels: Record<string, string> = {
   users: 'ユーザー',
   partners: '取引先',
   activity_recognitions: '計上月',
+  scenario_narratives: 'シナリオの説明',
+}
+
+/** シナリオの説明（docs/plan.md「2.31」）。書いていなければ欄は空で updated_at は null */
+export type ScenarioNarrative = {
+  scenario_id: number
+  outline: string
+  growth: string
+  premises: string
+  risks: string
+  updated_by: number | null
+  updated_by_name: string
+  updated_at: string | null
 }
 
 // --- リスク ---

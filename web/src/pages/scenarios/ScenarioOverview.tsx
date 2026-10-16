@@ -22,19 +22,23 @@ import { typeColor } from '../../lib/chartTheme'
 import { breadcrumb, childGroups, groupIncludes, parseFilters, profitOf, scopeOf, scopedRows, totalsBySeries, type DashActivity, type DashFilters, type Group } from '../../lib/dashboard'
 import { formatRate, type AmountUnit } from '../../lib/format'
 import {
+  growthHints,
   groupTotals,
   halves,
   newVsContinuing,
   plStatement,
   revenueByActivity,
   revenueByType,
+  riskHints,
   shareRate,
   summarySentences,
   topRate,
   topShares,
   typeOrder,
+  type GrowthHints,
+  type RiskHints,
 } from '../../lib/overview'
-import { compositionKeys, highCertaintyRate, sumComposition } from '../../lib/risk'
+import { compositionKeys, highCertaintyRate, sumComposition, sumMeasures, type Totals } from '../../lib/risk'
 import { Link, navigate, useLocation } from '../../lib/router'
 import { fiscalMonths, scenarioLabel } from '../../lib/scenario'
 import { buildTree, type Tree } from '../../lib/tree'
@@ -44,6 +48,7 @@ import type { Measure } from '../../lib/aggregate'
 import { TimelineChart } from '../activities/ActivityCharts'
 import { CompositionBar, TrendChart } from '../dashboard/DashboardCharts'
 import { AmountBars, ShareStack, Stat } from './OverviewCharts'
+import { ScenarioNarrative } from './ScenarioNarrative'
 
 /**
  * シナリオの全体像（docs/plan.md「2.31」）。比較をせずに、1つのシナリオの金額の大きさと構成を見せる。
@@ -172,9 +177,12 @@ function OverviewBody({
 
   if (scope.activities.size === 0 && !scope.withUnallocated) {
     return (
-      <Card>
-        <Empty>この範囲に施策はありません。</Empty>
-      </Card>
+      <div className="space-y-4">
+        <ScenarioNarrative scenario={scenario} aside={null} />
+        <Card>
+          <Empty>この範囲に施策はありません。</Empty>
+        </Card>
+      </div>
     )
   }
 
@@ -228,13 +236,32 @@ function OverviewBody({
 
   const pl = plStatement(rows, dataKey, subjects, months, scenario.actual_through)
 
+  // 数字から見えること（説明の材料）
+  const growth = growthHints(
+    byGroup.map(({ group, pl }) => ({ key: group.key, label: group.name, value: pl.revenue })),
+    revenue,
+    (id) => activityById.get(id)?.is_priority ?? false,
+    (id) => activityById.get(id)?.start_date,
+    `${months[0]}-01`,
+  )
+  const numbers = (compact: boolean) => (
+    <NumbersSay
+      compact={compact}
+      title={`数字から見えること（${scenarioLabel(scenario)}・年間）`}
+      sentences={sentences}
+      range={sumMeasures(riskItems)}
+      growth={growth}
+      risks={riskHints(riskItems, risk.levels, revenue)}
+      nameOf={(id) => activityById.get(id)?.name ?? ''}
+      linkOf={(id) => `/activities/${id}?tab=overview&scenario=${scenario.id}`}
+    />
+  )
+
   return (
     <div className="space-y-4">
       <RestrictedNote hidden={restricted} />
-      <section aria-label="ひとことで" className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-3">
-        <h2 className="mb-1 text-xs font-semibold text-indigo-800">ひとことで（{scenarioLabel(scenario)}・年間）</h2>
-        <p className="text-sm leading-relaxed text-slate-800">{sentences.join('')}</p>
-      </section>
+      <ScenarioNarrative scenario={scenario} aside={numbers(true)} />
+      {numbers(false)}
 
       <Section title="年間の P/L" sub={`${scenario.fiscal_year}年度・実績の月は実績`}>
         <Card>
@@ -410,5 +437,153 @@ function Crumbs({ f, tree, units, go }: { f: DashFilters; tree: Tree; units: Uni
         )
       })}
     </nav>
+  )
+}
+
+/**
+ * 数字から見えること（docs/plan.md「2.31」）。要約・業績の幅・伸びの候補・リスクの候補を、既存のデータから並べる。
+ * 説明の編集中は、入力欄の横にも同じものを出す（狭い幅では1列に並ぶ）。
+ */
+function NumbersSay({
+  compact,
+  title,
+  sentences,
+  range,
+  growth,
+  risks,
+  nameOf,
+  linkOf,
+}: {
+  compact: boolean
+  title: string
+  sentences: string[]
+  range: Totals
+  growth: GrowthHints
+  risks: RiskHints
+  nameOf: (id: number) => string
+  linkOf: (id: number) => string
+}) {
+  const { fmt, signed } = useAmountUnit()
+  const act = (id: number) => (
+    <Link to={linkOf(id)} className="text-indigo-700 hover:underline">
+      {nameOf(id)}
+    </Link>
+  )
+  const growthItems: ReactNode[] = []
+  if (growth.groups.length > 0)
+    growthItems.push(
+      <>
+        売上の大きい区分: {growth.groups.map((g) => `${g.label} ${fmt(g.value)}${g.share == null ? '' : `（${g.share}%）`}`).join('、')}
+      </>,
+    )
+  if (growth.priority)
+    growthItems.push(
+      <>
+        重点施策で {fmt(growth.priority.value)}
+        {growth.priority.share == null ? '' : `（${growth.priority.share}%）`}:{' '}
+        {growth.priority.top.map((r, i) => (
+          <span key={r.id}>
+            {i > 0 && '、'}
+            {act(r.id)}
+          </span>
+        ))}
+      </>,
+    )
+  if (growth.newActivities.length > 0)
+    growthItems.push(
+      <>
+        年度の途中で始まる施策:{' '}
+        {growth.newActivities.map((r, i) => (
+          <span key={r.id}>
+            {i > 0 && '、'}
+            {act(r.id)} {fmt(r.value)}
+          </span>
+        ))}
+      </>,
+    )
+  const riskItems: ReactNode[] = []
+  if (risks.downside !== 0n) riskItems.push(<>ダウンサイド（見通しの種類）の売上 {signed(risks.downside)}</>)
+  if (risks.lowConfidence.length > 0)
+    riskItems.push(
+      <>
+        確度の低い段階の売上が大きい施策:{' '}
+        {risks.lowConfidence.map((r, i) => (
+          <span key={r.id}>
+            {i > 0 && '、'}
+            {act(r.id)} {fmt(r.value)}
+          </span>
+        ))}
+      </>,
+    )
+  for (const [label, list] of [
+    ['確度の高い段階なのに警告がある施策', risks.warned.filter((w) => w.badForLevel)],
+    ['警告のある施策', risks.warned.filter((w) => !w.badForLevel)],
+  ] as const) {
+    if (list.length === 0) continue
+    riskItems.push(
+      <>
+        {label}:{' '}
+        {list.map((w, i) => (
+          <span key={w.id}>
+            {i > 0 && '、'}
+            {act(w.id)}
+            {w.count > 1 && `（警告 ${w.count}）`}
+          </span>
+        ))}
+      </>,
+    )
+  }
+  const rangeRows = [
+    { key: 'optimistic', label: '楽観' },
+    { key: 'weighted', label: '加重見込' },
+    { key: 'pessimistic', label: '悲観' },
+  ] as const
+  return (
+    <section aria-label="数字から見えること" className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+      <h2 className="mb-1 text-xs font-semibold text-indigo-800">{title}</h2>
+      <p className="text-sm leading-relaxed text-slate-800">{sentences.join('')}</p>
+      <div className={cx('mt-3 grid gap-4 text-xs', !compact && 'md:grid-cols-3')}>
+        <div aria-label="業績の幅" role="group">
+          <h3 className="mb-1 font-semibold text-slate-700">業績の幅</h3>
+          <table className="w-full tabular-nums">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left font-normal" />
+                <th className="text-right font-normal">売上</th>
+                <th className="text-right font-normal">利益</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rangeRows.map((r) => (
+                <tr key={r.key}>
+                  <td className="text-slate-600">{r.label}</td>
+                  <td className="text-right text-slate-800">{fmt(range[r.key].revenue)}</td>
+                  <td className="text-right text-slate-800">{fmt(range[r.key].revenue - range[r.key].expense)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <HintList title="伸びの候補" items={growthItems} />
+        <HintList title="リスクの候補" items={riskItems} />
+      </div>
+    </section>
+  )
+}
+
+function HintList({ title, items }: { title: string; items: ReactNode[] }) {
+  return (
+    <div aria-label={title} role="group" className="min-w-0">
+      <h3 className="mb-1 font-semibold text-slate-700">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-slate-500">目立つものはありません。</p>
+      ) : (
+        <ul className="list-disc space-y-1 pl-4 text-slate-800">
+          {items.map((it, i) => (
+            <li key={i}>{it}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

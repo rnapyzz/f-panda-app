@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { api, createActivity, login, seedMasters } from './helpers'
 
 // ほかのテストと年度が重ならないよう、2050年度を使う（作成中にはしない）
-test('シナリオの全体像で、計画の P/L・ひとことで・構成を見て、区分を押して掘り下げられる', async ({ page }) => {
+test('シナリオの全体像で、計画の P/L・数字から見えること・構成を見て、区分を押して掘り下げられる', async ({ page }) => {
   await login(page)
   const f = await seedMasters(page)
   const a = api(page)
@@ -25,12 +25,15 @@ test('シナリオの全体像で、計画の P/L・ひとことで・構成を�
   await expect(page.getByRole('tab', { name: '全体像' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('radiogroup', { name: '金額の単位' }).getByRole('radio', { name: '円', exact: true }).click()
 
-  // ひとことで: 売上 300 万（運用 120 万・案件 180 万）、利益 240 万、下期 80%、年度の途中で始まる施策 60%
-  const summary = page.getByRole('region', { name: 'ひとことで' })
+  // 数字から見えること: 売上 300 万（運用 120 万・案件 180 万）、利益 240 万、下期 80%、年度の途中で始まる施策 60%
+  const summary = page.getByRole('region', { name: '数字から見えること' })
   await expect(summary).toContainText('売上 3,000,000・利益 2,400,000（利益率 80%）')
   await expect(summary).toContainText('売上の 60% がプロジェクト型')
   await expect(summary).toContainText('下期に売上の 80%')
   await expect(summary).toContainText('年度の途中で始まる施策の売上は 60%')
+  // 業績の幅（楽観はすべて計上）と伸びの候補
+  await expect(summary.getByRole('group', { name: '業績の幅' }).getByRole('row', { name: /^楽観/ })).toContainText('3,000,000')
+  await expect(summary.getByRole('group', { name: '伸びの候補' })).toContainText(`年度の途中で始まる施策: E2E案件 ${f.run} 1,800,000`)
 
   // 年間の P/L
   const pl = page.getByRole('region', { name: '年間の P/L' })
@@ -52,4 +55,42 @@ test('シナリオの全体像で、計画の P/L・ひとことで・構成を�
   // 施策のタブは今までどおり
   await page.getByRole('tab', { name: '施策' }).click()
   await expect(page.getByRole('row', { name: new RegExp(`E2E運用 ${f.run}`) })).toBeVisible()
+})
+
+test('シナリオの説明は FP&A が書き、だれでも読める。ロックすると直せない', async ({ page, browser }) => {
+  await login(page)
+  const f = await seedMasters(page)
+  const a = api(page)
+  const email = `e2e-narrative-${f.run.toLowerCase()}@example.com`
+  await a.post('/users', { name: `E2E担当 ${f.run}`, email, role: 'member', password: 'e2e-member-password' })
+  const scenario = await a.post('/scenarios', { name: `E2E2050説明 ${f.run}`, fiscal_year: 2050 })
+
+  await page.goto(`/scenarios/${scenario.id}`)
+  const narrative = page.getByRole('region', { name: 'このシナリオの説明' })
+  await narrative.getByRole('button', { name: '説明を書く' }).click()
+  // 書いている間は、横に「数字から見えること」を並べる
+  await expect(narrative.getByRole('complementary', { name: '書くときの手がかり' }).getByRole('region', { name: '数字から見えること' })).toBeVisible()
+  await narrative.getByLabel('計画の骨子').fill('既存の深耕で増収増益を目指す')
+  await narrative.getByLabel('主なリスクと機会').fill('大型案件の後ろ倒し')
+  await narrative.getByRole('button', { name: '保存' }).click()
+  // 書いた欄だけを見出し付きで出す
+  await expect(narrative.getByRole('term')).toHaveText(['計画の骨子', '主なリスクと機会'])
+  await expect(narrative).toContainText('既存の深耕で増収増益を目指す')
+  await expect(narrative.getByRole('button', { name: '編集' })).toBeVisible()
+
+  // 現場は読めるが、編集は出ない
+  const context = await browser.newContext()
+  const mp = await context.newPage()
+  await login(mp, email, 'e2e-member-password')
+  await mp.goto(`/scenarios/${scenario.id}`)
+  const seen = mp.getByRole('region', { name: 'このシナリオの説明' })
+  await expect(seen).toContainText('大型案件の後ろ倒し')
+  await expect(seen.getByRole('button')).toHaveCount(0)
+  await context.close()
+
+  // ロックすると、FP&A にも編集は出ない
+  await a.post(`/scenarios/${scenario.id}/lock`, {})
+  await page.reload()
+  await expect(narrative).toContainText('既存の深耕で増収増益を目指す')
+  await expect(narrative.getByRole('button', { name: '編集' })).toHaveCount(0)
 })

@@ -1,7 +1,7 @@
 // シナリオの全体像（docs/plan.md「2.31」）の集計。比較はせず、1つのシナリオの金額の大きさと構成を出す。金額は BigInt で扱う。
 // 金額の行は予実比較 API の施策ごとの行（lib/dashboard.ts の scopedRows で範囲を絞ったもの）。
 
-import type { ActivityType, ReportRow, Subject, SubjectCategory } from '../api/types.ts'
+import type { ActivityType, ReportRow, RiskActivity, RiskReport, Subject, SubjectCategory } from '../api/types.ts'
 import { aggregate } from './aggregate.ts'
 import { profitOf, totalsByActivity, totalsBySeries, type DashActivity, type Group, type PL } from './dashboard.ts'
 
@@ -161,4 +161,74 @@ export function summarySentences(x: SummaryInput, fmt: (v: bigint) => string): s
   if (x.newRate !== null) nature.push(`年度の途中で始まる施策の売上は ${x.newRate}%`)
   if (nature.length > 0) out.push(`${nature.join('。')}。`)
   return out
+}
+
+// --- 数字から見えること（説明の材料） ---
+
+export type Ranked = { id: number; value: bigint }
+
+const byValueDesc = (a: Ranked, b: Ranked) => (a.value === b.value ? a.id - b.id : a.value > b.value ? -1 : 1)
+
+export type GrowthHints = {
+  /** 売上の大きい区分（上位 3）と、売上に占める割合 */
+  groups: { label: string; value: bigint; share: number | null }[]
+  /** 重点施策の売上と割合（重点施策に売上がなければ null） */
+  priority: { value: bigint; share: number | null; top: Ranked[] } | null
+  /** 年度の途中で始まる施策のうち売上の大きいもの（上位 3） */
+  newActivities: Ranked[]
+}
+
+/** 伸びの候補: 売上の大きい区分・重点施策・年度の途中で始まる施策 */
+export function growthHints(
+  shares: Share[],
+  revenue: Map<number, bigint>,
+  isPriority: (activityId: number) => boolean,
+  startOf: (activityId: number) => string | null | undefined,
+  fiscalYearStart: string,
+): GrowthHints {
+  const total = [...revenue.values()].reduce((s, v) => s + v, 0n)
+  const ranked = [...revenue.entries()].filter(([id, v]) => id !== 0 && v > 0n).map(([id, value]) => ({ id, value }))
+  const prio = ranked.filter((r) => isPriority(r.id)).sort(byValueDesc)
+  const prioTotal = prio.reduce((s, r) => s + r.value, 0n)
+  return {
+    groups: topShares(shares, Number.MAX_SAFE_INTEGER)
+      .slice(0, 3)
+      .map((s) => ({ label: s.label, value: s.value, share: shareRate(s.value, total) })),
+    priority: prioTotal > 0n ? { value: prioTotal, share: shareRate(prioTotal, total), top: prio.slice(0, 3) } : null,
+    newActivities: ranked
+      .filter((r) => {
+        const start = startOf(r.id)
+        return !!start && start > fiscalYearStart
+      })
+      .sort(byValueDesc)
+      .slice(0, 3),
+  }
+}
+
+export type RiskHints = {
+  /** ダウンサイドの売上の合計（負。なければ 0） */
+  downside: bigint
+  /** 確度の高くない段階の売上が大きい施策（上位 5） */
+  lowConfidence: Ranked[]
+  /** 警告のある施策（段階に対して状況が悪いものを先に、警告の多い順。上位 5） */
+  warned: { id: number; count: number; badForLevel: boolean }[]
+}
+
+/** リスクの候補: ダウンサイド・確度の低い大型施策・警告のある施策（リスク API の施策ごとの値から） */
+export function riskHints(items: RiskActivity[], levels: RiskReport['levels'], revenue: Map<number, bigint>): RiskHints {
+  const low = new Set(levels.filter((l) => !l.high).map((l) => l.code))
+  let downside = 0n
+  const lowConfidence: Ranked[] = []
+  for (const a of items) {
+    downside += BigInt(a.revenue_by_level.downside ?? '0')
+    const v = Object.entries(a.revenue_by_level).reduce((s, [k, x]) => (low.has(k) ? s + BigInt(x) : s), 0n)
+    if (v > 0n) lowConfidence.push({ id: a.id, value: v })
+  }
+  const rev = (id: number) => revenue.get(id) ?? 0n
+  const warned = items
+    .filter((a) => a.warning_count > 0)
+    .sort((a, b) => Number(b.bad_for_level) - Number(a.bad_for_level) || b.warning_count - a.warning_count || byValueDesc({ id: a.id, value: rev(a.id) }, { id: b.id, value: rev(b.id) }))
+    .slice(0, 5)
+    .map((a) => ({ id: a.id, count: a.warning_count, badForLevel: a.bad_for_level }))
+  return { downside, lowConfidence: lowConfidence.sort(byValueDesc).slice(0, 5), warned }
 }
