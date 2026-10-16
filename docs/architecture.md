@@ -338,6 +338,11 @@
 
 - シナリオの画面（`/scenarios/:id`）の「全体像」のタブ。新しい API は作らず、ダッシュボードと同じく予実比較 API（`scenario_ids` はこのシナリオだけ）を対象のユニットごとに `unit_id` 付きで呼んだ施策ごとの行、施策の一覧、リスク API、`activity-status`、マイルストーンの API を組み合わせる
 - 集計（科目 × 四半期の P/L・構成・割合・「ひとことで」の文）は `web/src/lib/overview.ts` で行い、単体テストを付ける。範囲と掘り下げは `web/src/lib/dashboard.ts` の関数を使う
+- 「数字から見えること」（業績の幅・伸びの候補・リスクの候補）も `web/src/lib/overview.ts` で、リスク API の施策ごとの値（楽観・加重見込・悲観、段階ごとの売上、警告）から作る
+- シナリオの説明は `scenario_narratives`（シナリオごとに1行。`outline`・`growth`・`premises`・`risks`）に持つ
+  - `GET /api/scenarios/{id}/narrative`（ログインユーザー全員。なければ空の欄）
+  - `PUT /api/scenarios/{id}/narrative`（FP&A のみ。ロック済みは 409。各欄 2,000 文字まで。変更理由は任意で、空なら「<シナリオ名>の説明を更新」）
+  - 複製元のあるシナリオの作成（`insertScenario`）で、数値と一緒に複製する
 
 ## 報告資料 API（docs/plan.md「2.23」）
 

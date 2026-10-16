@@ -60,6 +60,8 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	mux.Handle("GET /api/scenarios/active", read(h.active))
 	mux.Handle("GET /api/scenarios/{id}/activity-status", read(h.activityStatuses))
 	mux.Handle("GET /api/scenarios/{id}/milestones", read(h.milestones))
+	mux.Handle("GET /api/scenarios/{id}/narrative", read(h.getNarrative))
+	mux.Handle("PUT /api/scenarios/{id}/narrative", write(h.putNarrative))
 	mux.Handle("POST /api/scenarios", write(h.create))
 	mux.Handle("POST /api/scenarios/start-monthly", write(h.startMonthly))
 	mux.Handle("POST /api/scenarios/start-fiscal-year", write(h.startFiscalYear))
@@ -387,7 +389,7 @@ type scenarioInsert struct {
 	createdBy  int64
 }
 
-// insertScenario はシナリオを作り（複製元があれば数値を複製し）、監査ログに残す。
+// insertScenario はシナリオを作り（複製元があれば数値と説明を複製し）、監査ログに残す。
 func insertScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, in scenarioInsert) (Scenario, error) {
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO scenarios (name, fiscal_year, plan_role, actual_through, update_deadline, base_scenario_id, previous_scenario_id, created_by)
@@ -410,6 +412,7 @@ func insertScenario(ctx context.Context, tx *sql.Tx, rec *audit.Recorder, in sce
 			{"driver_values", "activity_driver_id, target_month, value, is_provisional, provisional_reason"},
 			{"budget_facts", "activity_id, subject_id, line_id, target_month, amount, source, is_provisional, provisional_reason"},
 			{"activity_recognitions", "activity_id, recognition_month"},
+			{"scenario_narratives", "outline, growth, premises, risks, updated_by"},
 		} {
 			res, err := tx.ExecContext(ctx,
 				"INSERT INTO "+c.table+" (scenario_id, "+c.columns+") SELECT ?, "+c.columns+" FROM "+c.table+" WHERE scenario_id = ?",

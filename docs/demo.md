@@ -85,5 +85,7 @@ export DEMO_ADMIN_PASSWORD
 DEMO_URL=https://training.example.com DEMO_ADMIN_EMAIL=you@example.com scripts/demo.sh partners
 ```
 
+シナリオの説明（docs/plan.md「2.31」）は、`scripts/demo.sh narratives` で足せる（同じく `DEMO_URL` などを付けて実行する）。デモのシナリオ（「2026年度 期初計画」「2026年度 10月見込」）のうち、説明がまだなく、ロックされていないものにだけ入れる。何度実行しても同じ結果になる。
+
 - 施策が1件でもある環境には入れない（本番に誤って入れないため）。
 - SSO（Google）を有効にした環境では、パスワードでログインできるのは FP&A だけ（docs/architecture.md「認証」）。デモのアカウント（example.com）で現場の練習をするときは、SSO を設定しない研修用の環境にする。

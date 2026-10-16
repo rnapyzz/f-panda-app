@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { ReportRow, Subject } from '../api/types.ts'
+import type { ReportRow, RiskActivity, Subject } from '../api/types.ts'
 import type { DashActivity } from './dashboard.ts'
-import { halves, newVsContinuing, plStatement, quarters, revenueByActivity, revenueByType, shareRate, summarySentences, topRate, topShares } from './overview.ts'
+import { growthHints, halves, newVsContinuing, plStatement, quarters, revenueByActivity, revenueByType, riskHints, shareRate, summarySentences, topRate, topShares } from './overview.ts'
 
 const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03']
 const subject = (id: number, name: string, category: Subject['category'], sort_order = id) => ({ id, code: `S${id}`, name, category, sort_order }) as Subject
@@ -93,4 +93,58 @@ test('summarySentences: 値がないものは出さない', () => {
     '確度の高い段階と実績で 78%。下期に売上の 50%。年度の途中で始まる施策の売上は 33.3%。',
   ])
   assert.deepEqual(summarySentences({ revenue: 0n, profit: -10n, topType: null, top5: null, sure: null, secondHalf: null, newRate: null }, fmt), ['売上 0・利益 -10。'])
+})
+
+test('growthHints: 上位の区分・重点施策・年度の途中で始まる施策', () => {
+  const revenue = new Map([
+    [0, 50n],
+    [1, 400n],
+    [2, 200n],
+    [3, 100n],
+    [4, 0n],
+  ])
+  const s = (key: string, v: number) => ({ key, label: key, value: BigInt(v) })
+  const starts: Record<number, string> = { 1: '2026-04-01', 2: '2026-07-01', 3: '2026-10-01', 4: '2026-11-01' }
+  const g = growthHints([s('SaaS', 500), s('受託', 200), s('共通', 0), s('新規', 50), s('研修', 10)], revenue, (id) => id === 2 || id === 4, (id) => starts[id], '2026-04-01')
+  assert.deepEqual(g.groups, [
+    { label: 'SaaS', value: 500n, share: 66.6 },
+    { label: '受託', value: 200n, share: 26.6 },
+    { label: '新規', value: 50n, share: 6.6 },
+  ])
+  // 重点施策は売上のあるものだけ。割合は未割当を含む売上に対して
+  assert.deepEqual(g.priority, { value: 200n, share: 26.6, top: [{ id: 2, value: 200n }] })
+  assert.deepEqual(g.newActivities, [
+    { id: 2, value: 200n },
+    { id: 3, value: 100n },
+  ])
+  assert.equal(growthHints([], new Map([[1, 10n]]), () => false, () => null, '2026-04-01').priority, null)
+})
+
+test('riskHints: ダウンサイド・確度の低い大型施策・警告のある施策', () => {
+  const levels = [
+    { code: 'A', name: '確定', rate: '1', high: true },
+    { code: 'B', name: '高', rate: '0.8', high: true },
+    { code: 'C', name: '中', rate: '0.5', high: false },
+    { code: 'D', name: '低', rate: '0.2', high: false },
+  ]
+  const item = (id: number, byLevel: Record<string, string>, warning_count = 0, bad_for_level = false) => ({ id, revenue_by_level: byLevel, warning_count, bad_for_level }) as unknown as RiskActivity
+  const items = [
+    item(1, { actual: '100', A: '300', downside: '-50' }, 1, true),
+    item(2, { C: '200', D: '100' }, 2),
+    item(3, { B: '50', D: '400', downside: '-20' }, 1),
+    item(4, { A: '10' }),
+  ]
+  const revenue = new Map([
+    [1, 400n],
+    [2, 300n],
+    [3, 450n],
+  ])
+  const r = riskHints(items, levels, revenue)
+  assert.equal(r.downside, -70n)
+  assert.deepEqual(r.lowConfidence, [
+    { id: 3, value: 400n },
+    { id: 2, value: 300n },
+  ])
+  // 段階に対して状況が悪いものが先、次に警告の多い順、同じなら売上の大きい順
+  assert.deepEqual(r.warned.map((w) => w.id), [1, 2, 3])
 })

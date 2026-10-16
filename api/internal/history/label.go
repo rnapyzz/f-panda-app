@@ -125,6 +125,8 @@ func (l *labeler) label(log Log) string {
 		return activity() + " / 差異の説明・更新の完了"
 	case "activity_recognitions":
 		return activity() + " / 計上月"
+	case "scenario_narratives":
+		return "シナリオの説明"
 	}
 	if noun, ok := tableNouns[log.TableName]; ok {
 		if name := rec.str("name"); name != "" {

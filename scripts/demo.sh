@@ -6,6 +6,7 @@
 #   scripts/demo.sh reset      データを消して、入れ直す（研修の前に初期の状態へ戻す）
 #   scripts/demo.sh seed       起動済みの環境に、デモのデータだけを入れる（DEMO_URL で別の環境も指定できる）
 #   scripts/demo.sh partners   デモのデータを入れ済みの環境に、取引先と内訳への紐づけだけを足す（何度実行しても同じ結果）
+#   scripts/demo.sh narratives デモのデータを入れ済みの環境に、シナリオの説明だけを足す（何度実行しても同じ結果）
 #
 # 外への通知（Slack）は送らない。施策が1件でもある環境には、デモのデータを入れない。
 set -euo pipefail
@@ -28,6 +29,11 @@ seed() {
 partners() {
   echo "デモの取引先を入れています（${URL}）..."
   (cd web && E2E_BASE_URL="$URL" E2E_EMAIL="$ADMIN_EMAIL" E2E_PASSWORD="$ADMIN_PASSWORD" npx playwright test --config=playwright.demo.config.ts --reporter=line demo-partners.spec.ts)
+}
+
+narratives() {
+  echo "デモのシナリオの説明を入れています（${URL}）..."
+  (cd web && E2E_BASE_URL="$URL" E2E_EMAIL="$ADMIN_EMAIL" E2E_PASSWORD="$ADMIN_PASSWORD" npx playwright test --config=playwright.demo.config.ts --reporter=line demo-narratives.spec.ts)
 }
 
 up() {
@@ -64,5 +70,6 @@ case "${1:-up}" in
   reset) docker compose down -v && up ;;
   seed) seed ;;
   partners) partners ;;
-  *) echo "使い方: scripts/demo.sh [up|down|reset|seed|partners]" >&2; exit 1 ;;
+  narratives) narratives ;;
+  *) echo "使い方: scripts/demo.sh [up|down|reset|seed|partners|narratives]" >&2; exit 1 ;;
 esac

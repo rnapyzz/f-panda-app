@@ -38,9 +38,13 @@ test('手引きの画像', async ({ page, browser }) => {
 
   // シナリオの全体像（今回の見込）
   await page.goto(`/scenarios/${d.scenarioId}`)
-  await expect(page.getByRole('region', { name: 'ひとことで' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '数字から見えること' })).toBeVisible()
   await expect(page.getByRole('region', { name: '何でできているか（売上）' }).getByRole('button').first()).toBeVisible()
   await shot(page, 'scenario-overview')
+  // シナリオの説明を書く（FP&A）
+  await page.getByRole('region', { name: 'このシナリオの説明' }).getByRole('button', { name: '編集' }).click()
+  await expect(page.getByRole('complementary', { name: '書くときの手がかり' })).toBeVisible()
+  await shot(page, 'scenario-narrative')
 
   // リスク画面
   await page.goto('/risks')

@@ -300,6 +300,7 @@ export async function seedDemo(page: Page): Promise<DemoData> {
 
   await seedDemoPartners(page)
 
+  await seedDemoNarratives(page)
   return { activityId: bigA.id, scenarioId: oct.id, wipActivityId: delivery.id }
 }
 
@@ -381,4 +382,41 @@ export async function seedDemoPartners(page: Page): Promise<{ created: number; l
     }
   }
   return { created, linked }
+}
+
+/** デモのシナリオの説明（docs/plan.md「2.31」）。シナリオ名 → 説明 */
+const demoNarratives: Record<string, { outline: string; growth: string; premises: string; risks: string }> = {
+  '2026年度 期初計画': {
+    outline: 'ストック型の SaaS を土台に、受託開発とコンサルティングの大型案件を上乗せして、増収増益を目指す計画です。売上の半分強を SaaS の月額利用料と保守・運用の継続契約で固め、残りを案件で積み上げます。',
+    growth: '1. SaaS: 契約社数を毎月積み増し、エンタープライズ版の正式リリース（1月）で単価を引き上げる。\n2. 受託開発: A社 基幹システム刷新と新規開拓の枠で、下期に売上を伸ばす。\n3. コンサルティング: PMO 支援と戦略策定で、継続と単発の両方を取りにいく。',
+    premises: '・SaaS の解約率は月 1% 以内、単価は据え置き。\n・A社 基幹システム刷新は 2月に本番リリースし、年度内に検収。\n・新規開拓の枠（月 300万円）は 7月以降に相手先が決まる。\n・エンジニアの採用は計画どおり進み、外注費の比率を上げない。',
+    risks: '・大型案件の後ろ倒し: A社 と新規開拓の枠は下期に集中しており、1四半期ずれると年間の売上が大きく下がる。\n・SaaS の解約: 解約リスクを内訳（ダウンサイド）で見込んでいる。\n・上振れの余地: エンタープライズ版の早期導入、J社 RFP の受注。',
+  },
+  '2026年度 10月見込': {
+    outline: '上期は SaaS が計画を上回り、受託開発の遅れを補った。下期は A社 基幹システム刷新の後ろ倒しを織り込みつつ、年間の利益は期初計画の水準を守る見込みです。',
+    growth: '1. SaaS: 9月の新規契約が想定より多く、契約社数を上方修正。エンタープライズ版は 1月リリースの予定どおり。\n2. 受託開発: 新規開拓の枠を相手先ごとの内訳に分け、確度の高い案件から積み上げる。\n3. コンサルティング: Q社 戦略策定が 10月から始まる。',
+    premises: '・A社 基幹システム刷新は 10〜12月の売上を 1〜3月に後ろ倒し。本番リリースは 2月のまま。\n・海外展開（台湾）は現地法人の設立が遅れ、1月開始。\n・SaaS の単価は据え置き、解約率は上期の実績（月 0.8%）を前提にする。',
+    risks: '・A社 の本番リリースがさらにずれると、検収が翌年度になり、年間の売上が大きく下がる。\n・下期の売上の比重が高く、確度の低い段階の案件（J社 RFP・L社 PoC など）に頼る部分がある。\n・上振れの余地: SaaS の契約社数の伸びが続けば、下期も計画を上回る。',
+  },
+}
+
+/**
+ * デモのシナリオに説明を入れる（説明がまだなく、ロックされていないシナリオだけ。何度実行しても同じ結果になる）。
+ * scripts/demo.sh narratives からも使う（docs/demo.md）。
+ */
+export async function seedDemoNarratives(page: Page): Promise<number> {
+  const a = api(page)
+  const res = await page.request.get('/api/scenarios')
+  if (!res.ok()) throw new Error(`GET /scenarios: ${res.status()} ${await res.text()}`)
+  const scenarios = ((await res.json()) as { items: { id: number; name: string; is_locked: boolean }[] }).items
+  let written = 0
+  for (const s of scenarios) {
+    const text = demoNarratives[s.name]
+    if (!text || s.is_locked) continue
+    const current = await (await page.request.get(`/api/scenarios/${s.id}/narrative`)).json()
+    if (current.updated_at) continue
+    await a.put(`/scenarios/${s.id}/narrative`, { ...text, reason: 'デモのデータ' })
+    written++
+  }
+  return written
 }
