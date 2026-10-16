@@ -17,7 +17,7 @@ import (
 type HandlerOptions struct {
 	// SecureCookie が true のとき Cookie に Secure 属性を付ける（HTTPS 環境用）
 	SecureCookie bool
-	// TrustProxy が true のとき、ログイン失敗の制限に使う IP を X-Forwarded-For の最後の値（ALB が付けたもの）から読む
+	// TrustProxy が true のとき、ログイン失敗の制限に使う IP を X-Forwarded-For の最後の値（前段のプロキシ（caddy）が付けたもの）から読む
 	TrustProxy bool
 	// OIDC は SSO。nil なら SSO は無効
 	OIDC   *OIDC

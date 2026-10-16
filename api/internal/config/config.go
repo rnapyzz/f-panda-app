@@ -21,7 +21,7 @@ type Config struct {
 	SlackWebhookURL string
 	// AppBaseURL は通知の本文に載せるアプリの URL（例: https://fpanda.example.com）。
 	AppBaseURL string
-	// TrustProxy が true のとき、接続元の IP を X-Forwarded-For から読む（ALB の後ろで動かす本番用）。
+	// TrustProxy が true のとき、接続元の IP を X-Forwarded-For から読む（caddy の後ろで動かす本番用）。
 	TrustProxy bool
 	// OIDC は SSO の設定。ClientID が空なら SSO は無効。
 	OIDC OIDCConfig
