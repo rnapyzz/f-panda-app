@@ -43,6 +43,16 @@ test('ダッシュボードで年間の状況を見て、差の図を押して�
   await trend.getByLabel('表で見る').uncheck()
   await expect.poll(svgSize).toEqual([viewBoxBefore, viewBoxBefore])
 
+  // 利益・収益・費用を切り替えても、スクロールの位置はそのまま（同じ画面の状態の変更）
+  await trend.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+  const scrollY = await page.evaluate(() => window.scrollY)
+  expect(scrollY).toBeGreaterThan(0)
+  await trend.getByRole('group', { name: '金額' }).getByRole('button', { name: '収益' }).click()
+  await expect(page).toHaveURL(/measure=revenue/)
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY)
+  await trend.getByRole('group', { name: '金額' }).getByRole('button', { name: '利益' }).click()
+  await expect(page).not.toHaveURL(/measure=/)
+
   // ③ どこで差が出ているか: セグメント → ユニット → 施策
   const variance = page.getByRole('region', { name: 'どこで差が出ているか' })
   await variance.getByRole('button', { name: new RegExp(`^E2E事業 ${f.run}: 差 \\+500,000`) }).click()

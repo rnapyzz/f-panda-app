@@ -27,15 +27,20 @@ export function useLocation(): { pathname: string; search: URLSearchParams } {
   return { pathname, search: new URLSearchParams(search) }
 }
 
+/**
+ * 画面を移る。別の画面（パスが変わる）なら先頭へスクロールし、同じ画面の状態の変更（クエリだけが変わる:
+ * 絞り込み・タブ・グラフの切り替えなど）ならスクロールの位置をそのままにする。
+ */
 export function navigate(to: string, opts?: { replace?: boolean }) {
   if (to === snapshot()) return
+  const samePage = new URL(to, window.location.href).pathname === window.location.pathname
   if (opts?.replace) {
     window.history.replaceState(null, '', to)
   } else {
     window.history.pushState(null, '', to)
   }
   listeners.forEach((fn) => fn())
-  window.scrollTo(0, 0)
+  if (!samePage) window.scrollTo(0, 0)
 }
 
 type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }
